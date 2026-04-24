@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>code-brain graph</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>code-brain</h1>
+        <p>Persistent, provenance-aware code graph</p>
+      </div>
+
+      <div class="panel">
+        <label class="panel-label" for="searchInput">Search</label>
+        <div class="search-row">
+          <input id="searchInput" type="text" placeholder="File, symbol, route, config">
+          <button id="searchBtn" type="button">Find</button>
+        </div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+
+      <div class="panel">
+        <div class="button-row">
+          <button id="resetBtn" type="button">Reset</button>
+          <button id="zoomInBtn" type="button">Zoom +</button>
+          <button id="zoomOutBtn" type="button">Zoom -</button>
+        </div>
+        <div id="stats" class="stats"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Legend</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+
+      <div class="panel details" id="nodeInfo">
+        <h2 id="nodeTitle">Select a node</h2>
+        <div id="nodeDetails" class="node-details"></div>
+        <div id="nodeRelations" class="relations"></div>
+      </div>
+    </aside>
+
+    <main class="canvas-shell">
+      <canvas id="graphCanvas"></canvas>
+    </main>
+  </div>
+
+  <script src="graph.js"></script>
+</body>
+</html>

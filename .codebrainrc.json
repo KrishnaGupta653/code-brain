@@ -1,0 +1,21 @@
+{
+  "include": [
+    "**"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".git",
+    ".codebrain",
+    ".vscode",
+    ".idea",
+    "coverage"
+  ],
+  "languages": [
+    "typescript",
+    "javascript"
+  ],
+  "enableAnalytics": true,
+  "maxTokensExport": 8000
+}

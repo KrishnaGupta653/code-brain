@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.codebrain/
+*.db
+.DS_Store
+.env
+.env.local
+.vscode/
+.idea/
+*.log
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
