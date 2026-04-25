@@ -74,4 +74,53 @@ describe('Parser', () => {
 
     fs.unlinkSync(testFile);
   });
+
+  it('should extract default exports and reexports', () => {
+    const testFile = path.join(os.tmpdir(), 'test-default-reexports.ts');
+    const content = `
+      export default function main() {}
+      export { helper as renamedHelper } from './helper.js';
+      export * from './barrel.js';
+    `;
+
+    fs.writeFileSync(testFile, content);
+    const parsed = Parser.parseFile(testFile);
+
+    expect(parsed.exports.some(exp => exp.exportedName === 'default')).toBe(true);
+    expect(parsed.exports.some(exp => exp.exportedName === 'renamedHelper' && exp.kind === 'reexport')).toBe(true);
+    expect(parsed.exports.some(exp => exp.exportedName === '*' && exp.kind === 'reexport')).toBe(true);
+
+    fs.unlinkSync(testFile);
+  });
+
+  it('should extract constructors, method calls, decorators, and unresolved calls', () => {
+    const testFile = path.join(os.tmpdir(), 'test-calls-decorators.ts');
+    const content = `
+      @Controller()
+      export class ApiController {
+        run() {
+          const service = new ApiService();
+          return service.handle(missingCall());
+        }
+      }
+
+      class ApiService {
+        handle(value: unknown) {
+          return value;
+        }
+      }
+    `;
+
+    fs.writeFileSync(testFile, content);
+    const parsed = Parser.parseFile(testFile);
+    const controller = parsed.symbols.find(symbol => symbol.name === 'ApiController');
+    const run = parsed.symbols.find(symbol => symbol.owner === 'ApiController' && symbol.name === 'run');
+
+    expect(controller?.decorators).toContain('Controller');
+    expect(run?.calls?.some(call => call.name === 'ApiService')).toBe(true);
+    expect(run?.calls?.some(call => call.fullName === 'service.handle')).toBe(true);
+    expect(run?.calls?.some(call => call.name === 'missingCall')).toBe(true);
+
+    fs.unlinkSync(testFile);
+  });
 });

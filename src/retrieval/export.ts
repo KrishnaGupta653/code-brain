@@ -8,6 +8,7 @@ import {
   ProjectMetadata,
   QueryResult,
   RankingScore,
+  SourceSpan,
   SummaryRecord,
 } from "../types/models.js";
 import { GraphModel } from "../graph/index.js";
@@ -126,7 +127,7 @@ export class ExportEngine {
     nodes: GraphNode[],
     analyticsResult?: AnalyticsResult,
   ): GraphNode[] {
-    return nodes.sort((a, b) => {
+    return [...nodes].sort((a, b) => {
       // Priority 1: Focus-related nodes first
       const aIsFocus =
         a.type === "file" || a.type === "class" || a.type === "function";
@@ -219,9 +220,13 @@ export class ExportEngine {
       query: {
         focus: focus || "project",
         truncated: queryResult.truncated,
+        truncationReason: queryResult.truncated
+          ? "Result was limited by query breadth or token budget."
+          : undefined,
         nodeCount: nodes.length,
         edgeCount: edges.length,
       },
+      evidence: this.buildEvidence(nodes, edges),
       exportedAt: Date.now(),
       exportFormat: format,
       rules: format === "ai" ? this.getAIRules() : undefined,
@@ -298,6 +303,41 @@ export class ExportEngine {
     }
 
     return ranking.sort((a, b) => b.score - a.score).slice(0, 50);
+  }
+
+  private buildEvidence(nodes: GraphNode[], edges: GraphEdge[]): SourceSpan[] {
+    const seen = new Set<string>();
+    const evidence: SourceSpan[] = [];
+    const addSpan = (span: SourceSpan): void => {
+      const cleaned = this.stripSourceText(span);
+      const key = [
+        cleaned.file,
+        cleaned.startLine,
+        cleaned.startCol,
+        cleaned.endLine,
+        cleaned.endCol,
+      ].join(":");
+      if (!seen.has(key)) {
+        seen.add(key);
+        evidence.push(cleaned);
+      }
+    };
+
+    for (const node of nodes) {
+      for (const span of node.provenance.source) {
+        addSpan(span);
+      }
+    }
+
+    for (const edge of edges) {
+      for (const span of edge.provenance.source) {
+        addSpan(span);
+      }
+    }
+
+    return evidence
+      .sort((a, b) => a.file.localeCompare(b.file) || a.startLine - b.startLine)
+      .slice(0, 100);
   }
 
   private serializeNode(node: GraphNode): GraphNode {

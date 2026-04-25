@@ -789,7 +789,10 @@ export class TypeScriptParser {
     filePath: string,
     sourceFile: ts.SourceFile,
   ): string[] {
-    const decorators = (node as any).decorators;
+    void filePath;
+    const decorators = ts.canHaveDecorators(node)
+      ? ts.getDecorators(node)
+      : undefined;
     if (!decorators || decorators.length === 0) {
       return [];
     }

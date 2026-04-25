@@ -118,9 +118,11 @@ export interface ExportBundle {
   query: {
     focus: string | "project";
     truncated: boolean;
+    truncationReason?: string;
     nodeCount: number;
     edgeCount: number;
   };
+  evidence?: SourceSpan[];
   exportedAt: number;
   exportFormat: "json" | "yaml" | "ai";
   rules?: string[];

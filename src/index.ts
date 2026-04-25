@@ -7,7 +7,7 @@ async function main() {
 
   try {
     await program.parseAsync(process.argv);
-  } catch (error) {
+  } catch {
     process.exit(1);
   }
 }

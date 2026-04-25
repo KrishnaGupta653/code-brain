@@ -82,7 +82,10 @@ export async function exportCommand(
           })),
         };
 
-        analyticsResult = await PythonBridge.runAnalytics(graphData);
+        analyticsResult = await PythonBridge.runAnalytics(
+          graphData,
+          config.pythonPath,
+        );
 
         if (analyticsResult.centrality.size > 0) {
           const importanceMap = analyticsResult.importance;

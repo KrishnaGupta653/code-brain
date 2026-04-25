@@ -1,4 +1,8 @@
 import { GraphModel, createGraphNode, createGraphEdge } from '../src/graph/index';
+import { GraphBuilder } from '../src/graph/index';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 describe('GraphModel', () => {
   let graph: GraphModel;
@@ -117,5 +121,59 @@ describe('GraphModel', () => {
     expect(stats.nodesByType['class']).toBe(1);
     expect(stats.nodesByType['method']).toBe(1);
     expect(stats.edgesByType['OWNS']).toBe(1);
+  });
+
+  it('should resolve runtime .js specifiers to TypeScript files', () => {
+    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-brain-js-specifier-'));
+    try {
+      const srcDir = path.join(testDir, 'src');
+      fs.mkdirSync(srcDir, { recursive: true });
+      fs.writeFileSync(path.join(srcDir, 'a.ts'), 'export function funcA() {}');
+      fs.writeFileSync(
+        path.join(srcDir, 'b.ts'),
+        "import { funcA } from './a.js'; export function funcB() { funcA(); }"
+      );
+
+      const built = new GraphBuilder().buildFromRepository(testDir);
+      const funcA = built.getNodes().find(node => node.name === 'funcA');
+      const funcB = built.getNodes().find(node => node.name === 'funcB');
+
+      expect(funcA).toBeDefined();
+      expect(funcB).toBeDefined();
+      expect(
+        built.getEdges().some(edge => edge.from === funcB?.id && edge.to === funcA?.id && edge.type === 'CALLS')
+      ).toBe(true);
+    } finally {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should resolve tsconfig path aliases', () => {
+    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-brain-alias-'));
+    try {
+      const srcDir = path.join(testDir, 'src');
+      fs.mkdirSync(path.join(srcDir, 'lib'), { recursive: true });
+      fs.writeFileSync(
+        path.join(testDir, 'tsconfig.json'),
+        JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@lib/*': ['src/lib/*'] } } })
+      );
+      fs.writeFileSync(path.join(srcDir, 'lib', 'target.ts'), 'export function target() {}');
+      fs.writeFileSync(
+        path.join(srcDir, 'consumer.ts'),
+        "import { target } from '@lib/target'; export function consumer() { target(); }"
+      );
+
+      const built = new GraphBuilder().buildFromRepository(testDir);
+      const target = built.getNodes().find(node => node.name === 'target');
+      const consumer = built.getNodes().find(node => node.name === 'consumer');
+
+      expect(target).toBeDefined();
+      expect(consumer).toBeDefined();
+      expect(
+        built.getEdges().some(edge => edge.from === consumer?.id && edge.to === target?.id && edge.type === 'CALLS')
+      ).toBe(true);
+    } finally {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
   });
 });

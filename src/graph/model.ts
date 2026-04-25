@@ -11,28 +11,52 @@ import { globalProvenanceTracker } from '../provenance/index.js';
 export class GraphModel {
   private nodes: Map<string, GraphNode> = new Map();
   private edges: Map<string, GraphEdge> = new Map();
+  private outgoingEdgeIds: Map<string, Set<string>> = new Map();
+  private incomingEdgeIds: Map<string, Set<string>> = new Map();
 
   addNode(node: GraphNode): void {
     this.nodes.set(node.id, node);
   }
 
   addEdge(edge: GraphEdge): void {
+    const existing = this.edges.get(edge.id);
+    if (existing) {
+      this.removeEdgeFromIndexes(existing);
+    }
+
     this.edges.set(edge.id, edge);
+    this.addEdgeToIndexes(edge);
   }
 
   removeNode(id: string): void {
     this.nodes.delete(id);
-    for (const edge of Array.from(this.edges.values())) {
-      if (edge.from === id || edge.to === id) {
-        this.edges.delete(edge.id);
-      }
+    const relatedEdgeIds = new Set<string>([
+      ...(this.outgoingEdgeIds.get(id) || []),
+      ...(this.incomingEdgeIds.get(id) || [])
+    ]);
+
+    for (const edgeId of relatedEdgeIds) {
+      this.removeEdge(edgeId);
     }
+
+    this.outgoingEdgeIds.delete(id);
+    this.incomingEdgeIds.delete(id);
+  }
+
+  removeEdge(id: string): void {
+    const edge = this.edges.get(id);
+    if (!edge) {
+      return;
+    }
+
+    this.edges.delete(id);
+    this.removeEdgeFromIndexes(edge);
   }
 
   removeEdgesByPredicate(predicate: (edge: GraphEdge) => boolean): void {
     for (const edge of Array.from(this.edges.values())) {
       if (predicate(edge)) {
-        this.edges.delete(edge.id);
+        this.removeEdge(edge.id);
       }
     }
   }
@@ -62,11 +86,15 @@ export class GraphModel {
   }
 
   getOutgoingEdges(nodeId: string): GraphEdge[] {
-    return Array.from(this.edges.values()).filter(e => e.from === nodeId);
+    return Array.from(this.outgoingEdgeIds.get(nodeId) || [])
+      .map(id => this.edges.get(id))
+      .filter((edge): edge is GraphEdge => Boolean(edge));
   }
 
   getIncomingEdges(nodeId: string): GraphEdge[] {
-    return Array.from(this.edges.values()).filter(e => e.to === nodeId);
+    return Array.from(this.incomingEdgeIds.get(nodeId) || [])
+      .map(id => this.edges.get(id))
+      .filter((edge): edge is GraphEdge => Boolean(edge));
   }
 
   getNodesByType(type: NodeType): GraphNode[] {
@@ -110,6 +138,8 @@ export class GraphModel {
   clear(): void {
     this.nodes.clear();
     this.edges.clear();
+    this.outgoingEdgeIds.clear();
+    this.incomingEdgeIds.clear();
   }
 
   getStats(): {
@@ -135,6 +165,32 @@ export class GraphModel {
       nodesByType,
       edgesByType
     };
+  }
+
+  private addEdgeToIndexes(edge: GraphEdge): void {
+    if (!this.outgoingEdgeIds.has(edge.from)) {
+      this.outgoingEdgeIds.set(edge.from, new Set());
+    }
+    if (!this.incomingEdgeIds.has(edge.to)) {
+      this.incomingEdgeIds.set(edge.to, new Set());
+    }
+
+    this.outgoingEdgeIds.get(edge.from)!.add(edge.id);
+    this.incomingEdgeIds.get(edge.to)!.add(edge.id);
+  }
+
+  private removeEdgeFromIndexes(edge: GraphEdge): void {
+    const outgoing = this.outgoingEdgeIds.get(edge.from);
+    outgoing?.delete(edge.id);
+    if (outgoing?.size === 0) {
+      this.outgoingEdgeIds.delete(edge.from);
+    }
+
+    const incoming = this.incomingEdgeIds.get(edge.to);
+    incoming?.delete(edge.id);
+    if (incoming?.size === 0) {
+      this.incomingEdgeIds.delete(edge.to);
+    }
   }
 }
 

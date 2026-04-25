@@ -17,6 +17,12 @@ interface ResolvedImportTarget {
   id: string;
 }
 
+interface PathAlias {
+  prefix: string;
+  suffix: string;
+  targets: string[];
+}
+
 export class GraphBuilder {
   private graph: GraphModel = new GraphModel();
   private parsedFiles: Map<string, ParsedFile> = new Map();
@@ -24,6 +30,7 @@ export class GraphBuilder {
   private symbolIdMap: Map<string, string> = new Map();
   private projectId = "";
   private projectRoot = "";
+  private pathAliases: PathAlias[] = [];
 
   buildFromRepository(
     root: string,
@@ -37,6 +44,7 @@ export class GraphBuilder {
     this.symbolIdMap.clear();
     this.projectRoot = root;
     this.projectId = stableId("project", root);
+    this.pathAliases = this.loadPathAliases(root);
 
     logger.info(`Building graph from: ${root}`);
 
@@ -715,6 +723,28 @@ export class GraphBuilder {
     }
 
     if (!moduleName.startsWith(".")) {
+      for (const alias of this.pathAliases) {
+        if (
+          moduleName === alias.prefix ||
+          (moduleName.startsWith(alias.prefix) &&
+            moduleName.endsWith(alias.suffix))
+        ) {
+          const matched = moduleName.slice(
+            alias.prefix.length,
+            moduleName.length - alias.suffix.length,
+          );
+          for (const target of alias.targets) {
+            const targetPath = target.replace("*", matched);
+            const resolved = this.resolveFileCandidates(
+              path.resolve(this.projectRoot, targetPath),
+            );
+            if (resolved) {
+              return resolved;
+            }
+          }
+        }
+      }
+
       const directAlias = path.resolve(this.projectRoot, moduleName);
       const aliasResolved = this.resolveFileCandidates(directAlias);
       if (aliasResolved) {
@@ -730,20 +760,28 @@ export class GraphBuilder {
   }
 
   private resolveFileCandidates(basePath: string): string | undefined {
+    const parsed = path.parse(basePath);
+    const withoutRuntimeExtension = [".js", ".jsx", ".mjs", ".cjs"].includes(
+      parsed.ext,
+    )
+      ? path.join(parsed.dir, parsed.name)
+      : basePath;
+
     const candidates = [
       basePath,
-      `${basePath}.ts`,
-      `${basePath}.tsx`,
-      `${basePath}.js`,
-      `${basePath}.jsx`,
-      `${basePath}.mjs`,
-      `${basePath}.cjs`,
-      path.join(basePath, "index.ts"),
-      path.join(basePath, "index.tsx"),
-      path.join(basePath, "index.js"),
-      path.join(basePath, "index.jsx"),
-      path.join(basePath, "index.mjs"),
-      path.join(basePath, "index.cjs"),
+      withoutRuntimeExtension,
+      `${withoutRuntimeExtension}.ts`,
+      `${withoutRuntimeExtension}.tsx`,
+      `${withoutRuntimeExtension}.js`,
+      `${withoutRuntimeExtension}.jsx`,
+      `${withoutRuntimeExtension}.mjs`,
+      `${withoutRuntimeExtension}.cjs`,
+      path.join(withoutRuntimeExtension, "index.ts"),
+      path.join(withoutRuntimeExtension, "index.tsx"),
+      path.join(withoutRuntimeExtension, "index.js"),
+      path.join(withoutRuntimeExtension, "index.jsx"),
+      path.join(withoutRuntimeExtension, "index.mjs"),
+      path.join(withoutRuntimeExtension, "index.cjs"),
     ];
 
     return candidates.find((candidate) => fs.existsSync(candidate));
@@ -751,5 +789,37 @@ export class GraphBuilder {
 
   private isExternalModule(moduleName: string): boolean {
     return !moduleName.startsWith(".") && !path.isAbsolute(moduleName);
+  }
+
+  private loadPathAliases(root: string): PathAlias[] {
+    const tsconfigPath = path.join(root, "tsconfig.json");
+    if (!fs.existsSync(tsconfigPath)) {
+      return [];
+    }
+
+    try {
+      const raw = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8")) as {
+        compilerOptions?: {
+          baseUrl?: string;
+          paths?: Record<string, string[]>;
+        };
+      };
+      const baseUrl = raw.compilerOptions?.baseUrl || ".";
+      const paths = raw.compilerOptions?.paths || {};
+
+      return Object.entries(paths).map(([pattern, targets]) => {
+        const starIndex = pattern.indexOf("*");
+        const prefix = starIndex >= 0 ? pattern.slice(0, starIndex) : pattern;
+        const suffix = starIndex >= 0 ? pattern.slice(starIndex + 1) : "";
+        return {
+          prefix,
+          suffix,
+          targets: targets.map((target) => path.join(baseUrl, target)),
+        };
+      });
+    } catch (error) {
+      logger.debug("Failed to load tsconfig path aliases", error);
+      return [];
+    }
   }
 }

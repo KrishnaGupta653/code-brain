@@ -404,6 +404,30 @@ export class SQLiteStorage {
     tx();
   }
 
+  getRankingScores(projectRoot: string): RankingScore[] {
+    const projectId = this.getProjectId(projectRoot);
+    const rows = this.db
+      .prepare(
+        `SELECT node_id, score, algorithm, components
+         FROM ranking_scores
+         WHERE project_id = ?
+         ORDER BY score DESC, node_id ASC`,
+      )
+      .all(projectId) as Array<{
+      node_id: string;
+      score: number;
+      algorithm: string;
+      components: string;
+    }>;
+
+    return rows.map((row) => ({
+      nodeId: row.node_id,
+      score: row.score,
+      algorithm: row.algorithm,
+      components: row.components ? JSON.parse(row.components) : {},
+    }));
+  }
+
   updateIndexState(projectRoot: string, state: Partial<IndexState>): void {
     const projectId = this.getProjectId(projectRoot);
     this.db

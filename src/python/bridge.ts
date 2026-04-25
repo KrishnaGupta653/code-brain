@@ -7,11 +7,38 @@ export class PythonBridge {
   static async runAnalytics(graphData: {
     nodes: unknown[];
     edges: unknown[];
-  }): Promise<AnalyticsResult> {
+  }, pythonPath?: string): Promise<AnalyticsResult> {
+    const candidates = [
+      pythonPath,
+      process.platform === 'win32' ? 'python' : undefined,
+      'python3',
+      'python'
+    ].filter((value, index, array): value is string =>
+      Boolean(value) && array.indexOf(value) === index
+    );
+
+    for (const candidate of candidates) {
+      const result = await this.tryRunAnalytics(candidate, graphData);
+      if (result.ok) {
+        return result.analytics;
+      }
+    }
+
+    logger.warn('Python analytics unavailable; continuing with deterministic graph only');
+    return this.emptyAnalytics();
+  }
+
+  private static async tryRunAnalytics(
+    pythonCommand: string,
+    graphData: {
+      nodes: unknown[];
+      edges: unknown[];
+    }
+  ): Promise<{ ok: true; analytics: AnalyticsResult } | { ok: false }> {
     return new Promise(resolve => {
       const pythonScript = getPythonScript('main');
 
-      const python = spawn('python3', [pythonScript]);
+      const python = spawn(pythonCommand, [pythonScript]);
       let output = '';
 
       python.stdout.on('data', data => {
@@ -24,14 +51,8 @@ export class PythonBridge {
 
       python.on('close', code => {
         if (code !== 0) {
-          logger.warn(`Python process exited with code ${code}`);
-          // Return empty results instead of failing
-          return resolve({
-            centrality: new Map(),
-            communities: [],
-            keyPaths: [],
-            importance: new Map()
-          });
+          logger.debug(`Python analytics failed with ${pythonCommand} (code ${code})`);
+          return resolve({ ok: false });
         }
 
         try {
@@ -52,35 +73,37 @@ export class PythonBridge {
           );
 
           resolve({
+            ok: true,
+            analytics: {
             centrality,
             communities: results.communities || [],
             keyPaths: [],
             importance
+            }
           });
         } catch (e) {
-          logger.warn('Failed to parse analytics output', e);
-          resolve({
-            centrality: new Map(),
-            communities: [],
-            keyPaths: [],
-            importance: new Map()
-          });
+          logger.debug('Failed to parse analytics output', e);
+          resolve({ ok: false });
         }
       });
 
       python.on('error', err => {
-        logger.warn('Python process error:', err);
-        resolve({
-          centrality: new Map(),
-          communities: [],
-          keyPaths: [],
-          importance: new Map()
-        });
+        logger.debug(`Python process error for ${pythonCommand}:`, err);
+        resolve({ ok: false });
       });
 
       // Send graph data
       python.stdin.write(JSON.stringify(graphData));
       python.stdin.end();
     });
+  }
+
+  private static emptyAnalytics(): AnalyticsResult {
+    return {
+      centrality: new Map(),
+      communities: [],
+      keyPaths: [],
+      importance: new Map()
+    };
   }
 }

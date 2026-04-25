@@ -73,12 +73,10 @@ export async function updateCommand(projectRoot: string): Promise<void> {
       `Detected ${changedOrNew.length} changed/new and ${deletedFiles.length} deleted files. Re-indexing ${impacted.size} impacted files.`
     );
 
-    // Re-index impacted files. If deletions exist, force a full index to keep the graph exact.
-    if (deletedFiles.length > 0) {
-      await indexCommand(projectRoot);
-    } else {
-      await indexCommand(projectRoot, { filesToIndex: Array.from(impacted).sort() });
-    }
+    // Rebuild the persisted graph exactly after change detection. The previous
+    // partial merge path could drop symbol-level relationships to unchanged
+    // files because import binding resolution needs the full repository context.
+    await indexCommand(projectRoot);
 
     logger.success('Graph updated incrementally');
   } catch (error) {
