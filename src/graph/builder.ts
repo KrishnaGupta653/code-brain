@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { GraphModel, createGraphEdge, createGraphNode } from "./model.js";
+import { SemanticAnalyzer } from "./semantics.js";
+import { RelationshipAnalyzer } from "./relationships.js";
 import { Parser } from "../parser/index.js";
 import {
   ParsedCall,
@@ -81,6 +83,15 @@ export class GraphBuilder {
     }
 
     this.buildRelationshipEdges();
+
+    // Apply semantic analysis for world-class exports
+    logger.info("Analyzing semantic structure...");
+    const semanticAnalyzer = new SemanticAnalyzer(this.graph, root);
+    semanticAnalyzer.analyzeAllNodes();
+
+    // Analyze relationships for explanations
+    const relationshipAnalyzer = new RelationshipAnalyzer(this.graph);
+    relationshipAnalyzer.analyzeAllEdges();
 
     logger.success(
       `Graph built. ${this.graph.getStats().nodeCount} nodes, ${this.graph.getStats().edgeCount} edges`,

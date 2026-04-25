@@ -64,6 +64,13 @@ export interface GraphNode {
   summary?: string;
   metadata?: Record<string, unknown>;
   provenance: ProvenanceRecord;
+
+  // Semantic naming fields for world-class exports
+  semanticPath?: string; // e.g., "api.handlers.authHandler"
+  namespace?: string; // e.g., "api.handlers"
+  hierarchyLabel?: string; // e.g., "API > Handlers > authHandler"
+  semanticRole?: string; // e.g., "request_handler", "utility", "service"
+  moduleContext?: string; // e.g., "authentication_module"
 }
 
 export interface GraphEdge {
@@ -75,6 +82,18 @@ export interface GraphEdge {
   resolved: boolean;
   metadata?: Record<string, unknown>;
   provenance: ProvenanceRecord;
+
+  // Relationship explanation fields for premium exports
+  explanation?: string; // e.g., "handler calls validate to check request payload"
+  relationshipReason?: string; // e.g., "data_validation", "dependency_injection", "async_orchestration"
+  callCount?: number; // For CALLS edges
+  callPattern?: string; // e.g., "direct_call", "async_await", "error_handler"
+  parameterFlow?: {
+    // What data flows through the relationship
+    from: string[];
+    to: string[];
+    type: string;
+  };
 }
 
 export interface ProjectMetadata {
