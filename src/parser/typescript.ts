@@ -1,7 +1,7 @@
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import ts from 'typescript';
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import ts from "typescript";
 import {
   ParsedCall,
   ParsedExport,
@@ -9,33 +9,33 @@ import {
   ParsedImport,
   ParsedImportBinding,
   ParsedSymbol,
-  SourceSpan
-} from '../types/models.js';
-import { ParserError } from '../utils/index.js';
+  SourceSpan,
+} from "../types/models.js";
+import { ParserError } from "../utils/index.js";
 
 const ROUTE_METHODS = new Set([
-  'get',
-  'post',
-  'put',
-  'patch',
-  'delete',
-  'options',
-  'head',
-  'all'
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "options",
+  "head",
+  "all",
 ]);
 
-const TEST_CALLS = new Set(['describe', 'it', 'test']);
+const TEST_CALLS = new Set(["describe", "it", "test"]);
 
 export class TypeScriptParser {
   static parseFile(filePath: string): ParsedFile {
     try {
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = fs.readFileSync(filePath, "utf-8");
       const sourceFile = ts.createSourceFile(
         filePath,
         content,
         ts.ScriptTarget.Latest,
         true,
-        this.getScriptKind(filePath)
+        this.getScriptKind(filePath),
       );
 
       const symbols: ParsedSymbol[] = [];
@@ -50,10 +50,10 @@ export class TypeScriptParser {
         const key = [
           symbol.type,
           symbol.name,
-          symbol.owner || '',
+          symbol.owner || "",
           symbol.location.startLine,
-          symbol.location.startCol
-        ].join('::');
+          symbol.location.startCol,
+        ].join("::");
 
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
@@ -67,8 +67,8 @@ export class TypeScriptParser {
           item.name,
           item.exportedName,
           item.location.startLine,
-          item.location.startCol
-        ].join('::');
+          item.location.startCol,
+        ].join("::");
 
         if (!seenKeys.has(`export::${key}`)) {
           seenKeys.add(`export::${key}`);
@@ -84,33 +84,37 @@ export class TypeScriptParser {
 
         addSymbol({
           name: `doc:${targetName}`,
-          type: 'doc',
+          type: "doc",
           location: summary.location,
           relatedTo: targetName,
           isExported: false,
           summary: summary.text,
           metadata: {
-            source: 'jsdoc'
-          }
+            source: "jsdoc",
+          },
         });
       };
 
       for (const statement of sourceFile.statements) {
         if (ts.isImportDeclaration(statement)) {
-          const parsedImport = this.parseImportDeclaration(statement, sourceFile, filePath);
+          const parsedImport = this.parseImportDeclaration(
+            statement,
+            sourceFile,
+            filePath,
+          );
           imports.push(parsedImport);
 
-          if (parsedImport.module.endsWith('.json')) {
+          if (parsedImport.module.endsWith(".json")) {
             addSymbol({
               name: `config:${parsedImport.module}`,
-              type: 'config',
+              type: "config",
               location: parsedImport.location,
               isExported: false,
               summary: `JSON config import ${parsedImport.module}`,
               metadata: {
-                kind: 'json-import',
-                module: parsedImport.module
-              }
+                kind: "json-import",
+                module: parsedImport.module,
+              },
             });
           }
 
@@ -118,12 +122,20 @@ export class TypeScriptParser {
         }
 
         if (ts.isExportDeclaration(statement)) {
-          const statementSpan = this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd());
+          const statementSpan = this.createSpan(
+            filePath,
+            sourceFile,
+            statement.getStart(sourceFile),
+            statement.getEnd(),
+          );
           const moduleSpecifier = statement.moduleSpecifier
             ? this.getStringLiteralText(statement.moduleSpecifier)
             : undefined;
 
-          if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+          if (
+            statement.exportClause &&
+            ts.isNamedExports(statement.exportClause)
+          ) {
             for (const element of statement.exportClause.elements) {
               addExport({
                 name: element.propertyName?.text || element.name.text,
@@ -132,19 +144,19 @@ export class TypeScriptParser {
                   filePath,
                   sourceFile,
                   element.getStart(sourceFile),
-                  element.getEnd()
+                  element.getEnd(),
                 ),
-                kind: moduleSpecifier ? 'reexport' : 'named',
-                sourceModule: moduleSpecifier
+                kind: moduleSpecifier ? "reexport" : "named",
+                sourceModule: moduleSpecifier,
               });
             }
           } else if (moduleSpecifier) {
             addExport({
-              name: '*',
-              exportedName: '*',
+              name: "*",
+              exportedName: "*",
               location: statementSpan,
-              kind: 'reexport',
-              sourceModule: moduleSpecifier
+              kind: "reexport",
+              sourceModule: moduleSpecifier,
             });
           }
 
@@ -154,15 +166,20 @@ export class TypeScriptParser {
         if (ts.isExportAssignment(statement)) {
           const name = ts.isIdentifier(statement.expression)
             ? statement.expression.text
-            : 'default';
+            : "default";
           addExport({
             name,
-            exportedName: 'default',
-            location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-            kind: 'default'
+            exportedName: "default",
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              statement.getStart(sourceFile),
+              statement.getEnd(),
+            ),
+            kind: "default",
           });
 
-          if (name === 'main' || path.basename(filePath).startsWith('index')) {
+          if (name === "main" || path.basename(filePath).startsWith("index")) {
             entryPoints.add(name);
           }
 
@@ -175,19 +192,33 @@ export class TypeScriptParser {
 
           addSymbol({
             name,
-            type: 'function',
-            location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-            calls: this.extractCallsFromNode(statement.body, filePath, sourceFile),
+            type: "function",
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              statement.getStart(sourceFile),
+              statement.getEnd(),
+            ),
+            calls: this.extractCallsFromNode(
+              statement.body,
+              filePath,
+              sourceFile,
+            ),
             isExported,
-            summary: this.extractDocSummary(statement, content)?.text
+            summary: this.extractDocSummary(statement, content)?.text,
           });
 
           if (isExported) {
             addExport({
               name,
-              exportedName: this.isDefaultExport(statement) ? 'default' : name,
-              location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-              kind: this.isDefaultExport(statement) ? 'default' : 'named'
+              exportedName: this.isDefaultExport(statement) ? "default" : name,
+              location: this.createSpan(
+                filePath,
+                sourceFile,
+                statement.getStart(sourceFile),
+                statement.getEnd(),
+              ),
+              kind: this.isDefaultExport(statement) ? "default" : "named",
             });
           }
 
@@ -203,23 +234,39 @@ export class TypeScriptParser {
           const name = statement.name.text;
           const heritage = this.parseHeritage(statement);
           const isExported = this.isNodeExported(statement);
+          const decorators = this.extractDecoratorsFromNode(
+            statement,
+            filePath,
+            sourceFile,
+          );
 
           addSymbol({
             name,
-            type: 'class',
-            location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
+            type: "class",
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              statement.getStart(sourceFile),
+              statement.getEnd(),
+            ),
             extendsName: heritage.extendsName,
             implements: heritage.implementsNames,
             isExported,
-            summary: this.extractDocSummary(statement, content)?.text
+            summary: this.extractDocSummary(statement, content)?.text,
+            decorators,
           });
 
           if (isExported) {
             addExport({
               name,
-              exportedName: this.isDefaultExport(statement) ? 'default' : name,
-              location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-              kind: this.isDefaultExport(statement) ? 'default' : 'named'
+              exportedName: this.isDefaultExport(statement) ? "default" : name,
+              location: this.createSpan(
+                filePath,
+                sourceFile,
+                statement.getStart(sourceFile),
+                statement.getEnd(),
+              ),
+              kind: this.isDefaultExport(statement) ? "default" : "named",
             });
           }
 
@@ -242,12 +289,21 @@ export class TypeScriptParser {
 
               addSymbol({
                 name: methodName,
-                type: 'method',
-                location: this.createSpan(filePath, sourceFile, member.getStart(sourceFile), member.getEnd()),
+                type: "method",
+                location: this.createSpan(
+                  filePath,
+                  sourceFile,
+                  member.getStart(sourceFile),
+                  member.getEnd(),
+                ),
                 owner: name,
-                calls: this.extractCallsFromNode(member.body, filePath, sourceFile),
+                calls: this.extractCallsFromNode(
+                  member.body,
+                  filePath,
+                  sourceFile,
+                ),
                 isExported: false,
-                summary: this.extractDocSummary(member, content)?.text
+                summary: this.extractDocSummary(member, content)?.text,
               });
 
               recordDocForSymbol(`${name}.${methodName}`, member);
@@ -262,18 +318,28 @@ export class TypeScriptParser {
           const isExported = this.isNodeExported(statement);
           addSymbol({
             name,
-            type: 'interface',
-            location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
+            type: "interface",
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              statement.getStart(sourceFile),
+              statement.getEnd(),
+            ),
             isExported,
-            summary: this.extractDocSummary(statement, content)?.text
+            summary: this.extractDocSummary(statement, content)?.text,
           });
 
           if (isExported) {
             addExport({
               name,
               exportedName: name,
-              location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-              kind: 'named'
+              location: this.createSpan(
+                filePath,
+                sourceFile,
+                statement.getStart(sourceFile),
+                statement.getEnd(),
+              ),
+              kind: "named",
             });
           }
 
@@ -286,18 +352,28 @@ export class TypeScriptParser {
           const isExported = this.isNodeExported(statement);
           addSymbol({
             name,
-            type: 'type',
-            location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
+            type: "type",
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              statement.getStart(sourceFile),
+              statement.getEnd(),
+            ),
             isExported,
-            summary: this.extractDocSummary(statement, content)?.text
+            summary: this.extractDocSummary(statement, content)?.text,
           });
 
           if (isExported) {
             addExport({
               name,
               exportedName: name,
-              location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-              kind: 'named'
+              location: this.createSpan(
+                filePath,
+                sourceFile,
+                statement.getStart(sourceFile),
+                statement.getEnd(),
+              ),
+              kind: "named",
             });
           }
 
@@ -310,18 +386,28 @@ export class TypeScriptParser {
           const isExported = this.isNodeExported(statement);
           addSymbol({
             name,
-            type: 'enum',
-            location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
+            type: "enum",
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              statement.getStart(sourceFile),
+              statement.getEnd(),
+            ),
             isExported,
-            summary: this.extractDocSummary(statement, content)?.text
+            summary: this.extractDocSummary(statement, content)?.text,
           });
 
           if (isExported) {
             addExport({
               name,
               exportedName: name,
-              location: this.createSpan(filePath, sourceFile, statement.getStart(sourceFile), statement.getEnd()),
-              kind: 'named'
+              location: this.createSpan(
+                filePath,
+                sourceFile,
+                statement.getStart(sourceFile),
+                statement.getEnd(),
+              ),
+              kind: "named",
             });
           }
 
@@ -342,20 +428,25 @@ export class TypeScriptParser {
               filePath,
               sourceFile,
               declaration.getStart(sourceFile),
-              declaration.getEnd()
+              declaration.getEnd(),
             );
 
             if (
               initializer &&
-              (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+              (ts.isArrowFunction(initializer) ||
+                ts.isFunctionExpression(initializer))
             ) {
               addSymbol({
                 name,
-                type: 'function',
+                type: "function",
                 location,
-                calls: this.extractCallsFromNode(initializer.body, filePath, sourceFile),
+                calls: this.extractCallsFromNode(
+                  initializer.body,
+                  filePath,
+                  sourceFile,
+                ),
                 isExported,
-                summary: this.extractDocSummary(statement, content)?.text
+                summary: this.extractDocSummary(statement, content)?.text,
               });
 
               if (isExported) {
@@ -363,7 +454,7 @@ export class TypeScriptParser {
                   name,
                   exportedName: name,
                   location,
-                  kind: 'named'
+                  kind: "named",
                 });
               }
 
@@ -373,21 +464,24 @@ export class TypeScriptParser {
             } else if (isConfigFile) {
               addSymbol({
                 name,
-                type: 'config',
+                type: "config",
                 location,
                 isExported,
                 summary: `Config value ${name}`,
                 metadata: {
-                  kind: 'config-variable'
-                }
+                  kind: "config-variable",
+                },
               });
             } else {
               addSymbol({
                 name,
-                type: statement.declarationList.flags & ts.NodeFlags.Const ? 'constant' : 'variable',
+                type:
+                  statement.declarationList.flags & ts.NodeFlags.Const
+                    ? "constant"
+                    : "variable",
                 location,
                 isExported,
-                summary: this.extractDocSummary(statement, content)?.text
+                summary: this.extractDocSummary(statement, content)?.text,
               });
             }
           }
@@ -406,7 +500,7 @@ export class TypeScriptParser {
           if (envRef) {
             envRefs.set(
               `${envRef.name}::${envRef.location.startLine}::${envRef.location.startCol}`,
-              envRef
+              envRef,
             );
           }
         }
@@ -422,7 +516,12 @@ export class TypeScriptParser {
             }
           }
 
-          const testSymbol = this.parseTestCall(node, filePath, sourceFile, isTestFile);
+          const testSymbol = this.parseTestCall(
+            node,
+            filePath,
+            sourceFile,
+            isTestFile,
+          );
           if (testSymbol) {
             const key = `${testSymbol.name}::${testSymbol.location.startLine}::${testSymbol.location.startCol}`;
             if (!seenTests.has(key)) {
@@ -452,13 +551,13 @@ export class TypeScriptParser {
       return {
         path: filePath,
         language: this.getLanguage(filePath),
-        hash: crypto.createHash('sha256').update(content).digest('hex'),
+        hash: crypto.createHash("sha256").update(content).digest("hex"),
         symbols,
         imports,
         exports,
         entryPoints: Array.from(entryPoints).sort(),
         isTestFile,
-        isConfigFile
+        isConfigFile,
       };
     } catch (error) {
       throw new ParserError(`Failed to parse file: ${filePath}`, error);
@@ -468,25 +567,25 @@ export class TypeScriptParser {
   private static parseImportDeclaration(
     node: ts.ImportDeclaration,
     sourceFile: ts.SourceFile,
-    filePath: string
+    filePath: string,
   ): ParsedImport {
     const bindings: ParsedImportBinding[] = [];
 
     if (node.importClause) {
       if (node.importClause.name) {
         bindings.push({
-          importedName: 'default',
+          importedName: "default",
           localName: node.importClause.name.text,
-          kind: 'default'
+          kind: "default",
         });
       }
 
       const namedBindings = node.importClause.namedBindings;
       if (namedBindings && ts.isNamespaceImport(namedBindings)) {
         bindings.push({
-          importedName: '*',
+          importedName: "*",
           localName: namedBindings.name.text,
-          kind: 'namespace'
+          kind: "namespace",
         });
       }
 
@@ -495,7 +594,7 @@ export class TypeScriptParser {
           bindings.push({
             importedName: element.propertyName?.text || element.name.text,
             localName: element.name.text,
-            kind: 'named'
+            kind: "named",
           });
         }
       }
@@ -503,16 +602,21 @@ export class TypeScriptParser {
 
     return {
       module: this.getStringLiteralText(node.moduleSpecifier),
-      location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd()),
+      location: this.createSpan(
+        filePath,
+        sourceFile,
+        node.getStart(sourceFile),
+        node.getEnd(),
+      ),
       bindings,
-      isTypeOnly: Boolean(node.importClause?.isTypeOnly)
+      isTypeOnly: Boolean(node.importClause?.isTypeOnly),
     };
   }
 
   private static parseRouteCall(
     node: ts.CallExpression,
     filePath: string,
-    sourceFile: ts.SourceFile
+    sourceFile: ts.SourceFile,
   ): ParsedSymbol | null {
     if (!ts.isPropertyAccessExpression(node.expression)) {
       return null;
@@ -521,7 +625,10 @@ export class TypeScriptParser {
     const objectName = node.expression.expression.getText(sourceFile);
     const methodName = node.expression.name.text;
 
-    if (!['app', 'router', 'server'].includes(objectName) || !ROUTE_METHODS.has(methodName)) {
+    if (
+      !["app", "router", "server"].includes(objectName) ||
+      !ROUTE_METHODS.has(methodName)
+    ) {
       return null;
     }
 
@@ -531,20 +638,25 @@ export class TypeScriptParser {
     }
 
     const handlerArg = node.arguments[1];
-    const handlerName = handlerArg ? handlerArg.getText(sourceFile) : 'unknown';
+    const handlerName = handlerArg ? handlerArg.getText(sourceFile) : "unknown";
 
     return {
       name: `${methodName.toUpperCase()} ${firstArg.text}`,
-      type: 'route',
-      location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd()),
+      type: "route",
+      location: this.createSpan(
+        filePath,
+        sourceFile,
+        node.getStart(sourceFile),
+        node.getEnd(),
+      ),
       relatedTo: handlerName,
       isExported: false,
       summary: `Route ${methodName.toUpperCase()} ${firstArg.text}`,
       metadata: {
         handler: handlerName,
         method: methodName.toUpperCase(),
-        path: firstArg.text
-      }
+        path: firstArg.text,
+      },
     };
   }
 
@@ -552,76 +664,96 @@ export class TypeScriptParser {
     node: ts.CallExpression,
     filePath: string,
     sourceFile: ts.SourceFile,
-    isTestFile: boolean
+    isTestFile: boolean,
   ): ParsedSymbol | null {
     const callee = node.expression;
-    if (!ts.isIdentifier(callee) || !TEST_CALLS.has(callee.text) || !isTestFile) {
+    if (
+      !ts.isIdentifier(callee) ||
+      !TEST_CALLS.has(callee.text) ||
+      !isTestFile
+    ) {
       return null;
     }
 
     const firstArg = node.arguments[0];
-    const label = firstArg && ts.isStringLiteralLike(firstArg) ? firstArg.text : 'unknown';
+    const label =
+      firstArg && ts.isStringLiteralLike(firstArg) ? firstArg.text : "unknown";
     return {
       name: `${callee.text}:${label}`,
-      type: 'test',
-      location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd()),
+      type: "test",
+      location: this.createSpan(
+        filePath,
+        sourceFile,
+        node.getStart(sourceFile),
+        node.getEnd(),
+      ),
       isExported: false,
       summary: `${callee.text} ${label}`,
       metadata: {
-        framework: 'generic',
-        label
-      }
+        framework: "generic",
+        label,
+      },
     };
   }
 
   private static parseConfigCall(
     node: ts.CallExpression,
     filePath: string,
-    sourceFile: ts.SourceFile
+    sourceFile: ts.SourceFile,
   ): ParsedSymbol | null {
     const calleeText = node.expression.getText(sourceFile);
-    if (calleeText !== 'dotenv.config' && calleeText !== 'config.get') {
+    if (calleeText !== "dotenv.config" && calleeText !== "config.get") {
       return null;
     }
 
     return {
       name: `config:${calleeText}`,
-      type: 'config',
-      location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd()),
+      type: "config",
+      location: this.createSpan(
+        filePath,
+        sourceFile,
+        node.getStart(sourceFile),
+        node.getEnd(),
+      ),
       isExported: false,
       summary: `Config call ${calleeText}`,
       metadata: {
-        kind: 'config-call'
-      }
+        kind: "config-call",
+      },
     };
   }
 
   private static parseEnvReference(
     node: ts.PropertyAccessExpression,
     filePath: string,
-    sourceFile: ts.SourceFile
+    sourceFile: ts.SourceFile,
   ): ParsedSymbol | null {
     if (!ts.isPropertyAccessExpression(node.expression)) {
       return null;
     }
 
     if (
-      node.expression.expression.getText(sourceFile) !== 'process' ||
-      node.expression.name.text !== 'env'
+      node.expression.expression.getText(sourceFile) !== "process" ||
+      node.expression.name.text !== "env"
     ) {
       return null;
     }
 
     return {
       name: `env:${node.name.text}`,
-      type: 'config',
-      location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd()),
+      type: "config",
+      location: this.createSpan(
+        filePath,
+        sourceFile,
+        node.getStart(sourceFile),
+        node.getEnd(),
+      ),
       isExported: false,
       summary: `Environment variable ${node.name.text}`,
       metadata: {
-        kind: 'env',
-        variable: node.name.text
-      }
+        kind: "env",
+        variable: node.name.text,
+      },
     };
   }
 
@@ -643,17 +775,45 @@ export class TypeScriptParser {
       }
 
       if (heritage.token === ts.SyntaxKind.ImplementsKeyword) {
-        result.implementsNames = heritage.types.map(item => item.expression.getText());
+        result.implementsNames = heritage.types.map((item) =>
+          item.expression.getText(),
+        );
       }
     }
 
     return result;
   }
 
+  private static extractDecoratorsFromNode(
+    node: ts.ClassDeclaration | ts.MethodDeclaration,
+    filePath: string,
+    sourceFile: ts.SourceFile,
+  ): string[] {
+    const decorators = (node as any).decorators;
+    if (!decorators || decorators.length === 0) {
+      return [];
+    }
+
+    return decorators
+      .map((dec: ts.Decorator) => {
+        if (ts.isCallExpression(dec.expression)) {
+          if (ts.isIdentifier(dec.expression.expression)) {
+            return dec.expression.expression.text;
+          }
+          return dec.expression.expression.getText(sourceFile);
+        }
+        if (ts.isIdentifier(dec.expression)) {
+          return dec.expression.text;
+        }
+        return dec.expression.getText(sourceFile);
+      })
+      .filter(Boolean);
+  }
+
   private static extractCallsFromNode(
     body: ts.Node | undefined,
     filePath: string,
-    sourceFile: ts.SourceFile
+    sourceFile: ts.SourceFile,
   ): ParsedCall[] {
     if (!body) {
       return [];
@@ -661,15 +821,23 @@ export class TypeScriptParser {
 
     const calls: ParsedCall[] = [];
     const seen = new Set<string>();
-    const ignore = new Set(['describe', 'it', 'test', 'expect', 'require']);
+    const ignore = new Set(["describe", "it", "test", "expect", "require"]);
 
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
-        const normalized = this.normalizeCallExpression(node.expression, sourceFile);
+        const normalized = this.normalizeCallExpression(
+          node.expression,
+          sourceFile,
+        );
         if (normalized && !ignore.has(normalized.name)) {
           const call = {
             ...normalized,
-            location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd())
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              node.getStart(sourceFile),
+              node.getEnd(),
+            ),
           };
           const key = `${call.fullName}::${call.location.startLine}::${call.location.startCol}`;
           if (!seen.has(key)) {
@@ -680,11 +848,19 @@ export class TypeScriptParser {
       }
 
       if (ts.isNewExpression(node)) {
-        const normalized = this.normalizeCallExpression(node.expression, sourceFile);
+        const normalized = this.normalizeCallExpression(
+          node.expression,
+          sourceFile,
+        );
         if (normalized) {
           const call = {
             ...normalized,
-            location: this.createSpan(filePath, sourceFile, node.getStart(sourceFile), node.getEnd())
+            location: this.createSpan(
+              filePath,
+              sourceFile,
+              node.getStart(sourceFile),
+              node.getEnd(),
+            ),
           };
           const key = `${call.fullName}::${call.location.startLine}::${call.location.startCol}`;
           if (!seen.has(key)) {
@@ -703,26 +879,26 @@ export class TypeScriptParser {
 
   private static normalizeCallExpression(
     expression: ts.Expression,
-    sourceFile: ts.SourceFile
-  ): Omit<ParsedCall, 'location'> | null {
+    sourceFile: ts.SourceFile,
+  ): Omit<ParsedCall, "location"> | null {
     if (ts.isIdentifier(expression)) {
       return {
         name: expression.text,
-        fullName: expression.text
+        fullName: expression.text,
       };
     }
 
     if (ts.isPropertyAccessExpression(expression)) {
       return {
         name: expression.name.text,
-        fullName: expression.getText(sourceFile)
+        fullName: expression.getText(sourceFile),
       };
     }
 
     if (ts.isElementAccessExpression(expression)) {
       return {
-        name: expression.argumentExpression?.getText(sourceFile) || 'unknown',
-        fullName: expression.getText(sourceFile)
+        name: expression.argumentExpression?.getText(sourceFile) || "unknown",
+        fullName: expression.getText(sourceFile),
       };
     }
 
@@ -731,22 +907,25 @@ export class TypeScriptParser {
 
   private static extractDocSummary(
     node: ts.Node,
-    content: string
+    content: string,
   ): { text: string; location: SourceSpan } | null {
-    const ranges = ts.getLeadingCommentRanges(content, node.getFullStart()) || [];
-    const jsDocRange = ranges.find(range => content.slice(range.pos, range.end).startsWith('/**'));
+    const ranges =
+      ts.getLeadingCommentRanges(content, node.getFullStart()) || [];
+    const jsDocRange = ranges.find((range) =>
+      content.slice(range.pos, range.end).startsWith("/**"),
+    );
     if (!jsDocRange) {
       return null;
     }
 
     const rawComment = content.slice(jsDocRange.pos, jsDocRange.end);
     const cleaned = rawComment
-      .replace(/^\/\*\*?/, '')
-      .replace(/\*\/$/, '')
-      .split('\n')
-      .map(line => line.replace(/^\s*\*\s?/, '').trim())
+      .replace(/^\/\*\*?/, "")
+      .replace(/\*\/$/, "")
+      .split("\n")
+      .map((line) => line.replace(/^\s*\*\s?/, "").trim())
       .filter(Boolean)
-      .join(' ')
+      .join(" ")
       .trim();
 
     if (!cleaned) {
@@ -755,7 +934,12 @@ export class TypeScriptParser {
 
     return {
       text: cleaned,
-      location: this.createSpan(node.getSourceFile().fileName, node.getSourceFile(), jsDocRange.pos, jsDocRange.end)
+      location: this.createSpan(
+        node.getSourceFile().fileName,
+        node.getSourceFile(),
+        jsDocRange.pos,
+        jsDocRange.end,
+      ),
     };
   }
 
@@ -763,7 +947,7 @@ export class TypeScriptParser {
     filePath: string,
     sourceFile: ts.SourceFile,
     start: number,
-    end: number
+    end: number,
   ): SourceSpan {
     const startPos = sourceFile.getLineAndCharacterOfPosition(start);
     const endPos = sourceFile.getLineAndCharacterOfPosition(end);
@@ -773,12 +957,16 @@ export class TypeScriptParser {
       endLine: endPos.line + 1,
       startCol: startPos.character + 1,
       endCol: endPos.character + 1,
-      text: sourceFile.text.slice(start, end)
+      text: sourceFile.text.slice(start, end),
     };
   }
 
   private static getPropertyName(name: ts.PropertyName): string | null {
-    if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) {
+    if (
+      ts.isIdentifier(name) ||
+      ts.isStringLiteralLike(name) ||
+      ts.isNumericLiteral(name)
+    ) {
       return name.text;
     }
 
@@ -790,49 +978,85 @@ export class TypeScriptParser {
   }
 
   private static getScriptKind(filePath: string): ts.ScriptKind {
-    if (filePath.endsWith('.tsx')) {
+    if (filePath.endsWith(".tsx")) {
       return ts.ScriptKind.TSX;
     }
-    if (filePath.endsWith('.jsx')) {
+    if (filePath.endsWith(".jsx")) {
       return ts.ScriptKind.JSX;
     }
-    if (filePath.endsWith('.js') || filePath.endsWith('.mjs') || filePath.endsWith('.cjs')) {
+    if (
+      filePath.endsWith(".js") ||
+      filePath.endsWith(".mjs") ||
+      filePath.endsWith(".cjs")
+    ) {
       return ts.ScriptKind.JS;
     }
     return ts.ScriptKind.TS;
   }
 
   private static getLanguage(filePath: string): string {
-    return /\.(ts|tsx)$/.test(filePath) ? 'typescript' : 'javascript';
+    return /\.(ts|tsx)$/.test(filePath) ? "typescript" : "javascript";
   }
 
   private static isNodeExported(node: ts.Node): boolean {
-    const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-    return Boolean(modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword));
+    const modifiers = ts.canHaveModifiers(node)
+      ? ts.getModifiers(node)
+      : undefined;
+    return Boolean(
+      modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+      ),
+    );
   }
 
   private static isDefaultExport(node: ts.Node): boolean {
-    const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-    return Boolean(modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword));
+    const modifiers = ts.canHaveModifiers(node)
+      ? ts.getModifiers(node)
+      : undefined;
+    return Boolean(
+      modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword,
+      ),
+    );
   }
 
   private static isTestFile(filePath: string): boolean {
-    return /(^|\/)__tests__\/|(\.|-)(test|spec)\.[jt]sx?$/.test(filePath.replace(/\\/g, '/'));
+    return /(^|\/)__tests__\/|(\.|-)(test|spec)\.[jt]sx?$/.test(
+      filePath.replace(/\\/g, "/"),
+    );
   }
 
   private static isConfigFile(filePath: string): boolean {
-    return /(?:^|\/)(?:.+\.)?(config|settings)\.[jt]sx?$/.test(filePath.replace(/\\/g, '/'));
+    return /(?:^|\/)(?:.+\.)?(config|settings)\.[jt]sx?$/.test(
+      filePath.replace(/\\/g, "/"),
+    );
   }
 
-  private static isEntrypointName(name: string, filePath: string, isExported: boolean): boolean {
-    const entryNames = new Set(['main', 'handler', 'bootstrap', 'start', 'run', 'default']);
+  private static isEntrypointName(
+    name: string,
+    filePath: string,
+    isExported: boolean,
+  ): boolean {
+    const entryNames = new Set([
+      "main",
+      "handler",
+      "bootstrap",
+      "start",
+      "run",
+      "default",
+    ]);
     return (
       entryNames.has(name) ||
-      (isExported && /(?:^|\/)(index|main|app|server|cli)\.[jt]sx?$/.test(filePath.replace(/\\/g, '/')))
+      (isExported &&
+        /(?:^|\/)(index|main|app|server|cli)\.[jt]sx?$/.test(
+          filePath.replace(/\\/g, "/"),
+        ))
     );
   }
 
   private static isEntrypointFile(filePath: string): boolean {
-    return /(?:^|\/)(index|main|app|server|cli)\.[jt]sx?$/.test(filePath.replace(/\\/g, '/'));
+    return /(?:^|\/)(index|main|app|server|cli)\.[jt]sx?$/.test(
+      filePath.replace(/\\/g, "/"),
+    );
   }
 }

@@ -98,6 +98,8 @@ code-brain export --format ai
 code-brain export --format json
 code-brain export --format yaml
 code-brain export --format ai --focus src/parser/typescript.ts
+code-brain export --format ai --max-tokens 2000
+code-brain export --format ai --focus src/auth --max-tokens 4000
 ```
 
 ### `code-brain init`
@@ -137,6 +139,23 @@ The AI rules explicitly say:
 - use only listed nodes and edges
 - preserve unknown or unresolved relationships
 - do not fabricate flows or APIs
+
+#### Token-Limited Exports
+
+For constrained LLM contexts, use `--max-tokens` to intelligently prune the export:
+
+```bash
+# Export with 2000 token budget (GPT-3.5 context)
+code-brain export --format ai --max-tokens 2000 > compact.json
+
+# Export with 4000 token budget (Claude Opus context)
+code-brain export --format ai --max-tokens 4000 > medium.json
+
+# Export with focus and token limit
+code-brain export --format ai --focus src/auth --max-tokens 4000 > auth-context.json
+```
+
+The exporter automatically ranks nodes by importance (using analytics centrality + node type priority) and includes the most critical nodes/edges within the token budget. Exports include a `truncated` flag indicating if content was pruned.
 
 ## How To Run
 

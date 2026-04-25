@@ -14,7 +14,7 @@ export interface SourceSpan {
 
 export interface ProvenanceRecord {
   nodeId: string;
-  type: 'parser' | 'inference' | 'config';
+  type: "parser" | "inference" | "config";
   source: SourceSpan[];
   confidence: number;
   createdAt: number;
@@ -22,37 +22,38 @@ export interface ProvenanceRecord {
 }
 
 export type NodeType =
-  | 'project'
-  | 'file'
-  | 'module'
-  | 'class'
-  | 'function'
-  | 'method'
-  | 'variable'
-  | 'constant'
-  | 'type'
-  | 'interface'
-  | 'enum'
-  | 'route'
-  | 'config'
-  | 'test'
-  | 'doc';
+  | "project"
+  | "file"
+  | "module"
+  | "class"
+  | "function"
+  | "method"
+  | "variable"
+  | "constant"
+  | "type"
+  | "interface"
+  | "enum"
+  | "route"
+  | "config"
+  | "test"
+  | "doc";
 
 export type EdgeType =
-  | 'IMPORTS'
-  | 'EXPORTS'
-  | 'CALLS'
-  | 'CALLS_UNRESOLVED'
-  | 'OWNS'
-  | 'DEFINES'
-  | 'USES'
-  | 'DEPENDS_ON'
-  | 'TESTS'
-  | 'DOCUMENTS'
-  | 'IMPLEMENTS'
-  | 'EXTENDS'
-  | 'REFERENCES'
-  | 'ENTRY_POINT';
+  | "IMPORTS"
+  | "EXPORTS"
+  | "CALLS"
+  | "CALLS_UNRESOLVED"
+  | "OWNS"
+  | "DEFINES"
+  | "USES"
+  | "DEPENDS_ON"
+  | "TESTS"
+  | "DOCUMENTS"
+  | "IMPLEMENTS"
+  | "EXTENDS"
+  | "DECORATES"
+  | "REFERENCES"
+  | "ENTRY_POINT";
 
 export interface GraphNode {
   id: string;
@@ -97,14 +98,14 @@ export interface IndexState {
   totalFileCount: number;
   totalSymbolCount: number;
   totalEdgeCount: number;
-  status: 'idle' | 'indexing' | 'error';
+  status: "idle" | "indexing" | "error";
   error?: string;
 }
 
 export interface SummaryRecord {
   id: string;
   label: string;
-  type: 'project' | 'module' | 'file' | 'symbol';
+  type: "project" | "module" | "file" | "symbol";
   summary: string;
   provenance: SourceSpan[];
 }
@@ -115,13 +116,13 @@ export interface ExportBundle {
   edges: GraphEdge[];
   summaries: SummaryRecord[];
   query: {
-    focus: string | 'project';
+    focus: string | "project";
     truncated: boolean;
     nodeCount: number;
     edgeCount: number;
   };
   exportedAt: number;
-  exportFormat: 'json' | 'yaml' | 'ai';
+  exportFormat: "json" | "yaml" | "ai";
   rules?: string[];
 }
 
@@ -166,7 +167,7 @@ export interface CodeBrainConfig {
 export interface ParsedImportBinding {
   importedName: string;
   localName: string;
-  kind: 'named' | 'default' | 'namespace';
+  kind: "named" | "default" | "namespace";
 }
 
 export interface ParsedImport {
@@ -180,7 +181,7 @@ export interface ParsedExport {
   name: string;
   exportedName: string;
   location: SourceSpan;
-  kind: 'named' | 'default' | 'reexport';
+  kind: "named" | "default" | "reexport";
   sourceModule?: string;
 }
 
@@ -197,6 +198,7 @@ export interface ParsedSymbol {
   calls?: ParsedCall[];
   extendsName?: string;
   implements?: string[];
+  decorators?: string[];
   owner?: string;
   relatedTo?: string;
   isExported: boolean;

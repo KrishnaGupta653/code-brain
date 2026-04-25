@@ -1,7 +1,7 @@
 class GraphVisualizer {
   constructor(canvasId) {
     this.canvas = document.getElementById(canvasId);
-    this.ctx = this.canvas.getContext('2d');
+    this.ctx = this.canvas.getContext("2d");
     this.nodes = [];
     this.edges = [];
     this.nodeMap = new Map();
@@ -14,21 +14,21 @@ class GraphVisualizer {
     this.dragNodeId = null;
     this.lastMouse = null;
     this.palette = {
-      project: '#3f51b5',
-      file: '#1565c0',
-      module: '#00897b',
-      class: '#ef6c00',
-      function: '#2e7d32',
-      method: '#5e35b1',
-      route: '#c62828',
-      config: '#6d4c41',
-      test: '#8e24aa',
-      doc: '#546e7a',
-      interface: '#7b1fa2',
-      type: '#455a64',
-      constant: '#9e9d24',
-      variable: '#039be5',
-      enum: '#f4511e'
+      project: "#3f51b5",
+      file: "#1565c0",
+      module: "#00897b",
+      class: "#ef6c00",
+      function: "#2e7d32",
+      method: "#5e35b1",
+      route: "#c62828",
+      config: "#6d4c41",
+      test: "#8e24aa",
+      doc: "#546e7a",
+      interface: "#7b1fa2",
+      type: "#455a64",
+      constant: "#9e9d24",
+      variable: "#039be5",
+      enum: "#f4511e",
     };
 
     this.setupCanvas();
@@ -41,43 +41,66 @@ class GraphVisualizer {
       const rect = this.canvas.getBoundingClientRect();
       this.canvas.width = rect.width * window.devicePixelRatio;
       this.canvas.height = rect.height * window.devicePixelRatio;
-      this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+      this.ctx.setTransform(
+        window.devicePixelRatio,
+        0,
+        0,
+        window.devicePixelRatio,
+        0,
+        0,
+      );
     };
 
     resize();
-    window.addEventListener('resize', resize);
+    window.addEventListener("resize", resize);
   }
 
   setupEventListeners() {
-    this.canvas.addEventListener('mousedown', event => this.onMouseDown(event));
-    this.canvas.addEventListener('mousemove', event => this.onMouseMove(event));
-    this.canvas.addEventListener('mouseup', () => this.onMouseUp());
-    this.canvas.addEventListener('mouseleave', () => this.onMouseUp());
-    this.canvas.addEventListener('wheel', event => this.onWheel(event), { passive: false });
-
-    document.getElementById('searchBtn').addEventListener('click', () => this.search());
-    document.getElementById('searchInput').addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        this.search();
-      }
+    this.canvas.addEventListener("mousedown", (event) =>
+      this.onMouseDown(event),
+    );
+    this.canvas.addEventListener("mousemove", (event) =>
+      this.onMouseMove(event),
+    );
+    this.canvas.addEventListener("mouseup", () => this.onMouseUp());
+    this.canvas.addEventListener("mouseleave", () => this.onMouseUp());
+    this.canvas.addEventListener("wheel", (event) => this.onWheel(event), {
+      passive: false,
     });
-    document.getElementById('resetBtn').addEventListener('click', () => this.reset());
-    document.getElementById('zoomInBtn').addEventListener('click', () => this.zoomBy(1.15));
-    document.getElementById('zoomOutBtn').addEventListener('click', () => this.zoomBy(1 / 1.15));
+
+    document
+      .getElementById("searchBtn")
+      .addEventListener("click", () => this.search());
+    document
+      .getElementById("searchInput")
+      .addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          this.search();
+        }
+      });
+    document
+      .getElementById("resetBtn")
+      .addEventListener("click", () => this.reset());
+    document
+      .getElementById("zoomInBtn")
+      .addEventListener("click", () => this.zoomBy(1.15));
+    document
+      .getElementById("zoomOutBtn")
+      .addEventListener("click", () => this.zoomBy(1 / 1.15));
   }
 
   async loadGraph() {
-    const response = await fetch('/api/graph');
+    const response = await fetch("/api/graph");
     const data = await response.json();
     this.nodes = data.nodes.map((node, index) => ({
       ...node,
       x: 140 + (index % 12) * 110,
       y: 120 + Math.floor(index / 12) * 90,
       vx: 0,
-      vy: 0
+      vy: 0,
     }));
     this.edges = data.edges;
-    this.nodeMap = new Map(this.nodes.map(node => [node.id, node]));
+    this.nodeMap = new Map(this.nodes.map((node) => [node.id, node]));
     this.updateStats(data.stats);
     this.animate();
   }
@@ -157,6 +180,25 @@ class GraphVisualizer {
     this.ctx.translate(this.offsetX, this.offsetY);
     this.ctx.scale(this.zoom, this.zoom);
 
+    // Edge type colors
+    const edgeColors = {
+      IMPORTS: "#1565c0",
+      EXPORTS: "#d32f2f",
+      CALLS: "#2e7d32",
+      CALLS_UNRESOLVED: "#f57f17",
+      OWNS: "#6d4c41",
+      DEFINES: "#1976d2",
+      USES: "#7e57c2",
+      DEPENDS_ON: "#c62828",
+      TESTS: "#8e24aa",
+      DOCUMENTS: "#546e7a",
+      IMPLEMENTS: "#00897b",
+      EXTENDS: "#e64a19",
+      DECORATES: "#5e35b1",
+      REFERENCES: "#0097a7",
+      ENTRY_POINT: "#f57f17",
+    };
+
     for (const edge of this.edges) {
       const from = this.nodeMap.get(edge.from);
       const to = this.nodeMap.get(edge.to);
@@ -164,9 +206,11 @@ class GraphVisualizer {
         continue;
       }
 
-      const highlighted = this.highlighted.has(edge.from) && this.highlighted.has(edge.to);
-      this.ctx.strokeStyle = highlighted ? 'rgba(21, 101, 192, 0.8)' : 'rgba(29, 35, 48, 0.15)';
-      this.ctx.lineWidth = highlighted ? 2.2 / this.zoom : 1 / this.zoom;
+      const highlighted =
+        this.highlighted.has(edge.from) && this.highlighted.has(edge.to);
+      const edgeColor = edgeColors[edge.type] || "#1d2330";
+      this.ctx.strokeStyle = highlighted ? edgeColor : `${edgeColor}40`;
+      this.ctx.lineWidth = highlighted ? 2.2 / this.zoom : 0.8 / this.zoom;
       this.ctx.beginPath();
       this.ctx.moveTo(from.x, from.y);
       this.ctx.lineTo(to.x, to.y);
@@ -174,9 +218,11 @@ class GraphVisualizer {
     }
 
     for (const node of this.nodes) {
-      const radius = this.selectedNode === node.id ? 10 : 7;
-      const fill = this.palette[node.type] || '#607d8b';
-      const highlighted = this.highlighted.size === 0 || this.highlighted.has(node.id);
+      // Node size based on degree (incoming + outgoing edges)
+      const radius = Math.max(5, Math.min(15, 5 + (node.degree || 0) * 0.3));
+      const fill = this.palette[node.type] || "#607d8b";
+      const highlighted =
+        this.highlighted.size === 0 || this.highlighted.has(node.id);
 
       this.ctx.globalAlpha = highlighted ? 1 : 0.25;
       this.ctx.fillStyle = fill;
@@ -185,15 +231,15 @@ class GraphVisualizer {
       this.ctx.fill();
 
       if (this.selectedNode === node.id) {
-        this.ctx.strokeStyle = '#111';
+        this.ctx.strokeStyle = "#111";
         this.ctx.lineWidth = 2.5 / this.zoom;
         this.ctx.stroke();
       }
 
       if (this.zoom > 0.6) {
-        this.ctx.fillStyle = '#1d2330';
+        this.ctx.fillStyle = "#1d2330";
         this.ctx.font = `${12 / this.zoom}px "IBM Plex Sans", sans-serif`;
-        this.ctx.textAlign = 'center';
+        this.ctx.textAlign = "center";
         this.ctx.fillText(node.name, node.x, node.y + 18 / this.zoom);
       }
     }
@@ -261,16 +307,16 @@ class GraphVisualizer {
     this.zoom = 1;
     this.highlighted.clear();
     this.selectedNode = null;
-    document.getElementById('nodeTitle').textContent = 'Select a node';
-    document.getElementById('nodeDetails').innerHTML = '';
-    document.getElementById('nodeRelations').innerHTML = '';
+    document.getElementById("nodeTitle").textContent = "Select a node";
+    document.getElementById("nodeDetails").innerHTML = "";
+    document.getElementById("nodeRelations").innerHTML = "";
   }
 
   toGraphPoint(event) {
     const rect = this.canvas.getBoundingClientRect();
     return {
       x: (event.clientX - rect.left - this.offsetX) / this.zoom,
-      y: (event.clientY - rect.top - this.offsetY) / this.zoom
+      y: (event.clientY - rect.top - this.offsetY) / this.zoom,
     };
   }
 
@@ -293,23 +339,42 @@ class GraphVisualizer {
     this.selectedNode = node.id;
     this.highlighted = new Set([
       node.id,
-      ...node.outgoing.map(edge => edge.to),
-      ...node.incoming.map(edge => edge.from)
+      ...node.outgoing.map((edge) => edge.to),
+      ...node.incoming.map((edge) => edge.from),
     ]);
 
-    document.getElementById('nodeTitle').textContent = `${node.name} (${node.type})`;
-    document.getElementById('nodeDetails').innerHTML = [
-      this.detailRow('Full name', node.fullName || 'not found'),
-      this.detailRow('Summary', node.summary || 'unknown'),
-      this.detailRow('Source', node.location ? `${node.location.file}:${node.location.startLine}` : 'not found'),
-      this.detailRow('Provenance', node.provenance?.type || 'unknown')
-    ].join('');
+    document.getElementById("nodeTitle").textContent =
+      `${node.name} (${node.type})`;
+    document.getElementById("nodeDetails").innerHTML = [
+      this.detailRow("Full name", node.fullName || "not found"),
+      this.detailRow("Summary", node.summary || "unknown"),
+      this.detailRow(
+        "Source",
+        node.location
+          ? `${node.location.file}:${node.location.startLine}`
+          : "not found",
+      ),
+      this.detailRow("Provenance", node.provenance?.type || "unknown"),
+    ].join("");
 
     const relations = [
-      ...node.outgoing.slice(0, 8).map(edge => this.relationRow(edge.type, edge.target?.name || edge.to, 'outgoing')),
-      ...node.incoming.slice(0, 8).map(edge => this.relationRow(edge.type, edge.source?.name || edge.from, 'incoming'))
+      ...node.outgoing
+        .slice(0, 8)
+        .map((edge) =>
+          this.relationRow(edge.type, edge.target?.name || edge.to, "outgoing"),
+        ),
+      ...node.incoming
+        .slice(0, 8)
+        .map((edge) =>
+          this.relationRow(
+            edge.type,
+            edge.source?.name || edge.from,
+            "incoming",
+          ),
+        ),
     ];
-    document.getElementById('nodeRelations').innerHTML = relations.join('') || '<div class="relation-row">No related nodes</div>';
+    document.getElementById("nodeRelations").innerHTML =
+      relations.join("") || '<div class="relation-row">No related nodes</div>';
   }
 
   detailRow(label, value) {
@@ -321,50 +386,108 @@ class GraphVisualizer {
   }
 
   renderLegend() {
-    const legend = document.getElementById('legend');
-    legend.innerHTML = Object.entries(this.palette)
+    const legend = document.getElementById("legend");
+
+    const nodeTypes = Object.entries(this.palette)
       .map(
         ([type, color]) =>
-          `<div class="legend-row"><span>${type}</span><span class="swatch" style="background:${color}"></span></div>`
+          `<div class="legend-row"><span>${type}</span><span class="swatch" style="background:${color}"></span></div>`,
       )
-      .join('');
+      .join("");
+
+    const edgeTypes = [
+      "IMPORTS",
+      "EXPORTS",
+      "CALLS",
+      "CALLS_UNRESOLVED",
+      "OWNS",
+      "DEFINES",
+      "USES",
+      "DEPENDS_ON",
+      "TESTS",
+      "DOCUMENTS",
+      "IMPLEMENTS",
+      "EXTENDS",
+      "DECORATES",
+      "REFERENCES",
+      "ENTRY_POINT",
+    ];
+
+    const edgeColors = {
+      IMPORTS: "#1565c0",
+      EXPORTS: "#d32f2f",
+      CALLS: "#2e7d32",
+      CALLS_UNRESOLVED: "#f57f17",
+      OWNS: "#6d4c41",
+      DEFINES: "#1976d2",
+      USES: "#7e57c2",
+      DEPENDS_ON: "#c62828",
+      TESTS: "#8e24aa",
+      DOCUMENTS: "#546e7a",
+      IMPLEMENTS: "#00897b",
+      EXTENDS: "#e64a19",
+      DECORATES: "#5e35b1",
+      REFERENCES: "#0097a7",
+      ENTRY_POINT: "#f57f17",
+    };
+
+    const edgeRows = edgeTypes
+      .map(
+        (type) =>
+          `<div class="legend-row"><span>${type}</span><span class="swatch" style="background:${edgeColors[type] || "#000"}"></span></div>`,
+      )
+      .join("");
+
+    legend.innerHTML = `
+      <div style="border-bottom: 1px solid #ccc; padding-bottom: 8px; margin-bottom: 8px;">
+        <strong>Node Types</strong>
+        ${nodeTypes}
+      </div>
+      <div>
+        <strong>Edge Types</strong>
+        ${edgeRows}
+      </div>
+    `;
   }
 
   updateStats(stats) {
-    const container = document.getElementById('stats');
+    const container = document.getElementById("stats");
     const rows = [
-      ['Nodes', stats.nodeCount],
-      ['Edges', stats.edgeCount],
-      ...Object.entries(stats.nodesByType).slice(0, 8)
+      ["Nodes", stats.nodeCount],
+      ["Edges", stats.edgeCount],
+      ...Object.entries(stats.nodesByType).slice(0, 8),
     ];
     container.innerHTML = rows
-      .map(([label, value]) => `<div class="stats-row"><span>${this.escapeHtml(String(label))}</span><strong>${this.escapeHtml(String(value))}</strong></div>`)
-      .join('');
+      .map(
+        ([label, value]) =>
+          `<div class="stats-row"><span>${this.escapeHtml(String(label))}</span><strong>${this.escapeHtml(String(value))}</strong></div>`,
+      )
+      .join("");
   }
 
   async search() {
-    const query = document.getElementById('searchInput').value.trim();
+    const query = document.getElementById("searchInput").value.trim();
     if (!query) {
       return;
     }
 
     const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
     const results = await response.json();
-    const container = document.getElementById('searchResults');
+    const container = document.getElementById("searchResults");
     container.innerHTML = results
       .slice(0, 12)
       .map(
-        result => `
+        (result) => `
           <div class="search-result" data-node-id="${this.escapeHtml(result.id)}">
             <strong>${this.escapeHtml(result.name)}</strong>
-            <span>${this.escapeHtml(result.type)} · ${this.escapeHtml(result.fullName || 'unknown')}</span>
+            <span>${this.escapeHtml(result.type)} · ${this.escapeHtml(result.fullName || "unknown")}</span>
           </div>
-        `
+        `,
       )
-      .join('');
+      .join("");
 
-    for (const element of container.querySelectorAll('.search-result')) {
-      element.addEventListener('click', () => {
+    for (const element of container.querySelectorAll(".search-result")) {
+      element.addEventListener("click", () => {
         this.selectNode(element.dataset.nodeId);
       });
     }
@@ -388,17 +511,17 @@ class GraphVisualizer {
 
   escapeHtml(value) {
     return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  const visualizer = new GraphVisualizer('graphCanvas');
-  visualizer.loadGraph().catch(error => {
-    console.error('Failed to load graph', error);
+window.addEventListener("DOMContentLoaded", () => {
+  const visualizer = new GraphVisualizer("graphCanvas");
+  visualizer.loadGraph().catch((error) => {
+    console.error("Failed to load graph", error);
   });
 });
