@@ -60,6 +60,8 @@ export interface GraphNode {
   type: NodeType;
   name: string;
   fullName?: string;
+  canonicalName?: string;
+  importance?: number;
   location?: SourceSpan;
   summary?: string;
   metadata?: Record<string, unknown>;
@@ -130,6 +132,8 @@ export interface SummaryRecord {
 }
 
 export interface ExportBundle {
+  version?: string;
+  fingerprint?: string;
   project: ProjectMetadata;
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -148,6 +152,19 @@ export interface ExportBundle {
 }
 
 export interface AIExportBundle extends ExportBundle {
+  summary?: {
+    entryPoints: string[];
+    coreModules: string[];
+    keySymbols: Array<{
+      id: string;
+      canonicalName: string;
+      role?: string;
+      importance: number;
+    }>;
+    cycles: string[][];
+    unresolvedCount: number;
+  };
+  callChains?: string[][];
   ranking?: RankingScore[];
   focus?: string;
   rules: string[];

@@ -4,6 +4,7 @@ import { indexCommand } from "./commands/index.js";
 import { updateCommand } from "./commands/update.js";
 import { graphCommand } from "./commands/graph.js";
 import { exportCommand } from "./commands/export.js";
+import { watchCommand } from "./commands/watch.js";
 import { logger } from "../utils/index.js";
 
 export function setupCLI(): Command {
@@ -54,6 +55,26 @@ export function setupCLI(): Command {
     });
 
   program
+    .command("watch")
+    .description("Watch the repository and update the graph when files change")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--interval <ms>", "Polling interval in milliseconds", "1000")
+    .action(async (options) => {
+      try {
+        const intervalMs = parseInt(options.interval);
+        if (isNaN(intervalMs) || intervalMs < 250) {
+          logger.error("Interval must be a number >= 250");
+          process.exit(1);
+        }
+
+        await watchCommand(options.path, { intervalMs });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
     .command("graph")
     .description("Start the interactive graph visualization server")
     .option("-p, --path <path>", "Project root path", process.cwd())
@@ -80,6 +101,7 @@ export function setupCLI(): Command {
     .option("--format <format>", "Export format: json, yaml, ai", "json")
     .option("--focus <module>", "Focus on specific module or symbol")
     .option("--max-tokens <number>", "Maximum tokens for AI export (optional)")
+    .option("--top <number>", "Export only the top N most important AI nodes")
     .action(async (options) => {
       try {
         const validFormats = ["json", "yaml", "ai"];
@@ -99,11 +121,21 @@ export function setupCLI(): Command {
           }
         }
 
+        let top: number | undefined;
+        if (options.top) {
+          top = parseInt(options.top);
+          if (isNaN(top) || top < 1) {
+            logger.error("Top must be a number >= 1");
+            process.exit(1);
+          }
+        }
+
         const output = await exportCommand(
           options.path,
           options.format,
           options.focus,
           maxTokens,
+          top,
         );
         console.log(output);
       } catch (error) {

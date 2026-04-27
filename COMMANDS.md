@@ -29,9 +29,18 @@ code-brain export --path /path/to/project --format yaml
 
 # AI format (optimized for LLM)
 code-brain export --path /path/to/project --format ai --max-tokens 2000
+
+# Top-N AI export for constrained context windows
+code-brain export --path /path/to/project --format ai --top 50
 ```
 
-### 4. View Graph Visualization
+### 4. Watch For Changes
+
+```bash
+code-brain watch --path /path/to/project
+```
+
+### 5. View Graph Visualization
 
 ```bash
 code-brain graph --path /path/to/project
@@ -142,6 +151,9 @@ code-brain export --format yaml > graph.yaml
 # Re-index project (detects changes)
 code-brain index --path /path/to/project
 
+# Keep graph updated as files change
+code-brain watch --path /path/to/project
+
 # Export incremental changes
 code-brain export --format json > updated-graph.json
 ```
@@ -170,6 +182,7 @@ code-brain export [options]
   --format <format>          json|yaml|ai (default: json)
   --focus <target>           Focus on specific file/symbol (optional)
   --max-tokens <number>      Token budget for AI export (optional)
+  --top <number>             Limit AI export to top N important nodes
 ```
 
 ### `graph` - View graph
@@ -185,6 +198,14 @@ code-brain graph [options]
 ```bash
 code-brain update [options]
   --path <path>              Repository path
+```
+
+### `watch` - Auto-update graph
+
+```bash
+code-brain watch [options]
+  --path <path>              Repository path
+  --interval <ms>            Polling interval (default: 1000)
 ```
 
 ---

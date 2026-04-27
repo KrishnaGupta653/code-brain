@@ -42,7 +42,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 390px;
+  grid-template-columns: var(--left-width, 320px) 8px minmax(0, 1fr) 8px var(--right-width, 390px);
   height: 100vh;
   overflow: hidden;
   background:
@@ -72,6 +72,51 @@ button {
 .right-rail {
   padding: 18px;
   border-left: 1px solid var(--line);
+}
+
+.panel-resizer {
+  position: relative;
+  z-index: 4;
+  cursor: col-resize;
+  background:
+    linear-gradient(90deg, rgba(76, 201, 240, 0.08), transparent 48%, rgba(76, 201, 240, 0.08)),
+    rgba(7, 9, 13, 0.68);
+  border-inline: 1px solid rgba(148, 163, 184, 0.12);
+  touch-action: none;
+}
+
+.panel-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 18px 2px;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(226, 232, 240, 0.55) 0 3px,
+      transparent 3px 8px
+    ),
+    rgba(148, 163, 184, 0.16);
+  transition:
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.panel-resizer:hover::after,
+.is-resizing .panel-resizer::after {
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.86) 0 3px,
+      transparent 3px 8px
+    ),
+    rgba(76, 201, 240, 0.78);
+  box-shadow: 0 0 18px rgba(76, 201, 240, 0.32);
+}
+
+.is-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .brand-block {
@@ -280,8 +325,10 @@ small {
   position: relative;
   min-width: 0;
   overflow: hidden;
+  cursor: grab;
   background:
-    radial-gradient(circle at 50% 45%, rgba(76, 201, 240, 0.12), transparent 42%),
+    radial-gradient(circle at 50% 45%, rgba(76, 201, 240, 0.17), transparent 37%),
+    radial-gradient(circle at 50% 45%, transparent 43%, rgba(76, 201, 240, 0.12) 44%, transparent 47%),
     linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
     #080b11;
@@ -290,6 +337,10 @@ small {
     38px 38px,
     38px 38px,
     auto;
+}
+
+.graph-stage:active {
+  cursor: grabbing;
 }
 
 .sigma-stage {
@@ -319,10 +370,16 @@ small {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .inspector-head span {
   margin-bottom: 0;
+}
+
+.inspector-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .inspector-head button {
@@ -495,7 +552,11 @@ small {
 
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 280px 8px minmax(0, 1fr);
+  }
+
+  .panel-resizer:last-of-type {
+    display: none;
   }
 
   .right-rail {
@@ -522,6 +583,10 @@ small {
     width: auto;
     max-height: none;
     border: 0;
+  }
+
+  .panel-resizer {
+    display: none;
   }
 
   .graph-stage {

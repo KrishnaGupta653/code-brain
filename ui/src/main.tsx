@@ -29,6 +29,7 @@ import {
   NodeDetails,
   SourcePayload,
 } from "./types";
+// @ts-ignore - CSS side-effect import is handled by the bundler
 import "./styles.css";
 
 const NODE_COLORS: Record<string, string> = {
@@ -85,6 +86,66 @@ function relativeLabel(value?: string): string {
   return value.replace(/\\/g, "/").split("/").slice(-4).join("/");
 }
 
+type LabelData = {
+  x: number;
+  y: number;
+  size: number;
+  label: string | null;
+  color: string;
+};
+
+type LabelSettings = {
+  labelSize: number;
+  labelFont: string;
+  labelWeight: string;
+  labelColor: { color?: string; attribute?: string };
+};
+
+function drawCleanNodeLabel(
+  context: CanvasRenderingContext2D,
+  data: LabelData,
+  settings: LabelSettings,
+) {
+  if (!data.label) return;
+  const size = settings.labelSize;
+  context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
+  context.fillStyle = settings.labelColor.color || "#dbeafe";
+  context.shadowColor = "rgba(2, 6, 23, 0.9)";
+  context.shadowBlur = 7;
+  context.lineWidth = 3;
+  context.strokeStyle = "rgba(2, 6, 23, 0.78)";
+  context.strokeText(data.label, data.x + data.size + 5, data.y + size / 3);
+  context.fillText(data.label, data.x + data.size + 5, data.y + size / 3);
+  context.shadowBlur = 0;
+}
+
+function drawCleanNodeHover(
+  context: CanvasRenderingContext2D,
+  data: LabelData,
+  settings: LabelSettings,
+) {
+  context.beginPath();
+  context.arc(data.x, data.y, data.size + 4, 0, Math.PI * 2);
+  context.strokeStyle = "rgba(76, 201, 240, 0.9)";
+  context.lineWidth = 2;
+  context.stroke();
+  drawCleanNodeLabel(context, data, settings);
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) return hex;
+  const value = Number.parseInt(normalized, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 function useGraphData() {
   const [payload, setPayload] = useState<GraphPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,10 +181,57 @@ function GraphStage({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
+  const rotationRef = useRef({ x: -0.18, y: 0.42 });
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    rotationX: number;
+    rotationY: number;
+  } | null>(null);
   const nodeLookup = useMemo(
     () => new Map(payload.nodes.map((node) => [node.id, node])),
     [payload.nodes],
   );
+
+  const projectSphere = useCallback(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+
+    const { x: pitch, y: yaw } = rotationRef.current;
+    const cosY = Math.cos(yaw);
+    const sinY = Math.sin(yaw);
+    const cosX = Math.cos(pitch);
+    const sinX = Math.sin(pitch);
+    const maxDepth = Math.max(
+      1,
+      ...graph.nodes().map((id) =>
+        Math.abs(Number(graph.getNodeAttribute(id, "baseZ") ?? 0)),
+      ),
+    );
+
+    graph.forEachNode((id, attrs) => {
+      const baseX = Number(attrs.baseX ?? attrs.x ?? 0);
+      const baseY = Number(attrs.baseY ?? attrs.y ?? 0);
+      const baseZ = Number(attrs.baseZ ?? 0);
+      const yawX = baseX * cosY + baseZ * sinY;
+      const yawZ = -baseX * sinY + baseZ * cosY;
+      const projectedY = baseY * cosX - yawZ * sinX;
+      const projectedZ = baseY * sinX + yawZ * cosX;
+      const depthScale = 0.72 + ((projectedZ / maxDepth + 1) / 2) * 0.56;
+      const baseSize = Number(attrs.baseSize ?? attrs.size ?? 4);
+      const baseColor = String(attrs.baseColor || attrs.color || "#e2e8f0");
+
+      graph.setNodeAttribute(id, "x", yawX);
+      graph.setNodeAttribute(id, "y", projectedY);
+      graph.setNodeAttribute(id, "size", baseSize * depthScale);
+      graph.setNodeAttribute(id, "color", hexToRgba(baseColor, 0.62 + depthScale * 0.28));
+      graph.setNodeAttribute(id, "zIndex", Math.round(depthScale * 100));
+    });
+
+    sigma.refresh();
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -134,12 +242,17 @@ function GraphStage({
     payload.nodes.forEach((node, index) => {
       const angle = (index / Math.max(1, payload.nodes.length)) * Math.PI * 2;
       const communityOffset = node.type.charCodeAt(0) % 9;
+      const depthAngle = angle * 1.7 + communityOffset;
+      const baseSize = nodeSize(node);
       graph.addNode(node.id, {
         label: node.name,
         x: Math.cos(angle) * radius + communityOffset * 3,
         y: Math.sin(angle) * radius + communityOffset * 3,
-        size: nodeSize(node),
+        z: Math.sin(depthAngle) * radius * 0.72,
+        size: baseSize,
         color: NODE_COLORS[node.type] || "#e2e8f0",
+        baseColor: NODE_COLORS[node.type] || "#e2e8f0",
+        baseSize,
         semanticType: node.type,
       });
     });
@@ -150,6 +263,7 @@ function GraphStage({
           label: edge.type,
           size: edge.resolved ? 1.2 : 0.8,
           color: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
+          baseColor: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
           type: "arrow",
         });
       }
@@ -162,6 +276,12 @@ function GraphStage({
       });
     }
 
+    graph.forEachNode((id, attrs) => {
+      graph.setNodeAttribute(id, "baseX", attrs.x);
+      graph.setNodeAttribute(id, "baseY", attrs.y);
+      graph.setNodeAttribute(id, "baseZ", attrs.z ?? 0);
+    });
+
     const sigma = new Sigma(graph, containerRef.current, {
       allowInvalidContainer: true,
       renderEdgeLabels: false,
@@ -169,6 +289,11 @@ function GraphStage({
       labelColor: { color: "#dbeafe" },
       labelSize: 12,
       labelWeight: "600",
+      labelDensity: 0.04,
+      labelGridCellSize: 120,
+      labelRenderedSizeThreshold: 16,
+      defaultDrawNodeLabel: drawCleanNodeLabel,
+      defaultDrawNodeHover: drawCleanNodeHover,
       minCameraRatio: 0.08,
       maxCameraRatio: 4,
     });
@@ -178,13 +303,14 @@ function GraphStage({
     sigma.on("leaveNode", () => onHover(null));
     sigmaRef.current = sigma;
     graphRef.current = graph;
+    projectSphere();
 
     return () => {
       sigma.kill();
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [payload, onSelect, onHover]);
+  }, [payload, onSelect, onHover, projectSphere]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -203,20 +329,41 @@ function GraphStage({
       const visibleByType = node ? activeTypes.has(node.type) : true;
       const related = !focusId || selectedNeighbors.has(id);
       graph.setNodeAttribute(id, "hidden", !visibleByType);
-      graph.setNodeAttribute(id, "color", related ? attrs.color : "#334155");
+      graph.setNodeAttribute(
+        id,
+        "color",
+        related
+          ? attrs.color || attrs.baseColor
+          : hexToRgba(String(attrs.baseColor || attrs.color || "#e2e8f0"), 0.44),
+      );
+      graph.setNodeAttribute(id, "highlighted", id === selectedId || id === hoveredId);
+      graph.setNodeAttribute(id, "forceLabel", id === selectedId || id === hoveredId);
       graph.setNodeAttribute(id, "zIndex", id === selectedId ? 10 : related ? 2 : 0);
       graph.setNodeAttribute(
         id,
         "size",
-        node ? nodeSize(node) * (id === selectedId ? 1.35 : related ? 1 : 0.75) : attrs.size,
+        Number(attrs.size ?? (node ? nodeSize(node) : 4)) *
+          (id === selectedId ? 1.25 : related ? 1 : 0.9),
       );
     });
 
     graph.forEachEdge((edgeId, attrs, source, target) => {
-      const related = !focusId || selectedNeighbors.has(source) || selectedNeighbors.has(target);
-      graph.setEdgeAttribute(edgeId, "hidden", !related);
-      graph.setEdgeAttribute(edgeId, "color", related ? attrs.color : "#1e293b");
-      graph.setEdgeAttribute(edgeId, "size", related ? 1.5 : 0.4);
+      const sourceVisible = !graph.getNodeAttribute(source, "hidden");
+      const targetVisible = !graph.getNodeAttribute(target, "hidden");
+      const related =
+        !focusId || selectedNeighbors.has(source) || selectedNeighbors.has(target);
+      const baseColor = String(attrs.baseColor || attrs.color || "#64748b");
+      graph.setEdgeAttribute(edgeId, "hidden", false);
+      graph.setEdgeAttribute(
+        edgeId,
+        "color",
+        related ? baseColor : hexToRgba(baseColor, 0.34),
+      );
+      graph.setEdgeAttribute(
+        edgeId,
+        "size",
+        sourceVisible && targetVisible ? (related ? 1.7 : 0.75) : 0.4,
+      );
     });
 
     if (selectedId && graph.hasNode(selectedId)) {
@@ -242,8 +389,52 @@ function GraphStage({
     sigmaRef.current?.getCamera().animatedReset({ duration: 300 });
   };
 
+  const resetSphere = () => {
+    rotationRef.current = { x: -0.18, y: 0.42 };
+    projectSphere();
+    resetCamera();
+  };
+
+  const startSphereDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest(".graph-actions")) return;
+    if (!event.shiftKey && !event.altKey && event.button !== 1) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      rotationX: rotationRef.current.x,
+      rotationY: rotationRef.current.y,
+    };
+  };
+
+  const rotateSphere = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    rotationRef.current = {
+      x: clamp(drag.rotationX + dy * 0.006, -1.15, 1.15),
+      y: drag.rotationY + dx * 0.006,
+    };
+    projectSphere();
+  };
+
+  const stopSphereDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+  };
+
   return (
-    <section className="graph-stage">
+    <section
+      className="graph-stage"
+      onPointerDown={startSphereDrag}
+      onPointerMove={rotateSphere}
+      onPointerUp={stopSphereDrag}
+      onPointerCancel={stopSphereDrag}
+    >
       <div ref={containerRef} className="sigma-stage" />
       <div className="graph-actions" aria-label="Graph controls">
         <button type="button" title="Zoom in" onClick={() => zoom(0.72)}>
@@ -252,7 +443,7 @@ function GraphStage({
         <button type="button" title="Zoom out" onClick={() => zoom(1.28)}>
           <ZoomOut size={18} />
         </button>
-        <button type="button" title="Reset camera" onClick={resetCamera}>
+        <button type="button" title="Reset sphere" onClick={resetSphere}>
           <Maximize2 size={18} />
         </button>
       </div>
@@ -269,12 +460,27 @@ function App() {
   const [details, setDetails] = useState<NodeDetails | null>(null);
   const [source, setSource] = useState<SourcePayload | null>(null);
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set());
+  const [leftWidth, setLeftWidth] = useState(() =>
+    Number(localStorage.getItem("codebrain:leftWidth") || 320),
+  );
+  const [rightWidth, setRightWidth] = useState(() =>
+    Number(localStorage.getItem("codebrain:rightWidth") || 390),
+  );
+  const shellRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (payload) {
       setActiveTypes(new Set(Object.keys(payload.stats.nodesByType)));
     }
   }, [payload]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:leftWidth", String(leftWidth));
+  }, [leftWidth]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:rightWidth", String(rightWidth));
+  }, [rightWidth]);
 
   const selectNode = useCallback((id: string) => {
     setSelectedId(id);
@@ -326,6 +532,36 @@ function App() {
     });
   };
 
+  const startResize = (side: "left" | "right", event: React.PointerEvent) => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const onPointerMove = (event: PointerEvent) => {
+      const rect = shell.getBoundingClientRect();
+      if (side === "left") {
+        const next = Math.round(event.clientX - rect.left);
+        setLeftWidth(Math.min(520, Math.max(240, next)));
+      } else {
+        const next = Math.round(rect.right - event.clientX);
+        setRightWidth(Math.min(620, Math.max(280, next)));
+      }
+    };
+
+    const stop = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      document.body.classList.remove("is-resizing");
+    };
+
+    document.body.classList.add("is-resizing");
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
+
   if (error) {
     return <div className="loading">Graph failed to load: {error}</div>;
   }
@@ -338,7 +574,14 @@ function App() {
   const topHubs = payload.analytics?.hubs.slice(0, 5) || [];
 
   return (
-    <main className="app-shell">
+    <main
+      ref={shellRef}
+      className="app-shell"
+      style={{
+        "--left-width": `${leftWidth}px`,
+        "--right-width": `${rightWidth}px`,
+      } as React.CSSProperties}
+    >
       <aside className="left-rail">
         <header className="brand-block">
           <div className="brand-mark"><Network size={22} /></div>
@@ -424,6 +667,14 @@ function App() {
         </section>
       </aside>
 
+      <div
+        className="panel-resizer"
+        role="separator"
+        aria-label="Resize left panel"
+        aria-orientation="vertical"
+        onPointerDown={(event) => startResize("left", event)}
+      />
+
       <GraphStage
         payload={payload}
         selectedId={selectedId}
@@ -433,18 +684,28 @@ function App() {
         onHover={setHoveredId}
       />
 
+      <div
+        className="panel-resizer"
+        role="separator"
+        aria-label="Resize live node panel"
+        aria-orientation="vertical"
+        onPointerDown={(event) => startResize("right", event)}
+      />
+
       <aside className="right-rail">
         <section className="inspector-head">
           <span><Sparkles size={16} /> Live Node</span>
-          {selectedNode && (
-            <button type="button" title="Clear selection" onClick={() => {
-              setSelectedId(null);
-              setDetails(null);
-              setSource(null);
-            }}>
-              <X size={16} />
-            </button>
-          )}
+          <div className="inspector-actions">
+            {selectedNode && (
+              <button type="button" title="Clear selection" onClick={() => {
+                setSelectedId(null);
+                setDetails(null);
+                setSource(null);
+              }}>
+                <X size={16} />
+              </button>
+            )}
+          </div>
         </section>
 
         {selectedNode ? (

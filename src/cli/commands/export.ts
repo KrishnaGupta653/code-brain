@@ -12,6 +12,7 @@ export async function exportCommand(
   format: "json" | "yaml" | "ai" = "json",
   focus?: string,
   maxTokens?: number,
+  top?: number,
 ): Promise<string> {
   logger.info(`Exporting code-brain graph (format: ${format})`);
 
@@ -117,6 +118,7 @@ export async function exportCommand(
         focus,
         analyticsResult,
         tokenBudget,
+        top,
       );
       output = JSON.stringify(bundle, null, 2);
     } else if (format === "json") {

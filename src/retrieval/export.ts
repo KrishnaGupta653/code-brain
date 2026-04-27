@@ -1,4 +1,5 @@
 import { stringify as toYAML } from "yaml";
+import crypto from "crypto";
 import {
   AIExportBundle,
   AnalyticsResult,
@@ -17,6 +18,7 @@ export interface ExportOptions {
   format: "json" | "yaml" | "ai";
   focus?: string;
   maxTokens?: number;
+  top?: number;
 }
 
 export class ExportEngine {
@@ -32,12 +34,18 @@ export class ExportEngine {
     focus?: string,
     analyticsResult?: AnalyticsResult,
     maxTokens?: number,
+    top?: number,
   ): AIExportBundle {
-    let optimizedResult = queryResult;
+    const importance = this.computeImportance(queryResult);
+    let optimizedResult = this.prepareAIQueryResult(
+      queryResult,
+      importance,
+      top,
+    );
 
     if (maxTokens) {
       optimizedResult = this.pruneByTokenBudget(
-        queryResult,
+        optimizedResult,
         maxTokens,
         analyticsResult,
       );
@@ -45,9 +53,11 @@ export class ExportEngine {
 
     return {
       ...this.createBundle(optimizedResult, "ai", focus),
+      summary: this.buildAISummary(optimizedResult, importance),
+      callChains: this.extractCallChains(optimizedResult, 5, 20),
       ranking: analyticsResult
         ? this.buildRankingFromAnalytics(analyticsResult)
-        : undefined,
+        : this.buildRankingFromImportance(importance),
       focus,
       rules: this.getAIRules(),
     };
@@ -205,16 +215,27 @@ export class ExportEngine {
     format: "json" | "yaml" | "ai",
     focus?: string,
   ): ExportBundle {
-    const nodes = [...queryResult.nodes].sort(
-      (a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name),
-    );
-    const edges = [...queryResult.edges].sort(
-      (a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id),
-    );
+    const importance = this.computeImportance(queryResult);
+    const nodes = [...queryResult.nodes].sort((a, b) => {
+      if (format === "ai") {
+        const scoreDelta =
+          (importance.get(b.id) ?? 0) - (importance.get(a.id) ?? 0);
+        if (scoreDelta !== 0) return scoreDelta;
+      }
+      return a.type.localeCompare(b.type) || a.name.localeCompare(b.name);
+    });
+    const edges = [...queryResult.edges].sort((a, b) => {
+      if (format === "ai" && a.resolved !== b.resolved) {
+        return a.resolved ? -1 : 1;
+      }
+      return a.type.localeCompare(b.type) || a.id.localeCompare(b.id);
+    });
 
     return {
+      version: format === "ai" ? "codebrain-ai/v2" : "codebrain-export/v1",
+      fingerprint: this.computeFingerprint(nodes, edges),
       project: this.projectMetadata,
-      nodes: nodes.map((node) => this.serializeNode(node)),
+      nodes: nodes.map((node) => this.serializeNode(node, importance)),
       edges: edges.map((edge) => this.serializeEdge(edge)),
       summaries: this.buildSummaries(nodes),
       query: {
@@ -305,6 +326,19 @@ export class ExportEngine {
     return ranking.sort((a, b) => b.score - a.score).slice(0, 50);
   }
 
+  private buildRankingFromImportance(
+    importance: Map<string, number>,
+  ): RankingScore[] {
+    return Array.from(importance.entries())
+      .map(([nodeId, score]) => ({
+        nodeId,
+        score,
+        algorithm: "degree_importance",
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 50);
+  }
+
   private buildEvidence(nodes: GraphNode[], edges: GraphEdge[]): SourceSpan[] {
     const seen = new Set<string>();
     const evidence: SourceSpan[] = [];
@@ -340,9 +374,14 @@ export class ExportEngine {
       .slice(0, 100);
   }
 
-  private serializeNode(node: GraphNode): GraphNode {
+  private serializeNode(
+    node: GraphNode,
+    importance: Map<string, number> = new Map(),
+  ): GraphNode {
     return {
       ...node,
+      canonicalName: this.getCanonicalName(node),
+      importance: Number((importance.get(node.id) ?? 0).toFixed(4)),
       location: node.location ? this.stripSourceText(node.location) : undefined,
       summary: node.summary || "unknown",
       metadata: {
@@ -356,6 +395,269 @@ export class ExportEngine {
         ),
       },
     };
+  }
+
+  private prepareAIQueryResult(
+    queryResult: QueryResult,
+    importance: Map<string, number>,
+    top?: number,
+  ): QueryResult {
+    const nodes = queryResult.nodes
+      .filter((node) => !this.isAINoiseNode(node))
+      .sort(
+        (a, b) => (importance.get(b.id) ?? 0) - (importance.get(a.id) ?? 0),
+      );
+    const selectedNodes = typeof top === "number" ? nodes.slice(0, top) : nodes;
+    const selectedIds = new Set(selectedNodes.map((node) => node.id));
+    const edges = queryResult.edges.filter(
+      (edge) =>
+        (selectedIds.has(edge.from) && selectedIds.has(edge.to)) ||
+        (edge.type === "ENTRY_POINT" && selectedIds.has(edge.to)),
+    );
+
+    return {
+      ...queryResult,
+      nodes: selectedNodes,
+      edges,
+      truncated:
+        queryResult.truncated ||
+        selectedNodes.length < queryResult.nodes.length,
+    };
+  }
+
+  private isAINoiseNode(node: GraphNode): boolean {
+    return (
+      node.name.startsWith("env:") ||
+      node.name.startsWith("config:dotenv") ||
+      String(node.fullName || "").startsWith("env:") ||
+      String(node.fullName || "").startsWith("config:dotenv")
+    );
+  }
+
+  private computeImportance(queryResult: QueryResult): Map<string, number> {
+    const scores = new Map<string, number>();
+    const nodes = queryResult.nodes;
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const incoming = new Map<string, number>();
+    const outgoing = new Map<string, number>();
+    const entryPoints = new Set(
+      queryResult.edges
+        .filter((edge) => edge.type === "ENTRY_POINT")
+        .map((edge) => edge.to),
+    );
+
+    for (const edge of queryResult.edges) {
+      if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) continue;
+      outgoing.set(edge.from, (outgoing.get(edge.from) ?? 0) + 1);
+      incoming.set(edge.to, (incoming.get(edge.to) ?? 0) + 1);
+    }
+
+    const denominator = Math.max(1, nodes.length * 0.1);
+    for (const node of nodes) {
+      const typeBoost = [
+        "project",
+        "file",
+        "class",
+        "function",
+        "method",
+        "route",
+      ].includes(node.type)
+        ? 0.15
+        : 0;
+      const entryBoost = entryPoints.has(node.id) ? 0.35 : 0;
+      const score =
+        ((incoming.get(node.id) ?? 0) * 1.5 + (outgoing.get(node.id) ?? 0)) /
+          denominator +
+        typeBoost +
+        entryBoost;
+      scores.set(node.id, Math.min(1, Number(score.toFixed(4))));
+    }
+
+    return scores;
+  }
+
+  private buildAISummary(
+    queryResult: QueryResult,
+    importance: Map<string, number>,
+  ): AIExportBundle["summary"] {
+    const nodeById = new Map(queryResult.nodes.map((node) => [node.id, node]));
+    const entryPoints = queryResult.edges
+      .filter((edge) => edge.type === "ENTRY_POINT")
+      .map((edge) => nodeById.get(edge.to))
+      .filter((node): node is GraphNode => Boolean(node))
+      .map((node) => this.getCanonicalName(node))
+      .sort();
+    const coreModules = queryResult.nodes
+      .filter((node) => node.type === "file" || node.type === "module")
+      .sort((a, b) => (importance.get(b.id) ?? 0) - (importance.get(a.id) ?? 0))
+      .slice(0, 12)
+      .map((node) => this.getCanonicalName(node));
+    const keySymbols = queryResult.nodes
+      .filter((node) => !["project", "file", "module"].includes(node.type))
+      .sort((a, b) => (importance.get(b.id) ?? 0) - (importance.get(a.id) ?? 0))
+      .slice(0, 20)
+      .map((node) => ({
+        id: node.id,
+        canonicalName: this.getCanonicalName(node),
+        role: node.semanticRole,
+        importance: Number((importance.get(node.id) ?? 0).toFixed(4)),
+      }));
+    const unresolvedCount = queryResult.edges.filter(
+      (edge) => edge.type === "CALLS_UNRESOLVED" || !edge.resolved,
+    ).length;
+
+    return {
+      entryPoints,
+      coreModules,
+      keySymbols,
+      cycles: this.detectCycles(queryResult, 25),
+      unresolvedCount,
+    };
+  }
+
+  private extractCallChains(
+    queryResult: QueryResult,
+    maxDepth: number,
+    limit: number,
+  ): string[][] {
+    const nodeById = new Map(queryResult.nodes.map((node) => [node.id, node]));
+    const outgoingCalls = new Map<string, string[]>();
+    for (const edge of queryResult.edges) {
+      if (edge.type !== "CALLS" || !edge.resolved) continue;
+      const targets = outgoingCalls.get(edge.from) || [];
+      targets.push(edge.to);
+      outgoingCalls.set(edge.from, targets);
+    }
+
+    const entryIds = queryResult.edges
+      .filter((edge) => edge.type === "ENTRY_POINT")
+      .map((edge) => edge.to)
+      .filter((id) => nodeById.has(id));
+    const seeds =
+      entryIds.length > 0
+        ? entryIds
+        : queryResult.nodes
+            .filter((node) =>
+              ["function", "method", "route"].includes(node.type),
+            )
+            .slice(0, 10)
+            .map((node) => node.id);
+    const chains: string[][] = [];
+
+    const visit = (nodeId: string, path: string[]): void => {
+      if (chains.length >= limit) return;
+      const nextPath = [...path, nodeId];
+      const targets = outgoingCalls.get(nodeId) || [];
+      if (targets.length === 0 || nextPath.length >= maxDepth) {
+        if (nextPath.length > 1) {
+          chains.push(
+            nextPath
+              .map((id) => nodeById.get(id))
+              .filter((node): node is GraphNode => Boolean(node))
+              .map((node) => this.getCanonicalName(node)),
+          );
+        }
+        return;
+      }
+      for (const target of targets.slice(0, 6)) {
+        if (!nextPath.includes(target)) {
+          visit(target, nextPath);
+        }
+      }
+    };
+
+    for (const seed of seeds) {
+      visit(seed, []);
+      if (chains.length >= limit) break;
+    }
+
+    return chains;
+  }
+
+  private detectCycles(queryResult: QueryResult, limit: number): string[][] {
+    const nodeById = new Map(queryResult.nodes.map((node) => [node.id, node]));
+    const adjacency = new Map<string, string[]>();
+    const cycleEdgeTypes = new Set([
+      "IMPORTS",
+      "DEPENDS_ON",
+      "EXTENDS",
+      "IMPLEMENTS",
+    ]);
+    for (const edge of queryResult.edges) {
+      if (!cycleEdgeTypes.has(edge.type) || !edge.resolved) continue;
+      if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
+      const targets = adjacency.get(edge.from) || [];
+      targets.push(edge.to);
+      adjacency.set(edge.from, targets);
+    }
+
+    const cycles: string[][] = [];
+    const seenCycles = new Set<string>();
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const stack: string[] = [];
+
+    const visit = (nodeId: string): void => {
+      if (cycles.length >= limit) return;
+      if (visiting.has(nodeId)) {
+        const start = stack.indexOf(nodeId);
+        if (start >= 0) {
+          const cycleIds = [...stack.slice(start), nodeId];
+          const names = cycleIds
+            .map((id) => nodeById.get(id))
+            .filter((node): node is GraphNode => Boolean(node))
+            .map((node) => this.getCanonicalName(node));
+          const key = [...new Set(names)].sort().join("|");
+          if (!seenCycles.has(key)) {
+            seenCycles.add(key);
+            cycles.push(names);
+          }
+        }
+        return;
+      }
+      if (visited.has(nodeId)) return;
+
+      visiting.add(nodeId);
+      stack.push(nodeId);
+      for (const target of adjacency.get(nodeId) || []) {
+        visit(target);
+      }
+      stack.pop();
+      visiting.delete(nodeId);
+      visited.add(nodeId);
+    };
+
+    for (const node of queryResult.nodes) {
+      visit(node.id);
+      if (cycles.length >= limit) break;
+    }
+
+    return cycles;
+  }
+
+  private getCanonicalName(node: GraphNode): string {
+    return node.semanticPath || node.fullName || node.name;
+  }
+
+  private computeFingerprint(nodes: GraphNode[], edges: GraphEdge[]): string {
+    const payload = JSON.stringify({
+      nodes: nodes.map((node) => [
+        node.id,
+        node.type,
+        this.getCanonicalName(node),
+        node.location?.file,
+        node.location?.startLine,
+        node.location?.endLine,
+      ]),
+      edges: edges.map((edge) => [
+        edge.id,
+        edge.type,
+        edge.from,
+        edge.to,
+        edge.resolved,
+      ]),
+    });
+    return crypto.createHash("sha256").update(payload).digest("hex");
   }
 
   private serializeEdge(edge: GraphEdge): GraphEdge {
