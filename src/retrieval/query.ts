@@ -193,4 +193,47 @@ export class QueryEngine {
       truncated
     };
   }
+
+  buildDeltaQueryResult(modifiedFiles: string[], since: number): QueryResult {
+    // Find all nodes associated with modified files
+    const nodesByFile = new Map<string, string[]>();
+    const affectedNodes = new Set<string>();
+
+    for (const node of this.graph.getNodes()) {
+      const filePath = node.metadata?.filePath ? String(node.metadata.filePath) : (node.location?.file ? String(node.location.file) : null);
+      if (filePath && modifiedFiles.includes(filePath)) {
+        affectedNodes.add(node.id);
+        if (!nodesByFile.has(filePath)) {
+          nodesByFile.set(filePath, []);
+        }
+        nodesByFile.get(filePath)!.push(node.id);
+      }
+    }
+
+    // Find all edges involving affected nodes
+    const affectedEdges = new Map<string, GraphEdge>();
+    for (const edge of this.graph.getEdges()) {
+      if (affectedNodes.has(edge.from) || affectedNodes.has(edge.to)) {
+        affectedEdges.set(edge.id, edge);
+      }
+    }
+
+    // Also collect edges between affected nodes (internal changes)
+    for (const edge of this.graph.getEdges()) {
+      if (affectedNodes.has(edge.from) && affectedNodes.has(edge.to)) {
+        affectedEdges.set(edge.id, edge);
+      }
+    }
+
+    const resultNodes = Array.from(affectedNodes)
+      .map(id => this.graph.getNode(id))
+      .filter((node): node is GraphNode => Boolean(node))
+      .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
+
+    return {
+      nodes: resultNodes,
+      edges: Array.from(affectedEdges.values()).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)),
+      truncated: false
+    };
+  }
 }

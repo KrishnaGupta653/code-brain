@@ -1,15 +1,28 @@
 :root {
   color-scheme: dark;
-  --bg: #07090d;
-  --panel: rgba(15, 20, 29, 0.88);
-  --panel-strong: rgba(21, 28, 40, 0.96);
-  --line: rgba(148, 163, 184, 0.16);
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --accent: #4cc9f0;
-  --accent-2: #f5c542;
+  /* Cypher Mesh Design System */
+  --surface: #0b1326;
+  --surface-container-low: #131b2e;
+  --surface-container-high: #222a3d;
+  --surface-container-highest: #2d3449;
+  --primary: #4cd7f6;
+  --primary-container: #06b6d4;
+  --tertiary: #ffb873;
+  --on-surface: #dae2fd;
+  --on-surface-variant: #bcc9cd;
+  --outline-variant: #3d494c;
+  
+  /* Legacy compat */
+  --bg: #0b1326;
+  --panel: rgba(13, 19, 38, 0.92);
+  --panel-strong: rgba(34, 42, 61, 0.96);
+  --line: transparent;
+  --text: #daa2fd;
+  --muted: #bcc9cd;
+  --accent: #4cd7f6;
+  --accent-2: #ffb873;
   --danger: #fb7185;
-  --shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
 }
 
 * {
@@ -20,8 +33,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--surface);
+  color: var(--on-surface);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -41,37 +54,105 @@ button {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 390px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   height: 100vh;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
-  background:
-    linear-gradient(90deg, rgba(76, 201, 240, 0.08), transparent 26%),
-    linear-gradient(270deg, rgba(245, 197, 66, 0.06), transparent 32%),
-    #07090d;
+  position: relative;
+  background: var(--surface);
+}
+
+.app-shell__graph {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .left-rail,
 .right-rail {
   position: relative;
   z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  border-color: var(--line);
-  background: rgba(7, 9, 13, 0.78);
+  overflow-x: hidden;
+  background: var(--surface-container-low);
   backdrop-filter: blur(18px);
+  box-sizing: border-box;
 }
 
 .left-rail {
   padding: 18px;
-  border-right: 1px solid var(--line);
 }
 
 .right-rail {
   padding: 18px;
-  border-left: 1px solid var(--line);
+}
+
+.resize-handle {
+  cursor: col-resize;
+  background: transparent;
+  transition: background 150ms ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.resize-handle:hover {
+  background: rgba(76, 215, 246, 0.15);
+}
+
+.resize-handle-vertical {
+  width: 6px;
+  height: 100%;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  top: 20px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  background: var(--surface-container-high);
+  color: var(--primary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 150ms ease;
+  z-index: 10;
+}
+
+.sidebar-toggle:hover {
+  border-color: var(--primary);
+  background: var(--surface-container-highest);
+}
+
+.app-shell__graph .sidebar-toggle {
+  z-index: 12;
+}
+
+.left-toggle {
+  left: 8px;
+}
+
+.left-toggle.collapsed {
+  left: 8px;
+}
+
+.right-toggle {
+  right: 8px;
+}
+
+.right-toggle.collapsed {
+  right: 8px;
 }
 
 .brand-block {
@@ -86,11 +167,11 @@ button {
   width: 42px;
   height: 42px;
   place-items: center;
-  border: 1px solid rgba(76, 201, 240, 0.42);
-  border-radius: 8px;
-  color: var(--accent);
-  background: rgba(76, 201, 240, 0.11);
-  box-shadow: 0 0 28px rgba(76, 201, 240, 0.18);
+  border: 1px solid rgba(76, 215, 246, 0.32);
+  border-radius: 4px;
+  color: var(--primary);
+  background: rgba(76, 215, 246, 0.08);
+  box-shadow: 0 0 24px rgba(76, 215, 246, 0.12);
 }
 
 h1,
@@ -107,7 +188,7 @@ p {
 .brand-block p,
 .summary,
 .empty-state p {
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: 0.88rem;
   line-height: 1.45;
 }
@@ -116,10 +197,10 @@ p {
 .node-card,
 .source-panel,
 .empty-state {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  border: none;
+  border-radius: 4px;
+  background: var(--surface-container-high);
+  box-shadow: none;
 }
 
 .tool-panel,
@@ -135,10 +216,11 @@ p {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: #dbeafe;
-  font-size: 0.8rem;
+  color: var(--primary);
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .search-box {
@@ -150,16 +232,20 @@ p {
 .search-box input {
   min-width: 0;
   padding: 10px 11px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
   outline: none;
-  background: rgba(2, 6, 23, 0.72);
-  color: var(--text);
+  background: var(--surface-container-highest);
+  color: var(--on-surface);
+}
+
+.search-box input::placeholder {
+  color: var(--on-surface-variant);
 }
 
 .search-box input:focus {
-  border-color: rgba(76, 201, 240, 0.7);
-  box-shadow: 0 0 0 3px rgba(76, 201, 240, 0.12);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(76, 215, 246, 0.12);
 }
 
 .search-box button,
@@ -167,10 +253,10 @@ p {
 .inspector-head button {
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(76, 201, 240, 0.12);
-  color: #dff7ff;
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  background: var(--surface-container-highest);
+  color: var(--primary);
   cursor: pointer;
   transition:
     transform 150ms ease,
@@ -182,8 +268,9 @@ p {
 .graph-actions button:hover,
 .inspector-head button:hover {
   transform: translateY(-1px);
-  border-color: rgba(76, 201, 240, 0.55);
-  background: rgba(76, 201, 240, 0.2);
+  border-color: var(--primary);
+  background: var(--surface-container-highest);
+  color: var(--primary);
 }
 
 .result-list,
@@ -206,10 +293,10 @@ p {
   width: 100%;
   gap: 3px;
   padding: 9px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.58);
-  color: var(--text);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  background: var(--surface-container-low);
+  color: var(--on-surface);
   cursor: pointer;
   text-align: left;
   transition:
@@ -223,8 +310,8 @@ p {
 .filter-list button:hover,
 .relations-panel button:hover {
   transform: translateY(-1px);
-  border-color: rgba(76, 201, 240, 0.35);
-  background: rgba(30, 41, 59, 0.74);
+  border-color: var(--primary);
+  background: var(--surface-container-high);
 }
 
 .result-list span,
@@ -236,7 +323,7 @@ p {
 }
 
 small {
-  color: var(--muted);
+  color: var(--on-surface-variant);
 }
 
 .metric-grid {
@@ -247,18 +334,19 @@ small {
 
 .metric-grid div {
   padding: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  border-radius: 8px;
-  background: rgba(2, 6, 23, 0.42);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  background: var(--surface-container-highest);
 }
 
 .metric-grid strong {
   display: block;
   font-size: 1.25rem;
+  color: var(--primary);
 }
 
 .metric-grid span {
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: 0.76rem;
 }
 
@@ -278,18 +366,11 @@ small {
 
 .graph-stage {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 45%, rgba(76, 201, 240, 0.12), transparent 42%),
-    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    #080b11;
-  background-size:
-    auto,
-    38px 38px,
-    38px 38px,
-    auto;
+  background: var(--surface);
 }
 
 .sigma-stage {
@@ -304,9 +385,9 @@ small {
   display: flex;
   gap: 8px;
   padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(7, 9, 13, 0.72);
+  border: none;
+  border-radius: 4px;
+  background: var(--surface-container-high);
   backdrop-filter: blur(14px);
 }
 
@@ -333,7 +414,7 @@ small {
 .node-card {
   display: grid;
   gap: 13px;
-  background: var(--panel-strong);
+  background: var(--surface-container-high);
 }
 
 .node-title {
@@ -345,11 +426,12 @@ small {
 .node-title h2 {
   font-size: 1.16rem;
   line-height: 1.1;
+  color: var(--primary);
 }
 
 .node-title p {
   margin-top: 4px;
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: 0.82rem;
 }
 
@@ -357,7 +439,7 @@ small {
   width: 14px;
   height: 46px;
   flex: 0 0 auto;
-  border-radius: 7px;
+  border-radius: 2px;
   box-shadow: 0 0 28px currentColor;
 }
 
@@ -369,9 +451,9 @@ small {
 
 .score-row div {
   padding: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  border-radius: 8px;
-  background: rgba(2, 6, 23, 0.52);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  background: var(--surface-container-highest);
 }
 
 .score-row strong,
@@ -379,9 +461,13 @@ small {
   display: block;
 }
 
+.score-row strong {
+  color: var(--primary);
+}
+
 .score-row span {
   margin-top: 2px;
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: 0.68rem;
 }
 
@@ -392,11 +478,18 @@ small {
   justify-content: center;
   gap: 8px;
   min-height: 38px;
-  border: 1px solid rgba(76, 201, 240, 0.38);
-  border-radius: 8px;
-  color: #dff7ff;
-  background: rgba(76, 201, 240, 0.12);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  color: var(--primary);
+  background: var(--surface-container-highest);
   text-decoration: none;
+  transition: all 150ms ease;
+}
+
+.source-link:hover,
+.source-panel a:hover {
+  border-color: var(--primary);
+  background: var(--surface-container-high);
 }
 
 .relations-panel button {
@@ -420,7 +513,8 @@ small {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--outline-variant);
+  background: var(--surface-container-highest);
 }
 
 .source-panel header span {
@@ -429,7 +523,7 @@ small {
   align-items: center;
   gap: 8px;
   overflow: hidden;
-  color: #dbeafe;
+  color: var(--primary);
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -446,7 +540,7 @@ small {
   margin: 0;
   overflow: auto;
   padding: 10px 0;
-  background: rgba(2, 6, 23, 0.62);
+  background: var(--surface-container-highest);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.76rem;
 }
@@ -460,22 +554,22 @@ small {
 }
 
 .source-panel pre span {
-  color: #64748b;
+  color: var(--on-surface-variant);
   text-align: right;
   user-select: none;
 }
 
 .source-panel pre code {
-  color: #dbeafe;
+  color: var(--primary);
   white-space: pre;
 }
 
 .source-panel .hot-line {
-  background: rgba(245, 197, 66, 0.14);
+  background: rgba(255, 184, 115, 0.12);
 }
 
 .source-panel .hot-line span {
-  color: var(--accent-2);
+  color: var(--tertiary);
 }
 
 .empty-state,
@@ -484,33 +578,28 @@ small {
   place-items: center;
   gap: 10px;
   min-height: 240px;
-  color: var(--muted);
+  color: var(--on-surface-variant);
   text-align: center;
 }
 
 .loading {
   min-height: 100vh;
-  background: var(--bg);
+  background: var(--surface);
 }
 
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 280px minmax(0, 1fr);
+    position: relative;
   }
 
-  .right-rail {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: min(390px, 92vw);
+  .app-shell__graph {
+    min-height: 0;
   }
 }
 
 @media (max-width: 760px) {
   .app-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 56vh auto;
+    flex-direction: column;
     height: auto;
     min-height: 100vh;
     overflow: visible;
@@ -518,13 +607,25 @@ small {
 
   .left-rail,
   .right-rail {
-    position: static;
-    width: auto;
-    max-height: none;
-    border: 0;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+
+  .app-shell__graph {
+    min-height: 50vh;
+    order: 1;
+  }
+
+  .left-rail:not(.left-rail--collapsed) {
+    order: 0;
+  }
+
+  .right-rail:not(.right-rail--collapsed) {
+    order: 2;
   }
 
   .graph-stage {
-    min-height: 56vh;
+    min-height: 50vh;
   }
 }

@@ -27,6 +27,9 @@ export interface GraphNode {
   outgoingCount: number;
   rank?: RankingScore;
   vscodeUri?: string;
+  x?: number | null;
+  y?: number | null;
+  communityId?: number | null;
 }
 
 export interface GraphEdge {

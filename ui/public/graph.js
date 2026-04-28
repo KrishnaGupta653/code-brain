@@ -236,12 +236,7 @@ class GraphVisualizer {
         this.ctx.stroke();
       }
 
-      if (this.zoom > 0.6) {
-        this.ctx.fillStyle = "#1d2330";
-        this.ctx.font = `${12 / this.zoom}px "IBM Plex Sans", sans-serif`;
-        this.ctx.textAlign = "center";
-        this.ctx.fillText(node.name, node.x, node.y + 18 / this.zoom);
-      }
+      // Intentionally skip node text labels for large graphs to keep rendering stable.
     }
 
     this.ctx.restore();

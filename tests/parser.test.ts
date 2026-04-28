@@ -123,4 +123,81 @@ describe('Parser', () => {
 
     fs.unlinkSync(testFile);
   });
+
+  it('should parse Java file symbols and imports', () => {
+    const testFile = path.join(os.tmpdir(), 'TestService.java');
+    const content = `
+      package com.example.app;
+
+      import java.util.List;
+      import com.example.shared.Helper;
+
+      public class TestService extends BaseService implements Runnable {
+        public void run() {
+          Helper.execute();
+        }
+
+        public static void main(String[] args) {
+          new TestService().run();
+        }
+      }
+    `;
+
+    fs.writeFileSync(testFile, content);
+    const parsed = Parser.parseFile(testFile);
+
+    expect(parsed.language).toBe('java');
+    expect(parsed.imports.some(imp => imp.module === 'java.util.List')).toBe(true);
+    expect(parsed.imports.some(imp => imp.module === 'com.example.shared.Helper')).toBe(true);
+    expect(parsed.symbols.some(s => s.type === 'class' && s.name === 'TestService')).toBe(true);
+    expect(parsed.symbols.some(s => s.type === 'method' && s.owner === 'TestService' && s.name === 'run')).toBe(true);
+    expect(parsed.entryPoints.some(ep => ep.includes('main'))).toBe(true);
+
+    fs.unlinkSync(testFile);
+  });
+
+  it('should heuristically parse Python and Go via generic path', () => {
+    const py = path.join(os.tmpdir(), 'codebrain_sample.py');
+    fs.writeFileSync(
+      py,
+      `
+import os
+from mypkg.util import thing
+
+def greet(name: str) -> str:
+  return f"hi {name}"
+
+class Greeter:
+  def run(self) -> None:
+    pass
+`,
+    );
+    const parsed = Parser.parseFile(py);
+    expect(parsed.language).toBe('python');
+    expect(parsed.imports.some((i) => i.module.includes('mypkg') || i.module === 'mypkg.util' || i.module === 'os')).toBe(
+      true,
+    );
+    expect(parsed.symbols.some((s) => s.name === 'greet' && s.type === 'function')).toBe(true);
+    expect(parsed.symbols.some((s) => s.name === 'Greeter' && s.type === 'class')).toBe(true);
+    fs.unlinkSync(py);
+
+    const gopath = path.join(os.tmpdir(), 'codebrain_sample.go');
+    fs.writeFileSync(
+      gopath,
+      `
+package main
+
+import "fmt"
+
+func main() {
+  fmt.Println("x")
+}
+`,
+    );
+    const g = Parser.parseFile(gopath);
+    expect(g.language).toBe('go');
+    expect(g.imports.some((i) => i.module === 'fmt')).toBe(true);
+    expect(g.symbols.some((s) => s.name === 'main')).toBe(true);
+    fs.unlinkSync(gopath);
+  });
 });

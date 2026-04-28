@@ -75,10 +75,12 @@ export class PythonBridge {
           resolve({
             ok: true,
             analytics: {
-            centrality,
-            communities: results.communities || [],
-            keyPaths: [],
-            importance
+              centrality,
+              communities: results.communities || [],
+              keyPaths: [],
+              importance,
+              layout: results.layout || {},
+              community_membership: results.community_membership || {}
             }
           });
         } catch (e) {
@@ -103,7 +105,9 @@ export class PythonBridge {
       centrality: new Map(),
       communities: [],
       keyPaths: [],
-      importance: new Map()
+      importance: new Map(),
+      layout: {},
+      community_membership: {}
     };
   }
 }

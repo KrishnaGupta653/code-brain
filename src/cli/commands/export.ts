@@ -12,8 +12,9 @@ export async function exportCommand(
   format: "json" | "yaml" | "ai" = "json",
   focus?: string,
   maxTokens?: number,
+  since?: number,
 ): Promise<string> {
-  logger.info(`Exporting code-brain graph (format: ${format})`);
+  logger.info(`Exporting code-brain graph (format: ${format}${since ? ` since ${new Date(since).toISOString()}` : ""})`);
 
   let storage: SQLiteStorage | null = null;
 
@@ -45,7 +46,11 @@ export async function exportCommand(
     const queryEngine = new QueryEngine(graph);
     let queryResult;
 
-    if (focus) {
+    if (since) {
+      // Build delta export based on files modified since timestamp
+      const modifiedFiles = storage.getFilesModifiedSince(projectRoot, since);
+      queryResult = queryEngine.buildDeltaQueryResult(modifiedFiles, since);
+    } else if (focus) {
       const focusNode = queryEngine.resolveFocus(focus);
       if (!focusNode) {
         logger.warn(`No nodes found matching focus: ${focus}`);
@@ -100,6 +105,15 @@ export async function exportCommand(
             },
           }));
           storage.saveRankingScores(projectRoot, rankingScores);
+
+          // Store layout and community membership from Python analytics
+          if (analyticsResult.layout && Object.keys(analyticsResult.layout).length > 0) {
+            storage.saveLayout(projectRoot, analyticsResult.layout);
+          }
+
+          if (analyticsResult.community_membership && Object.keys(analyticsResult.community_membership).length > 0) {
+            storage.saveCommunityMembership(projectRoot, analyticsResult.community_membership);
+          }
         }
       } catch (error) {
         logger.debug("Analytics failed, continuing without analytics", error);
@@ -118,6 +132,14 @@ export async function exportCommand(
         analyticsResult,
         tokenBudget,
       );
+      // Add delta metadata if since was provided
+      if (since) {
+        (bundle as unknown as Record<string, unknown>).deltaExport = {
+          since,
+          until: Date.now(),
+          modifiedFileCount: storage.getFilesModifiedSince(projectRoot, since).length,
+        };
+      }
       output = JSON.stringify(bundle, null, 2);
     } else if (format === "json") {
       output = exporter.exportAsJSON(queryResult, focus);

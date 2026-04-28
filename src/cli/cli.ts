@@ -80,6 +80,7 @@ export function setupCLI(): Command {
     .option("--format <format>", "Export format: json, yaml, ai", "json")
     .option("--focus <module>", "Focus on specific module or symbol")
     .option("--max-tokens <number>", "Maximum tokens for AI export (optional)")
+    .option("--since <timestamp>", "Export only changes since timestamp (ISO 8601 or unix ms)")
     .action(async (options) => {
       try {
         const validFormats = ["json", "yaml", "ai"];
@@ -99,11 +100,28 @@ export function setupCLI(): Command {
           }
         }
 
+        let since: number | undefined;
+        if (options.since) {
+          // Try to parse as ISO 8601 first
+          const dateObj = new Date(options.since);
+          if (!isNaN(dateObj.getTime())) {
+            since = dateObj.getTime();
+          } else {
+            // Try parsing as unix milliseconds
+            since = parseInt(options.since);
+            if (isNaN(since) || since < 0) {
+              logger.error("Invalid timestamp format. Use ISO 8601 date or unix milliseconds.");
+              process.exit(1);
+            }
+          }
+        }
+
         const output = await exportCommand(
           options.path,
           options.format,
           options.focus,
           maxTokens,
+          since,
         );
         console.log(output);
       } catch (error) {

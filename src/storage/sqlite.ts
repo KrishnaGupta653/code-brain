@@ -10,7 +10,7 @@ import {
   RankingScore,
   SourceSpan,
 } from "../types/models.js";
-import { SCHEMA } from "./schema.js";
+import { SCHEMA, SCHEMA_VERSION_TABLE, SCHEMA_V2_MIGRATIONS, CURRENT_SCHEMA_VERSION } from "./schema.js";
 import { logger, StorageError, stableId } from "../utils/index.js";
 import { createGraphNode, createGraphEdge } from "../graph/index.js";
 import { GraphModel } from "../graph/index.js";
@@ -38,9 +38,39 @@ export class SQLiteStorage {
   private initialize(): void {
     try {
       this.db.exec(SCHEMA);
+      this.db.exec(SCHEMA_VERSION_TABLE);
+      this.runMigrations();
       logger.debug("Database initialized");
     } catch (error) {
       throw new StorageError("Failed to initialize database", error);
+    }
+  }
+
+  private runMigrations(): void {
+    try {
+      const row = this.db.prepare('SELECT MAX(version) as v FROM schema_version').get() as { v: number | null };
+      const currentVersion = row?.v ?? 1;
+
+      if (currentVersion < CURRENT_SCHEMA_VERSION) {
+        if (currentVersion < 2) {
+          // Run V2 migrations with try/catch per statement (column may already exist)
+          for (const migration of SCHEMA_V2_MIGRATIONS) {
+            try {
+              this.db.exec(migration);
+            } catch (err) {
+              // ALTER TABLE ADD COLUMN throws if column already exists — that's OK
+              const msg = err instanceof Error ? err.message : String(err);
+              if (!msg.includes('duplicate column') && !msg.includes('already exists')) {
+                logger.warn(`Migration skipped (likely already applied): ${msg}`);
+              }
+            }
+          }
+          this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(2, Date.now());
+          logger.info('Schema migrated to version 2');
+        }
+      }
+    } catch (error) {
+      throw new StorageError('Failed to run schema migrations', error);
     }
   }
 
@@ -306,6 +336,9 @@ export class SQLiteStorage {
       end_col: number;
       summary: string;
       metadata: string;
+      x_pos: number | null;
+      y_pos: number | null;
+      community_id: number | null;
       created_at: number;
       updated_at: number;
     }>;
@@ -335,6 +368,16 @@ export class SQLiteStorage {
         row.created_at,
         row.updated_at,
       );
+      
+      // Restore layout and community data from analytics
+      if (row.x_pos !== null && row.y_pos !== null) {
+        node.x = row.x_pos;
+        node.y = row.y_pos;
+      }
+      if (row.community_id !== null) {
+        node.communityId = row.community_id;
+      }
+      
       graph.addNode(node);
     }
 
@@ -621,5 +664,53 @@ export class SQLiteStorage {
       .prepare("SELECT COUNT(*) as count FROM edges WHERE project_id = ?")
       .get(projectId) as { count: number };
     return row?.count || 0;
+  }
+
+  saveLayout(projectRoot: string, layout: Record<string, { x: number; y: number }>): void {
+    try {
+      const entries = Object.entries(layout);
+      if (entries.length === 0) return;
+
+      const update = this.db.prepare('UPDATE nodes SET x_pos = ?, y_pos = ? WHERE id = ?');
+      const runAll = this.db.transaction((entries: Array<[string, { x: number; y: number }]>) => {
+        for (const [nodeId, pos] of entries) {
+          update.run(pos.x, pos.y, nodeId);
+        }
+      });
+      runAll(entries);
+      logger.debug(`Saved layout for ${entries.length} nodes`);
+    } catch (error) {
+      throw new StorageError('Failed to save layout', error);
+    }
+  }
+
+  saveCommunityMembership(projectRoot: string, membership: Record<string, number>): void {
+    try {
+      const entries = Object.entries(membership);
+      if (entries.length === 0) return;
+
+      const update = this.db.prepare('UPDATE nodes SET community_id = ? WHERE id = ?');
+      const runAll = this.db.transaction((entries: Array<[string, number]>) => {
+        for (const [nodeId, communityId] of entries) {
+          update.run(communityId, nodeId);
+        }
+      });
+      runAll(entries);
+      logger.debug(`Saved community membership for ${entries.length} nodes`);
+    } catch (error) {
+      throw new StorageError('Failed to save community membership', error);
+    }
+  }
+
+  getFilesModifiedSince(projectRoot: string, timestamp: number): string[] {
+    try {
+      const projectId = this.getProjectId(projectRoot);
+      const rows = this.db.prepare(
+        'SELECT path FROM files WHERE project_id = ? AND updated_at > ?'
+      ).all(projectId, timestamp) as { path: string }[];
+      return rows.map(r => r.path);
+    } catch (error) {
+      throw new StorageError('Failed to get modified files', error);
+    }
   }
 }

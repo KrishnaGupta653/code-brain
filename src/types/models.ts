@@ -71,6 +71,17 @@ export interface GraphNode {
   hierarchyLabel?: string; // e.g., "API > Handlers > authHandler"
   semanticRole?: string; // e.g., "request_handler", "utility", "service"
   moduleContext?: string; // e.g., "authentication_module"
+
+  // Layout fields from Python analytics
+  x?: number | null;
+  y?: number | null;
+  communityId?: number | null;
+
+  // Ranking fields
+  rank?: RankingScore;
+  degree?: number;
+  incomingCount?: number;
+  outgoingCount?: number;
 }
 
 export interface GraphEdge {
@@ -129,6 +140,13 @@ export interface SummaryRecord {
   provenance: SourceSpan[];
 }
 
+export interface UnresolvedRegistry {
+  totalUnresolved: number;
+  byEdgeType: Record<string, number>;
+  topUnresolvedSymbols: string[];
+  warningMessage: string;
+}
+
 export interface ExportBundle {
   project: ProjectMetadata;
   nodes: GraphNode[];
@@ -145,6 +163,14 @@ export interface ExportBundle {
   exportedAt: number;
   exportFormat: "json" | "yaml" | "ai";
   rules?: string[];
+  unresolved?: UnresolvedRegistry;
+  estimatedTokens?: number;
+  bundleCharCount?: number;
+  deltaExport?: {
+    enabled: boolean;
+    changedFiles: string[];
+    sinceTimestamp: number;
+  };
 }
 
 export interface AIExportBundle extends ExportBundle {
@@ -172,6 +198,8 @@ export interface AnalyticsResult {
   communities: string[][];
   keyPaths: string[][];
   importance: Map<string, number>;
+  layout?: Record<string, { x: number; y: number }>;
+  community_membership?: Record<string, number>;
 }
 
 export interface CodeBrainConfig {

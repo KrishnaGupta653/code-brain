@@ -18,7 +18,12 @@ export {
   getRelativePath,
   isTypescriptFile,
   isJavascriptFile,
+  isJavaFile,
   isSupportedSourceFile,
+  isGenericScannableFile,
+  getLanguageIdForPath,
+  isTextLikelyBinary,
+  MODULE_RESOLVE_EXTENSION_SUFFIXES,
   getTempDir,
   getHomeDir
 } from './paths.js';

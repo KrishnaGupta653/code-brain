@@ -117,15 +117,14 @@ function computeAnalytics(graph: ReturnType<SQLiteStorage["loadGraph"]>) {
     .sort((a, b) => b.degree - a.degree || a.name.localeCompare(b.name))
     .slice(0, 25);
 
-  const communities = new Map<string, string[]>();
+  const communities = new Map<number, string[]>();
+  // Read communities from stored community_id column in nodes
   for (const node of nodes) {
-    const file = String(node.metadata?.filePath || node.location?.file || "project");
-    const key = file === "project" ? "project" : path.dirname(file);
-    const label = path.relative(process.cwd(), key) || key;
-    if (!communities.has(label)) {
-      communities.set(label, []);
+    const cid = node.communityId ?? -1;
+    if (!communities.has(cid)) {
+      communities.set(cid, []);
     }
-    communities.get(label)!.push(node.id);
+    communities.get(cid)!.push(node.id);
   }
 
   return {
@@ -135,9 +134,14 @@ function computeAnalytics(graph: ReturnType<SQLiteStorage["loadGraph"]>) {
     importance,
     hubs,
     communities: Array.from(communities.entries())
-      .map(([label, nodeIds]) => ({ label, nodeIds, size: nodeIds.length }))
+      .map(([communityId, nodeIds]) => ({
+        label: `community_${communityId}`,
+        communityId,
+        nodeIds,
+        size: nodeIds.length,
+      }))
       .sort((a, b) => b.size - a.size)
-      .slice(0, 30),
+      .slice(0, 50),
     cycles: findCycles(graph, 20),
     health: {
       nodeCount: nodes.length,
@@ -229,6 +233,131 @@ export async function createGraphServer(
 
   logger.success("Graph loaded for visualization");
 
+  // Helper function: Build lightweight node response
+  const buildLightweightNode = (node: GraphNode, includeLayout: boolean = true) => {
+    const incoming = graph.getIncomingEdges(node.id);
+    const outgoing = graph.getOutgoingEdges(node.id);
+    return {
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      fullName: node.fullName,
+      summary: node.summary || "unknown",
+      rank: rankingByNode.get(node.id),
+      degree: incoming.length + outgoing.length,
+      incomingCount: incoming.length,
+      outgoingCount: outgoing.length,
+      ...(includeLayout && { x: node.x ?? null, y: node.y ?? null, communityId: node.communityId ?? null }),
+    };
+  };
+
+  // GET /api/graph/overview — paginated, lightweight overview
+  app.get("/api/graph/overview", (_req, res) => {
+    const MAX_OVERVIEW_NODES = 10000; // Show all nodes
+    const ARCHITECTURAL_EDGES = new Set(["IMPORTS", "DEPENDS_ON", "EXTENDS", "IMPLEMENTS", "ENTRY_POINT"]);
+
+    const allNodes = graph.getNodes();
+    const nodesToRank: Array<{ node: ReturnType<typeof graph.getNode>; priority: number }> = [];
+
+    // Priority 1: All project nodes
+    for (const node of allNodes) {
+      if (node.type === "project") {
+        nodesToRank.push({ node, priority: 10000 });
+      }
+    }
+
+    // Priority 2: All module nodes (up to 500)
+    let moduleCount = 0;
+    for (const node of allNodes) {
+      if (node.type === "module" && moduleCount < 500) {
+        nodesToRank.push({ node, priority: 9000 });
+        moduleCount++;
+      }
+    }
+
+    // Priority 3: Top file nodes by rank score
+    const fileNodes = allNodes
+      .filter(n => n.type === "file")
+      .sort((a, b) => {
+        const scoreA = rankingByNode.get(a.id)?.score ?? 0;
+        const scoreB = rankingByNode.get(b.id)?.score ?? 0;
+        return scoreB - scoreA;
+      })
+      .slice(0, 500);
+    for (const node of fileNodes) {
+      const score = rankingByNode.get(node.id)?.score ?? 0;
+      nodesToRank.push({ node, priority: 8000 + score * 1000 });
+    }
+
+    // Priority 4: Top class/interface nodes by rank score
+    const classNodes = allNodes
+      .filter(n => ["class", "interface"].includes(n.type))
+      .sort((a, b) => {
+        const scoreA = rankingByNode.get(a.id)?.score ?? 0;
+        const scoreB = rankingByNode.get(b.id)?.score ?? 0;
+        return scoreB - scoreA;
+      })
+      .slice(0, 500);
+    for (const node of classNodes) {
+      const score = rankingByNode.get(node.id)?.score ?? 0;
+      nodesToRank.push({ node, priority: 7000 + score * 1000 });
+    }
+
+    // Priority 5: Fill remaining budget with other types by rank score
+    const includedIds = new Set(nodesToRank.filter(x => x.node).map(x => x.node!.id));
+    const otherNodes = allNodes
+      .filter(n => !includedIds.has(n.id))
+      .sort((a, b) => {
+        const scoreA = rankingByNode.get(a.id)?.score ?? 0;
+        const scoreB = rankingByNode.get(b.id)?.score ?? 0;
+        return scoreB - scoreA;
+      })
+      .slice(0, Math.max(0, MAX_OVERVIEW_NODES - nodesToRank.length));
+    for (const node of otherNodes) {
+      const score = rankingByNode.get(node.id)?.score ?? 0;
+      nodesToRank.push({ node, priority: score * 1000 });
+    }
+
+    // Build overview nodes response
+    const overviewNodeIds = new Set(nodesToRank.filter(x => x.node).slice(0, MAX_OVERVIEW_NODES).map(x => x.node!.id));
+    const overviewNodes = allNodes
+      .filter(n => overviewNodeIds.has(n.id))
+      .map(n => buildLightweightNode(n, true));
+
+    // Build edges: only architectural types, both endpoints in overview
+    const overviewEdges: any[] = [];
+    for (const edge of graph.getEdges()) {
+      if (
+        ARCHITECTURAL_EDGES.has(edge.type) &&
+        overviewNodeIds.has(edge.from) &&
+        overviewNodeIds.has(edge.to)
+      ) {
+        overviewEdges.push({
+          id: edge.id,
+          from: edge.from,
+          to: edge.to,
+          type: edge.type,
+          resolved: edge.resolved,
+        });
+      }
+    }
+
+    // Cap at 10,000 edges
+    const cappedEdges = overviewEdges.slice(0, 10000);
+
+    res.json({
+      nodes: overviewNodes,
+      edges: cappedEdges,
+      stats,
+      ranking: rankingScores.slice(0, 50),
+      analytics: {
+        health: analytics.health,
+        hubs: analytics.hubs,
+        communities: analytics.communities,
+      },
+    });
+  });
+
   app.get("/api/graph", (_req, res) => {
     const nodes = graph.getNodes().map((node) => ({
       id: node.id,
@@ -244,6 +373,9 @@ export async function createGraphServer(
       degree: graph.getIncomingEdges(node.id).length + graph.getOutgoingEdges(node.id).length,
       incomingCount: graph.getIncomingEdges(node.id).length,
       outgoingCount: graph.getOutgoingEdges(node.id).length,
+      x: node.x ?? null,
+      y: node.y ?? null,
+      communityId: node.communityId ?? null,
     }));
 
     const edges = graph.getEdges().map((edge) => ({
@@ -264,6 +396,104 @@ export async function createGraphServer(
         hubs: analytics.hubs,
         communities: analytics.communities,
       },
+    });
+  });
+
+  // GET /api/graph/community/:communityId — get all nodes in a community
+  app.get("/api/graph/community/:communityId", (req, res) => {
+    const communityId = parseInt(req.params.communityId, 10);
+    if (isNaN(communityId)) {
+      res.status(400).json({ error: "Invalid community ID" });
+      return;
+    }
+
+    const communityNodeIds = new Set(
+      graph.getNodes()
+        .filter(n => n.communityId === communityId)
+        .map(n => n.id)
+    );
+
+    if (communityNodeIds.size === 0) {
+      res.status(404).json({ error: "Community not found" });
+      return;
+    }
+
+    const communityNodes = graph.getNodes()
+      .filter(n => communityNodeIds.has(n.id))
+      .map(n => buildLightweightNode(n, true));
+
+    const communityEdges = graph.getEdges()
+      .filter(e => communityNodeIds.has(e.from) && communityNodeIds.has(e.to))
+      .map(e => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        type: e.type,
+        resolved: e.resolved,
+      }));
+
+    res.json({
+      nodes: communityNodes,
+      edges: communityEdges,
+      communityId,
+      size: communityNodeIds.size,
+    });
+  });
+
+  // GET /api/graph/neighbors/:nodeId — get node + neighbors up to depth
+  app.get("/api/graph/neighbors/:nodeId", (req, res) => {
+    const depth = Math.min(3, parseInt(req.query.depth as string, 10) || 2);
+    const nodeId = req.params.nodeId;
+    const node = graph.getNode(nodeId);
+
+    if (!node) {
+      res.status(404).json({ error: "Node not found" });
+      return;
+    }
+
+    // BFS to get neighbors
+    const visited = new Set<string>();
+    const toVisit = [{ id: nodeId, d: 0 }];
+    visited.add(nodeId);
+
+    while (toVisit.length > 0) {
+      const { id, d } = toVisit.shift()!;
+      if (d < depth) {
+        for (const edge of graph.getOutgoingEdges(id)) {
+          if (!visited.has(edge.to)) {
+            visited.add(edge.to);
+            toVisit.push({ id: edge.to, d: d + 1 });
+          }
+        }
+        for (const edge of graph.getIncomingEdges(id)) {
+          if (!visited.has(edge.from)) {
+            visited.add(edge.from);
+            toVisit.push({ id: edge.from, d: d + 1 });
+          }
+        }
+      }
+    }
+
+    const neighborNodes = graph.getNodes()
+      .filter(n => visited.has(n.id))
+      .map(n => buildLightweightNode(n, true));
+
+    const neighborEdges = graph.getEdges()
+      .filter(e => visited.has(e.from) && visited.has(e.to))
+      .map(e => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        type: e.type,
+        resolved: e.resolved,
+      }));
+
+    res.json({
+      nodes: neighborNodes,
+      edges: neighborEdges,
+      center: nodeId,
+      depth,
+      size: visited.size,
     });
   });
 

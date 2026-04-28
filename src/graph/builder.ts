@@ -11,7 +11,7 @@ import {
   ParsedImportBinding,
   ParsedSymbol,
 } from "../types/models.js";
-import { logger, scanSourceFiles, stableId } from "../utils/index.js";
+import { logger, MODULE_RESOLVE_EXTENSION_SUFFIXES, scanSourceFiles, stableId } from "../utils/index.js";
 
 interface ResolvedImportTarget {
   type: "file" | "module";
@@ -778,7 +778,7 @@ export class GraphBuilder {
       ? path.join(parsed.dir, parsed.name)
       : basePath;
 
-    const candidates = [
+    const more = [
       basePath,
       withoutRuntimeExtension,
       `${withoutRuntimeExtension}.ts`,
@@ -794,7 +794,14 @@ export class GraphBuilder {
       path.join(withoutRuntimeExtension, "index.mjs"),
       path.join(withoutRuntimeExtension, "index.cjs"),
     ];
-
+    for (const ext of MODULE_RESOLVE_EXTENSION_SUFFIXES) {
+      if (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs") {
+        continue;
+      }
+      more.push(`${withoutRuntimeExtension}${ext}`);
+      more.push(path.join(withoutRuntimeExtension, `index${ext}`));
+    }
+    const candidates = Array.from(new Set(more));
     return candidates.find((candidate) => fs.existsSync(candidate));
   }
 

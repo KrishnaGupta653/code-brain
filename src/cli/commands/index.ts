@@ -2,28 +2,24 @@ import fs from 'fs';
 import path from 'path';
 import { ConfigManager } from '../../config/index.js';
 import { GraphBuilder } from '../../graph/index.js';
-import { GraphModel } from '../../graph/index.js';
 import { SQLiteStorage } from '../../storage/index.js';
 import { logger, getDbPath, scanSourceFiles } from '../../utils/index.js';
 import { Parser } from '../../parser/index.js';
-import { GraphEdge, GraphNode, SourceSpan } from '../../types/models.js';
+import { PythonBridge } from '../../python/index.js';
+import { GraphModel } from '../../graph/index.js';
 
-export interface IndexCommandOptions {
+interface IndexOptions {
   filesToIndex?: string[];
 }
 
-export async function indexCommand(
-  projectRoot: string,
-  options: IndexCommandOptions = {}
-): Promise<void> {
+export async function indexCommand(projectRoot: string, options: IndexOptions = {}): Promise<void> {
   logger.info(`Indexing repository: ${projectRoot}`);
-
   try {
     const configManager = new ConfigManager(projectRoot);
     const config = configManager.getConfig();
-
     const include = config.include || ['**'];
     const exclude = config.exclude || ['node_modules', 'dist'];
+
     const allFiles = scanSourceFiles(projectRoot, include, exclude);
     const filesToIndex = options.filesToIndex && options.filesToIndex.length > 0
       ? options.filesToIndex
@@ -34,8 +30,8 @@ export async function indexCommand(
 
     const dbPath = getDbPath(projectRoot);
     const storage = new SQLiteStorage(dbPath);
-
     const now = Date.now();
+
     let project = storage.getProject(projectRoot);
     if (!project) {
       project = {
@@ -49,7 +45,6 @@ export async function indexCommand(
         updatedAt: now
       };
     }
-
     project.updatedAt = now;
     storage.saveProject(project);
 
@@ -57,21 +52,18 @@ export async function indexCommand(
     if (options.filesToIndex && options.filesToIndex.length > 0) {
       const existingGraph = storage.loadGraph(projectRoot);
       const impacted = new Set(options.filesToIndex);
-
-      existingGraph.removeNodesByPredicate((node: GraphNode) =>
+      existingGraph.removeNodesByPredicate((node) =>
         Boolean(node.location?.file && impacted.has(node.location.file))
       );
-      existingGraph.removeEdgesByPredicate((edge: GraphEdge) =>
-        Boolean(edge.sourceLocation?.some((span: SourceSpan) => impacted.has(span.file)))
+      existingGraph.removeEdgesByPredicate((edge) =>
+        Boolean(edge.sourceLocation?.some((span) => impacted.has(span.file)))
       );
-
       for (const node of partialGraph.getNodes()) {
         existingGraph.addNode(node);
       }
       for (const edge of partialGraph.getEdges()) {
         existingGraph.addEdge(edge);
       }
-
       graphToPersist = existingGraph;
     } else {
       graphToPersist = partialGraph;
@@ -85,14 +77,8 @@ export async function indexCommand(
         ? 'typescript'
         : 'javascript';
       const size = fs.statSync(filePath).size;
-      return {
-        path: filePath,
-        hash: parsed.hash,
-        language,
-        size
-      };
+      return { path: filePath, hash: parsed.hash, language, size };
     });
-
     storage.saveFileHashes(projectRoot, fileHashRecords);
     storage.removeMissingFileHashes(projectRoot, allFiles);
 
@@ -120,8 +106,23 @@ export async function indexCommand(
       status: 'idle'
     });
 
-    storage.close();
+    // Run Python analytics to compute layout positions and community membership
+    logger.info('Running Python analytics for layout pre-computation...');
+    const graphData = {
+      nodes: graphToPersist.getNodes().map(n => ({ id: n.id, type: n.type, name: n.name })),
+      edges: graphToPersist.getEdges().map(e => ({ from: e.from, to: e.to, type: e.type }))
+    };
+    const analytics = await PythonBridge.runAnalytics(graphData, config.pythonPath);
 
+    if (analytics.layout && Object.keys(analytics.layout).length > 0) {
+      storage.saveLayout(projectRoot, analytics.layout);
+      logger.info(`Layout pre-computed for ${Object.keys(analytics.layout).length} nodes`);
+    }
+    if (analytics.community_membership && Object.keys(analytics.community_membership).length > 0) {
+      storage.saveCommunityMembership(projectRoot, analytics.community_membership);
+    }
+
+    storage.close();
     logger.success(`Indexing complete. ${stats.nodeCount} nodes, ${stats.edgeCount} edges`);
   } catch (error) {
     logger.error('Indexing failed', error);

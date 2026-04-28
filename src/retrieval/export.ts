@@ -10,6 +10,7 @@ import {
   RankingScore,
   SourceSpan,
   SummaryRecord,
+  UnresolvedRegistry,
 } from "../types/models.js";
 import { GraphModel } from "../graph/index.js";
 
@@ -20,7 +21,7 @@ export interface ExportOptions {
 }
 
 export class ExportEngine {
-  private static readonly TOKENS_PER_CHAR = 0.25; // Rough estimate
+  private static readonly TOKENS_PER_CHAR = 0.33; // Calibrated estimate: 1 token ≈ 3 characters
 
   constructor(
     private graph: GraphModel,
@@ -62,7 +63,9 @@ export class ExportEngine {
   }
 
   exportAsYAML(queryResult: QueryResult, focus?: string): string {
-    return toYAML(this.createBundle(queryResult, "yaml", focus));
+    const bundle = this.createBundle(queryResult, "yaml", focus);
+    const hierarchical = this.buildYAMLDocument(bundle);
+    return toYAML(hierarchical);
   }
 
   private pruneByTokenBudget(
@@ -205,6 +208,8 @@ export class ExportEngine {
     format: "json" | "yaml" | "ai",
     focus?: string,
   ): ExportBundle {
+    const includeSourceText = format === "ai";
+    
     const nodes = [...queryResult.nodes].sort(
       (a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name),
     );
@@ -214,8 +219,8 @@ export class ExportEngine {
 
     return {
       project: this.projectMetadata,
-      nodes: nodes.map((node) => this.serializeNode(node)),
-      edges: edges.map((edge) => this.serializeEdge(edge)),
+      nodes: nodes.map((node) => this.serializeNode(node, includeSourceText)),
+      edges: edges.map((edge) => this.serializeEdge(edge, includeSourceText)),
       summaries: this.buildSummaries(nodes),
       query: {
         focus: focus || "project",
@@ -227,6 +232,7 @@ export class ExportEngine {
         edgeCount: edges.length,
       },
       evidence: this.buildEvidence(nodes, edges),
+      unresolved: this.buildUnresolvedRegistry(edges),
       exportedAt: Date.now(),
       exportFormat: format,
       rules: format === "ai" ? this.getAIRules() : undefined,
@@ -305,6 +311,71 @@ export class ExportEngine {
     return ranking.sort((a, b) => b.score - a.score).slice(0, 50);
   }
 
+  private buildYAMLDocument(bundle: ExportBundle): Record<string, unknown> {
+    // Group nodes by type for hierarchical organization
+    const nodesByType = new Map<string, typeof bundle.nodes>();
+    for (const node of bundle.nodes) {
+      const type = node.type || "unknown";
+      if (!nodesByType.has(type)) {
+        nodesByType.set(type, []);
+      }
+      nodesByType.get(type)!.push(node);
+    }
+
+    // Group nodes by module/file for hierarchical view
+    const nodesByModule = new Map<string, typeof bundle.nodes>();
+    for (const node of bundle.nodes) {
+      const module = String(node.metadata?.filePath || node.type || "root");
+      const moduleKey = module.split("/").slice(0, -1).join("/") || "root";
+      if (!nodesByModule.has(moduleKey)) {
+        nodesByModule.set(moduleKey, []);
+      }
+      nodesByModule.get(moduleKey)!.push(node);
+    }
+
+    // Build hierarchical structure
+    const modules: Record<string, unknown> = {};
+    for (const [modulePath, moduleNodes] of Array.from(nodesByModule.entries()).sort()) {
+      const nodesByName: Record<string, unknown> = {};
+      for (const node of moduleNodes) {
+        nodesByName[node.name] = {
+          type: node.type,
+          summary: node.summary,
+          fullName: node.fullName,
+          provenance: {
+            source: node.provenance.source.map((s) => ({
+              file: s.file,
+              startLine: s.startLine,
+              endLine: s.endLine,
+            })),
+          },
+        };
+      }
+      modules[modulePath] = nodesByName;
+    }
+
+    return {
+      metadata: {
+        project: bundle.project.name,
+        exported: new Date(bundle.exportedAt).toISOString(),
+        nodeCount: bundle.query.nodeCount,
+        edgeCount: bundle.query.edgeCount,
+      },
+      modules,
+      edges: bundle.edges.map((edge) => ({
+        from: edge.from,
+        to: edge.to,
+        type: edge.type,
+        resolved: edge.resolved,
+        metadata: edge.metadata,
+      })),
+      quality: {
+        unresolvedCount: bundle.unresolved?.totalUnresolved ?? 0,
+        unresolvedByType: bundle.unresolved?.byEdgeType ?? {},
+      },
+    };
+  }
+
   private buildEvidence(nodes: GraphNode[], edges: GraphEdge[]): SourceSpan[] {
     const seen = new Set<string>();
     const evidence: SourceSpan[] = [];
@@ -340,10 +411,13 @@ export class ExportEngine {
       .slice(0, 100);
   }
 
-  private serializeNode(node: GraphNode): GraphNode {
+  private serializeNode(node: GraphNode, includeSourceText: boolean = false): GraphNode {
+    const processSpan = (span: SourceSpan) =>
+      includeSourceText ? span : this.stripSourceText(span);
+
     return {
       ...node,
-      location: node.location ? this.stripSourceText(node.location) : undefined,
+      location: node.location ? processSpan(node.location) : undefined,
       summary: node.summary || "unknown",
       metadata: {
         ...(node.metadata || {}),
@@ -351,28 +425,25 @@ export class ExportEngine {
       },
       provenance: {
         ...node.provenance,
-        source: node.provenance.source.map((span) =>
-          this.stripSourceText(span),
-        ),
+        source: node.provenance.source.map(processSpan),
       },
     };
   }
 
-  private serializeEdge(edge: GraphEdge): GraphEdge {
+  private serializeEdge(edge: GraphEdge, includeSourceText: boolean = false): GraphEdge {
+    const processSpan = (span: SourceSpan) =>
+      includeSourceText ? span : this.stripSourceText(span);
+
     return {
       ...edge,
-      sourceLocation: (edge.sourceLocation || []).map((span) =>
-        this.stripSourceText(span),
-      ),
+      sourceLocation: (edge.sourceLocation || []).map(processSpan),
       metadata: {
         ...(edge.metadata || {}),
         inferred: edge.metadata?.inferred ?? false,
       },
       provenance: {
         ...edge.provenance,
-        source: edge.provenance.source.map((span) =>
-          this.stripSourceText(span),
-        ),
+        source: edge.provenance.source.map(processSpan),
       },
     };
   }
@@ -381,6 +452,34 @@ export class ExportEngine {
     const cleaned = { ...span };
     delete cleaned.text;
     return cleaned;
+  }
+
+  private buildUnresolvedRegistry(edges: GraphEdge[]): UnresolvedRegistry | undefined {
+    const unresolvedEdges = edges.filter((edge) => !edge.resolved);
+    if (unresolvedEdges.length === 0) {
+      return undefined;
+    }
+
+    const byEdgeType: Record<string, number> = {};
+    const symbolSet = new Set<string>();
+
+    for (const edge of unresolvedEdges) {
+      byEdgeType[edge.type] = (byEdgeType[edge.type] || 0) + 1;
+      
+      // Collect symbol references from unresolved edges
+      symbolSet.add(edge.to);
+    }
+
+    const topUnresolvedSymbols = Array.from(symbolSet)
+      .slice(0, 20)
+      .sort();
+
+    return {
+      totalUnresolved: unresolvedEdges.length,
+      byEdgeType,
+      topUnresolvedSymbols,
+      warningMessage: `Found ${unresolvedEdges.length} unresolved relationships. Some symbols may not resolve due to external dependencies, dynamic imports, or build configuration issues.`,
+    };
   }
 
   private getAIRules(): string[] {

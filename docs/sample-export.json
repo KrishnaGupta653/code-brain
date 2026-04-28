@@ -1,395 +1,323 @@
 {
   "project": {
-    "name": "example-app",
-    "root": "/path/to/example-app",
+    "name": "code-brain",
+    "root": "/path/to/code-brain",
     "language": "typescript",
-    "fileCount": 12,
-    "symbolCount": 48,
-    "edgeCount": 89,
-    "createdAt": 1704067200000,
-    "updatedAt": 1704067200000
+    "fileCount": 45,
+    "symbolCount": 324,
+    "edgeCount": 2847,
+    "createdAt": 1699000000000,
+    "updatedAt": 1699500000000
   },
   "nodes": [
     {
       "id": "file_src_index_ts",
-      "type": "file",
       "name": "index.ts",
+      "type": "file",
       "fullName": "src/index.ts",
+      "summary": "Main entry point for code-brain CLI and server",
+      "x": 100.5,
+      "y": 200.3,
+      "communityId": 2,
       "location": {
         "file": "src/index.ts",
         "startLine": 1,
-        "endLine": 25,
-        "startCol": 0,
-        "endCol": 0
+        "endLine": 50
       },
-      "summary": "Application entry point",
-      "metadata": {},
+      "metadata": {
+        "filePath": "src/index.ts",
+        "inferred": false
+      },
       "provenance": {
-        "nodeId": "file_src_index_ts",
-        "type": "parser",
         "source": [
           {
             "file": "src/index.ts",
             "startLine": 1,
-            "endLine": 1,
+            "endLine": 50,
             "startCol": 0,
             "endCol": 0
           }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
+        ]
       }
     },
     {
-      "id": "func_main",
-      "type": "function",
-      "name": "main",
-      "fullName": "src/index.ts::main",
-      "location": {
-        "file": "src/index.ts",
-        "startLine": 3,
-        "endLine": 15,
-        "startCol": 0,
-        "endCol": 1
-      },
-      "summary": "Application entry point function",
-      "metadata": {
-        "exported": true,
-        "async": true
-      },
-      "provenance": {
-        "nodeId": "func_main",
-        "type": "parser",
-        "source": [
-          {
-            "file": "src/index.ts",
-            "startLine": 3,
-            "endLine": 3,
-            "startCol": 0,
-            "endCol": 30,
-            "text": "export async function main()"
-          }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
-      }
-    },
-    {
-      "id": "class_ApiHandler",
+      "id": "class_ExportEngine",
+      "name": "ExportEngine",
       "type": "class",
-      "name": "ApiHandler",
-      "fullName": "src/api.ts::ApiHandler",
+      "fullName": "src/retrieval/export.ts#ExportEngine",
+      "summary": "Core export engine with support for JSON, YAML, and AI formats with source text preservation",
+      "x": 300.2,
+      "y": 150.8,
+      "communityId": 1,
       "location": {
-        "file": "src/api.ts",
-        "startLine": 8,
-        "endLine": 45,
-        "startCol": 0,
-        "endCol": 1
+        "file": "src/retrieval/export.ts",
+        "startLine": 22,
+        "endLine": 420
       },
-      "summary": "Handles incoming API requests",
       "metadata": {
-        "exported": true
+        "filePath": "src/retrieval/export.ts",
+        "inferred": false
       },
       "provenance": {
-        "nodeId": "class_ApiHandler",
-        "type": "parser",
         "source": [
           {
-            "file": "src/api.ts",
-            "startLine": 8,
-            "endLine": 8,
+            "file": "src/retrieval/export.ts",
+            "startLine": 22,
+            "endLine": 35,
             "startCol": 0,
-            "endCol": 20,
-            "text": "export class ApiHandler"
+            "endCol": 50,
+            "text": "export class ExportEngine {\n  private static readonly TOKENS_PER_CHAR = 0.33;"
           }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
+        ]
       }
     },
     {
-      "id": "method_handleRequest",
+      "id": "method_exportForAI",
+      "name": "exportForAI",
       "type": "method",
-      "name": "handleRequest",
-      "fullName": "src/api.ts::ApiHandler.handleRequest",
+      "fullName": "ExportEngine#exportForAI",
+      "summary": "Export query result with AI optimization, source text, and unresolved registry",
+      "x": 350.1,
+      "y": 120.5,
+      "communityId": 1,
       "location": {
-        "file": "src/api.ts",
-        "startLine": 10,
-        "endLine": 20,
-        "startCol": 2,
-        "endCol": 3
+        "file": "src/retrieval/export.ts",
+        "startLine": 40,
+        "endLine": 60
       },
-      "summary": "Main request handler",
-      "metadata": {},
+      "metadata": {
+        "filePath": "src/retrieval/export.ts",
+        "inferred": false
+      },
       "provenance": {
-        "nodeId": "method_handleRequest",
-        "type": "parser",
         "source": [
           {
-            "file": "src/api.ts",
-            "startLine": 10,
-            "endLine": 10,
+            "file": "src/retrieval/export.ts",
+            "startLine": 40,
+            "endLine": 50,
             "startCol": 2,
-            "endCol": 15,
-            "text": "handleRequest(req: Request)"
+            "endCol": 45
           }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
+        ]
       }
     },
     {
-      "id": "func_validateInput",
+      "id": "function_buildUnresolvedRegistry",
+      "name": "buildUnresolvedRegistry",
       "type": "function",
-      "name": "validateInput",
-      "fullName": "src/validation.ts::validateInput",
+      "fullName": "ExportEngine#buildUnresolvedRegistry",
+      "summary": "Build UnresolvedRegistry with edge counts and top unresolved symbols",
+      "x": 400.0,
+      "y": 180.2,
+      "communityId": 1,
       "location": {
-        "file": "src/validation.ts",
-        "startLine": 5,
-        "endLine": 18,
-        "startCol": 0,
-        "endCol": 1
+        "file": "src/retrieval/export.ts",
+        "startLine": 395,
+        "endLine": 425
       },
-      "summary": "Validates incoming request data",
       "metadata": {
-        "exported": true
+        "filePath": "src/retrieval/export.ts",
+        "inferred": false
       },
       "provenance": {
-        "nodeId": "func_validateInput",
-        "type": "parser",
         "source": [
           {
-            "file": "src/validation.ts",
-            "startLine": 5,
-            "endLine": 5,
-            "startCol": 0,
-            "endCol": 25,
-            "text": "export function validateInput()"
+            "file": "src/retrieval/export.ts",
+            "startLine": 395,
+            "endLine": 425,
+            "startCol": 2,
+            "endCol": 3
           }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
+        ]
       }
     }
   ],
   "edges": [
     {
-      "id": "edge_import_1",
-      "type": "IMPORTS",
+      "id": "edge_1",
       "from": "file_src_index_ts",
-      "to": "file_src_api_ts",
-      "resolved": true,
-      "sourceLocation": [
-        {
-          "file": "src/index.ts",
-          "startLine": 1,
-          "endLine": 1,
-          "startCol": 0,
-          "endCol": 40,
-          "text": "import { ApiHandler } from './api.js';"
-        }
-      ],
-      "metadata": {
-        "imported": ["ApiHandler"]
-      },
-      "provenance": {
-        "nodeId": "edge_import_1",
-        "type": "parser",
-        "source": [
-          {
-            "file": "src/index.ts",
-            "startLine": 1,
-            "endLine": 1,
-            "startCol": 0,
-            "endCol": 40
-          }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
-      }
-    },
-    {
-      "id": "edge_import_2",
+      "to": "class_ExportEngine",
       "type": "IMPORTS",
-      "from": "file_src_index_ts",
-      "to": "file_src_validation_ts",
-      "resolved": true,
-      "sourceLocation": [
-        {
-          "file": "src/index.ts",
-          "startLine": 2,
-          "endLine": 2,
-          "startCol": 0,
-          "endCol": 50,
-          "text": "import { validateInput } from './validation.js';"
-        }
-      ],
-      "metadata": {
-        "imported": ["validateInput"]
-      },
-      "provenance": {
-        "nodeId": "edge_import_2",
-        "type": "parser",
-        "source": [
-          {
-            "file": "src/index.ts",
-            "startLine": 2,
-            "endLine": 2,
-            "startCol": 0,
-            "endCol": 50
-          }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
-      }
-    },
-    {
-      "id": "edge_calls_1",
-      "type": "CALLS",
-      "from": "func_main",
-      "to": "class_ApiHandler",
       "resolved": true,
       "sourceLocation": [
         {
           "file": "src/index.ts",
           "startLine": 5,
           "endLine": 5,
-          "startCol": 10,
-          "endCol": 30,
-          "text": "new ApiHandler()"
+          "startCol": 0,
+          "endCol": 40
         }
       ],
-      "metadata": {},
+      "metadata": {
+        "inferred": false
+      },
       "provenance": {
-        "nodeId": "edge_calls_1",
-        "type": "parser",
         "source": [
           {
             "file": "src/index.ts",
             "startLine": 5,
-            "endLine": 5,
-            "startCol": 10,
-            "endCol": 30
-          }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
-      }
-    },
-    {
-      "id": "edge_owns_1",
-      "type": "OWNS",
-      "from": "class_ApiHandler",
-      "to": "method_handleRequest",
-      "resolved": true,
-      "sourceLocation": [
-        {
-          "file": "src/api.ts",
-          "startLine": 10,
-          "endLine": 10,
-          "startCol": 2,
-          "endCol": 15
-        }
-      ],
-      "metadata": {},
-      "provenance": {
-        "nodeId": "edge_owns_1",
-        "type": "parser",
-        "source": [
-          {
-            "file": "src/api.ts",
-            "startLine": 10,
-            "endLine": 10,
-            "startCol": 2,
-            "endCol": 15
-          }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
-      }
-    },
-    {
-      "id": "edge_calls_2",
-      "type": "CALLS",
-      "from": "method_handleRequest",
-      "to": "func_validateInput",
-      "resolved": true,
-      "sourceLocation": [
-        {
-          "file": "src/api.ts",
-          "startLine": 12,
-          "endLine": 12,
-          "startCol": 10,
-          "endCol": 30,
-          "text": "validateInput(data)"
-        }
-      ],
-      "metadata": {},
-      "provenance": {
-        "nodeId": "edge_calls_2",
-        "type": "parser",
-        "source": [
-          {
-            "file": "src/api.ts",
-            "startLine": 12,
-            "endLine": 12,
-            "startCol": 10,
-            "endCol": 30
-          }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
-      }
-    },
-    {
-      "id": "edge_defines_1",
-      "type": "DEFINES",
-      "from": "file_src_index_ts",
-      "to": "func_main",
-      "resolved": true,
-      "sourceLocation": [
-        {
-          "file": "src/index.ts",
-          "startLine": 3,
-          "endLine": 3,
-          "startCol": 0,
-          "endCol": 30
-        }
-      ],
-      "metadata": {},
-      "provenance": {
-        "nodeId": "edge_defines_1",
-        "type": "parser",
-        "source": [
-          {
-            "file": "src/index.ts",
-            "startLine": 3,
-            "endLine": 3,
             "startCol": 0,
-            "endCol": 30
+            "endCol": 40
           }
-        ],
-        "confidence": 1.0,
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200000
+        ]
+      }
+    },
+    {
+      "id": "edge_2",
+      "from": "class_ExportEngine",
+      "to": "method_exportForAI",
+      "type": "CONTAINS",
+      "resolved": true,
+      "sourceLocation": [
+        {
+          "file": "src/retrieval/export.ts",
+          "startLine": 40,
+          "endLine": 50,
+          "startCol": 2,
+          "endCol": 45
+        }
+      ],
+      "metadata": {
+        "inferred": false
+      },
+      "provenance": {
+        "source": [
+          {
+            "file": "src/retrieval/export.ts",
+            "startLine": 40,
+            "startCol": 2,
+            "endCol": 45
+          }
+        ]
+      }
+    },
+    {
+      "id": "edge_3",
+      "from": "method_exportForAI",
+      "to": "function_buildUnresolvedRegistry",
+      "type": "CALLS",
+      "resolved": true,
+      "sourceLocation": [
+        {
+          "file": "src/retrieval/export.ts",
+          "startLine": 45,
+          "endLine": 45,
+          "startCol": 10,
+          "endCol": 40
+        }
+      ],
+      "metadata": {
+        "inferred": false
+      },
+      "provenance": {
+        "source": [
+          {
+            "file": "src/retrieval/export.ts",
+            "startLine": 45,
+            "startCol": 10,
+            "endCol": 40
+          }
+        ]
       }
     }
   ],
-  "summary": {
-    "topModules": ["src/api", "src/validation", "src/core"],
-    "entryPoints": ["main", "ApiHandler"],
-    "keySymbols": ["ApiHandler", "validateInput", "handleRequest"]
+  "summaries": [
+    {
+      "id": "project_root",
+      "label": "code-brain",
+      "type": "project",
+      "summary": "Deterministic codebase intelligence system with graph model, Python analytics, and React visualization",
+      "provenance": [
+        {
+          "file": "package.json",
+          "startLine": 1,
+          "endLine": 1
+        }
+      ]
+    },
+    {
+      "id": "class_ExportEngine",
+      "label": "ExportEngine",
+      "type": "class",
+      "summary": "Main export engine supporting JSON, YAML, and AI formats. Includes source text preservation, token estimation (0.33 tokens/char), hierarchical YAML output, and unresolved edge registry.",
+      "provenance": [
+        {
+          "file": "src/retrieval/export.ts",
+          "startLine": 22,
+          "endLine": 35
+        }
+      ]
+    }
+  ],
+  "query": {
+    "focus": "project",
+    "truncated": false,
+    "nodeCount": 4,
+    "edgeCount": 3
   },
-  "exportedAt": 1704067200000,
-  "exportFormat": "json"
+  "evidence": [
+    {
+      "file": "src/index.ts",
+      "startLine": 1,
+      "endLine": 50,
+      "startCol": 0,
+      "endCol": 0
+    },
+    {
+      "file": "src/retrieval/export.ts",
+      "startLine": 22,
+      "endLine": 425,
+      "startCol": 0,
+      "endCol": 3
+    }
+  ],
+  "unresolved": {
+    "totalUnresolved": 12,
+    "byEdgeType": {
+      "CALLS_UNRESOLVED": 8,
+      "IMPORTS_UNRESOLVED": 4
+    },
+    "topUnresolvedSymbols": [
+      "externallib.parseConfig",
+      "utils.logger",
+      "fs.readFileSync",
+      "path.join"
+    ],
+    "warningMessage": "Found 12 unresolved relationships. Some symbols may not resolve due to external dependencies, dynamic imports, or build configuration issues."
+  },
+  "exportedAt": 1699500000000,
+  "exportFormat": "ai",
+  "deltaExport": {
+    "since": 1699400000000,
+    "until": 1699500000000,
+    "modifiedFileCount": 3
+  },
+  "ranking": [
+    {
+      "nodeId": "class_ExportEngine",
+      "score": 0.92,
+      "algorithm": "betweenness_centrality",
+      "components": {
+        "pagerank": 0.85
+      }
+    },
+    {
+      "nodeId": "method_exportForAI",
+      "score": 0.78,
+      "algorithm": "betweenness_centrality",
+      "components": {
+        "pagerank": 0.71
+      }
+    }
+  ],
+  "rules": [
+    "Use only nodes, edges, summaries, and provenance listed in this bundle.",
+    "Do not infer behavior that is not explicitly represented here.",
+    "Treat missing relationships as unknown.",
+    "Treat unresolved relationships as unresolved.",
+    "Do not fabricate APIs, flows, or modules.",
+    "Use source spans as the ground truth for every fact.",
+    "If evidence is absent, answer with unknown or not found.",
+    "Do not widen scope beyond the declared query focus."
+  ]
 }

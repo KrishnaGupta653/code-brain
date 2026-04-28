@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS nodes (
   summary TEXT,
   is_exported BOOLEAN DEFAULT FALSE,
   metadata TEXT,
+  x_pos REAL DEFAULT NULL,
+  y_pos REAL DEFAULT NULL,
+  community_id INTEGER DEFAULT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -111,6 +114,16 @@ CREATE TABLE IF NOT EXISTS ranking_scores (
   FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 );
 
+-- Community edges (from Louvain community detection)
+CREATE TABLE IF NOT EXISTS community_edges (
+  project_id TEXT NOT NULL,
+  source_community INTEGER NOT NULL,
+  target_community INTEGER NOT NULL,
+  edge_count INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(project_id, source_community, target_community),
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
@@ -125,6 +138,32 @@ CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
 CREATE INDEX IF NOT EXISTS idx_provenance_project_id ON provenance(project_id);
 CREATE INDEX IF NOT EXISTS idx_provenance_node_id ON provenance(node_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_scores_node_id ON ranking_scores(node_id);
+CREATE INDEX IF NOT EXISTS idx_community_edges_project ON community_edges(project_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_community_id ON nodes(community_id);
 `;
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION_TABLE = `
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER NOT NULL,
+  applied_at INTEGER NOT NULL
+);
+`;
+
+export const SCHEMA_V2_MIGRATIONS = [
+  // These run only if upgrading from v1 to v2
+  `ALTER TABLE nodes ADD COLUMN x_pos REAL DEFAULT NULL`,
+  `ALTER TABLE nodes ADD COLUMN y_pos REAL DEFAULT NULL`,
+  `ALTER TABLE nodes ADD COLUMN community_id INTEGER DEFAULT NULL`,
+  `CREATE TABLE IF NOT EXISTS community_edges (
+    project_id TEXT NOT NULL,
+    source_community INTEGER NOT NULL,
+    target_community INTEGER NOT NULL,
+    edge_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(project_id, source_community, target_community),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_community_edges_project ON community_edges(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_nodes_community_id ON nodes(community_id)`,
+];
+
+export const CURRENT_SCHEMA_VERSION = 2;

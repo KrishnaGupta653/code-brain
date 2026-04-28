@@ -24,7 +24,20 @@ export const DEFAULT_CONFIG: CodeBrainConfig = {
     '.idea',
     'coverage'
   ],
-  languages: ['typescript', 'javascript'],
+  languages: [
+    'typescript',
+    'javascript',
+    'java',
+    'python',
+    'go',
+    'rust',
+    'c',
+    'cpp',
+    'ruby',
+    'php',
+    'shell',
+    'other',
+  ],
   enableAnalytics: true,
   maxTokensExport: 8000
 };
