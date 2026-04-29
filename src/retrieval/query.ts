@@ -1,8 +1,15 @@
 import { GraphModel } from '../graph/index.js';
 import { GraphEdge, GraphNode, NodeType, QueryResult } from '../types/models.js';
+import { SQLiteStorage } from '../storage/index.js';
 
 export class QueryEngine {
-  constructor(private graph: GraphModel) {}
+  private storage?: SQLiteStorage;
+  private projectRoot?: string;
+
+  constructor(private graph: GraphModel, storage?: SQLiteStorage, projectRoot?: string) {
+    this.storage = storage;
+    this.projectRoot = projectRoot;
+  }
 
   getGraph(): GraphModel {
     return this.graph;
@@ -62,13 +69,42 @@ export class QueryEngine {
       return [];
     }
 
+    // Use FTS5 search if storage is available
+    if (this.storage && this.projectRoot) {
+      try {
+        return this.storage.searchNodes(this.projectRoot, normalized, limit);
+      } catch (error) {
+        // Fall back to in-memory search if FTS5 fails
+      }
+    }
+
+    // Fallback: in-memory search
     return this.graph
       .getNodes()
       .filter(node => {
-        const haystacks = [node.name, node.fullName || '', String(node.metadata?.filePath || '')];
+        const haystacks = [
+          node.name,
+          node.fullName || '',
+          node.semanticPath || '',
+          String(node.metadata?.filePath || ''),
+          node.summary || ''
+        ];
         return haystacks.some(value => value.toLowerCase().includes(normalized));
       })
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => {
+        // Prioritize exact matches
+        const aExact = a.name.toLowerCase() === normalized ? 0 : 1;
+        const bExact = b.name.toLowerCase() === normalized ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+        
+        // Then by importance score
+        const aScore = a.importanceScore || 0;
+        const bScore = b.importanceScore || 0;
+        if (aScore !== bScore) return bScore - aScore;
+        
+        // Finally alphabetically
+        return a.name.localeCompare(b.name);
+      })
       .slice(0, limit);
   }
 
@@ -192,5 +228,291 @@ export class QueryEngine {
       edges: Array.from(collectedEdges.values()).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)),
       truncated
     };
+  }
+
+  /**
+   * Find all circular import chains using Tarjan's SCC algorithm.
+   */
+  findCycles(maxCycles: number = 50): GraphNode[][] {
+    const cycles: GraphNode[][] = [];
+    const index = new Map<string, number>();
+    const lowLink = new Map<string, number>();
+    const onStack = new Set<string>();
+    const stack: string[] = [];
+    let currentIndex = 0;
+
+    const strongConnect = (nodeId: string): void => {
+      if (cycles.length >= maxCycles) return;
+
+      index.set(nodeId, currentIndex);
+      lowLink.set(nodeId, currentIndex);
+      currentIndex++;
+      stack.push(nodeId);
+      onStack.add(nodeId);
+
+      // Consider only structural edges for cycle detection
+      const structuralEdges = this.graph
+        .getOutgoingEdges(nodeId)
+        .filter(e => ['IMPORTS', 'DEPENDS_ON', 'CALLS', 'EXTENDS', 'IMPLEMENTS'].includes(e.type));
+
+      for (const edge of structuralEdges) {
+        const targetId = edge.to;
+        
+        if (!index.has(targetId)) {
+          strongConnect(targetId);
+          lowLink.set(nodeId, Math.min(lowLink.get(nodeId)!, lowLink.get(targetId)!));
+        } else if (onStack.has(targetId)) {
+          lowLink.set(nodeId, Math.min(lowLink.get(nodeId)!, index.get(targetId)!));
+        }
+      }
+
+      // If nodeId is a root node, pop the stack and generate an SCC
+      if (lowLink.get(nodeId) === index.get(nodeId)) {
+        const scc: string[] = [];
+        let w: string;
+        do {
+          w = stack.pop()!;
+          onStack.delete(w);
+          scc.push(w);
+        } while (w !== nodeId);
+
+        // Only report cycles (SCCs with more than 1 node)
+        if (scc.length > 1) {
+          const cycleNodes = scc
+            .map(id => this.graph.getNode(id))
+            .filter((n): n is GraphNode => Boolean(n));
+          if (cycleNodes.length > 1) {
+            cycles.push(cycleNodes);
+          }
+        }
+      }
+    };
+
+    // Run Tarjan's algorithm on all nodes
+    for (const node of this.graph.getNodes()) {
+      if (!index.has(node.id) && cycles.length < maxCycles) {
+        strongConnect(node.id);
+      }
+    }
+
+    return cycles;
+  }
+
+  /**
+   * Find exported symbols that are never imported.
+   */
+  findDeadExports(): GraphNode[] {
+    const entryPointIds = new Set(
+      this.graph.getEdgesByType('ENTRY_POINT').map(e => e.to)
+    );
+
+    return this.graph
+      .getNodes()
+      .filter(node => {
+        // Must be exported
+        if (!node.metadata?.exported) return false;
+        
+        // Exclude entry points
+        if (entryPointIds.has(node.id)) return false;
+        
+        // Check if it has any incoming IMPORTS or USES edges
+        const incoming = this.graph.getIncomingEdges(node.id);
+        const hasImporters = incoming.some(e => 
+          e.type === 'IMPORTS' || e.type === 'USES' || e.type === 'CALLS'
+        );
+        
+        return !hasImporters;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Find orphaned files (no imports in or out).
+   */
+  findOrphans(): GraphNode[] {
+    return this.graph
+      .getNodes()
+      .filter(node => {
+        if (node.type !== 'file') return false;
+        
+        const outgoing = this.graph.getOutgoingEdges(node.id);
+        const incoming = this.graph.getIncomingEdges(node.id);
+        
+        const hasImports = outgoing.some(e => e.type === 'IMPORTS' || e.type === 'DEPENDS_ON');
+        const hasImporters = incoming.some(e => 
+          e.type === 'IMPORTS' || e.type === 'DEPENDS_ON' || e.type === 'OWNS'
+        );
+        
+        return !hasImports && !hasImporters;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Find all callers of a symbol.
+   */
+  findCallers(symbolName: string, maxDepth: number = 3): GraphNode[] {
+    const target = this.resolveFocus(symbolName);
+    if (!target) return [];
+
+    const callers = new Set<string>();
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [{ id: target.id, depth: 0 }];
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (visited.has(id) || depth > maxDepth) continue;
+      visited.add(id);
+
+      const incoming = this.graph.getIncomingEdges(id);
+      for (const edge of incoming) {
+        if (edge.type === 'CALLS' || edge.type === 'USES') {
+          callers.add(edge.from);
+          if (depth < maxDepth) {
+            queue.push({ id: edge.from, depth: depth + 1 });
+          }
+        }
+      }
+    }
+
+    return Array.from(callers)
+      .map(id => this.graph.getNode(id))
+      .filter((n): n is GraphNode => Boolean(n))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Find all callees of a symbol.
+   */
+  findCallees(symbolName: string, maxDepth: number = 3): GraphNode[] {
+    const target = this.resolveFocus(symbolName);
+    if (!target) return [];
+
+    const callees = new Set<string>();
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [{ id: target.id, depth: 0 }];
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (visited.has(id) || depth > maxDepth) continue;
+      visited.add(id);
+
+      const outgoing = this.graph.getOutgoingEdges(id);
+      for (const edge of outgoing) {
+        if (edge.type === 'CALLS' || edge.type === 'USES') {
+          callees.add(edge.to);
+          if (depth < maxDepth) {
+            queue.push({ id: edge.to, depth: depth + 1 });
+          }
+        }
+      }
+    }
+
+    return Array.from(callees)
+      .map(id => this.graph.getNode(id))
+      .filter((n): n is GraphNode => Boolean(n))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Find shortest path between two symbols.
+   */
+  findPath(fromName: string, toName: string): GraphNode[] | null {
+    const from = this.resolveFocus(fromName);
+    const to = this.resolveFocus(toName);
+    if (!from || !to) return null;
+
+    const path = this.graph.findPath(from.id, to.id);
+    if (!path) return null;
+
+    return path
+      .map(id => this.graph.getNode(id))
+      .filter((n): n is GraphNode => Boolean(n));
+  }
+
+  /**
+   * Find all files that import a given file.
+   */
+  findImporters(filePath: string): GraphNode[] {
+    const target = this.resolveFocus(filePath);
+    if (!target) return [];
+
+    return this.graph
+      .getIncomingEdges(target.id)
+      .filter(e => e.type === 'IMPORTS' || e.type === 'DEPENDS_ON')
+      .map(e => this.graph.getNode(e.from))
+      .filter((n): n is GraphNode => Boolean(n))
+      .filter(n => n.type === 'file')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Find all files imported by a given file.
+   */
+  findImports(filePath: string): GraphNode[] {
+    const target = this.resolveFocus(filePath);
+    if (!target) return [];
+
+    return this.graph
+      .getOutgoingEdges(target.id)
+      .filter(e => e.type === 'IMPORTS' || e.type === 'DEPENDS_ON')
+      .map(e => this.graph.getNode(e.to))
+      .filter((n): n is GraphNode => Boolean(n))
+      .filter(n => n.type === 'file')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Find impact of changing a file or symbol (reverse dependencies).
+   */
+  findImpact(target: string, maxDepth: number = 5): {
+    impactedNodes: GraphNode[];
+    impactedFiles: GraphNode[];
+    criticalDependencies: GraphNode[];
+    coveringTests: GraphNode[];
+  } {
+    const node = this.resolveFocus(target);
+    if (!node) {
+      return { impactedNodes: [], impactedFiles: [], criticalDependencies: [], coveringTests: [] };
+    }
+
+    const impacted = new Set<string>();
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [{ id: node.id, depth: 0 }];
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (visited.has(id) || depth > maxDepth) continue;
+      visited.add(id);
+
+      const incoming = this.graph.getIncomingEdges(id);
+      for (const edge of incoming) {
+        if (['IMPORTS', 'DEPENDS_ON', 'CALLS', 'USES', 'EXTENDS', 'IMPLEMENTS'].includes(edge.type)) {
+          impacted.add(edge.from);
+          if (depth < maxDepth) {
+            queue.push({ id: edge.from, depth: depth + 1 });
+          }
+        }
+      }
+    }
+
+    const impactedNodes = Array.from(impacted)
+      .map(id => this.graph.getNode(id))
+      .filter((n): n is GraphNode => Boolean(n));
+
+    const impactedFiles = impactedNodes
+      .filter(n => n.type === 'file')
+      .sort((a, b) => (b.importanceScore || 0) - (a.importanceScore || 0));
+
+    const criticalDependencies = impactedNodes
+      .filter(n => (n.importanceScore || 0) > 0.7)
+      .sort((a, b) => (b.importanceScore || 0) - (a.importanceScore || 0))
+      .slice(0, 10);
+
+    const coveringTests = impactedNodes
+      .filter(n => n.type === 'test' || n.metadata?.testFile)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { impactedNodes, impactedFiles, criticalDependencies, coveringTests };
   }
 }

@@ -67,7 +67,7 @@ export function setupCLI(): Command {
           process.exit(1);
         }
 
-        await watchCommand(options.path, { intervalMs });
+        await watchCommand(options.path, { debounceMs: intervalMs });
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
@@ -102,6 +102,7 @@ export function setupCLI(): Command {
     .option("--focus <module>", "Focus on specific module or symbol")
     .option("--max-tokens <number>", "Maximum tokens for AI export (optional)")
     .option("--top <number>", "Export only the top N most important AI nodes")
+    .option("--model <model>", "Target AI model (gpt-4, claude-3-opus, gemini-1.5-pro, etc.)")
     .action(async (options) => {
       try {
         const validFormats = ["json", "yaml", "ai"];
@@ -136,8 +137,53 @@ export function setupCLI(): Command {
           options.focus,
           maxTokens,
           top,
+          options.model,
         );
         console.log(output);
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("query")
+    .description("Query the code graph")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--type <type>", "Query type: callers, callees, cycles, dead-exports, orphans, impact, path")
+    .option("--symbol <symbol>", "Symbol name for callers/callees/impact queries")
+    .option("--from <from>", "Source node for path query")
+    .option("--to <to>", "Target node for path query")
+    .option("--limit <limit>", "Maximum results to return", "50")
+    .action(async (options) => {
+      try {
+        const { queryCommand } = await import("./commands/query.js");
+        await queryCommand(options.path, {
+          type: options.type,
+          symbol: options.symbol,
+          from: options.from,
+          to: options.to,
+          limit: parseInt(options.limit, 10),
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("analyze")
+    .description("Analyze code quality and generate report")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--git", "Include git statistics")
+    .option("--format <format>", "Output format: text or json", "text")
+    .action(async (options) => {
+      try {
+        const { analyzeCommand } = await import("./commands/analyze.js");
+        await analyzeCommand(options.path, {
+          includeGit: options.git,
+          outputFormat: options.format,
+        });
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);

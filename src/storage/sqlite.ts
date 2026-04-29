@@ -9,11 +9,13 @@ import {
   ProvenanceRecord,
   RankingScore,
   SourceSpan,
+  GraphNode,
 } from "../types/models.js";
 import { SCHEMA } from "./schema.js";
 import { logger, StorageError, stableId } from "../utils/index.js";
 import { createGraphNode, createGraphEdge } from "../graph/index.js";
 import { GraphModel } from "../graph/index.js";
+import { runMigrations } from "./migrations.js";
 
 interface StoredFileHash {
   path: string;
@@ -32,7 +34,9 @@ export class SQLiteStorage {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
+    this.db.pragma("foreign_keys = ON");
     this.initialize();
+    runMigrations(this.db);
   }
 
   private initialize(): void {
@@ -221,8 +225,9 @@ export class SQLiteStorage {
 
       const insertNode = this.db.prepare(`
         INSERT INTO nodes
-        (id, project_id, file_path, name, full_name, type, start_line, end_line, start_col, end_col, summary, metadata, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, project_id, file_path, name, full_name, type, start_line, end_line, start_col, end_col, summary, metadata, 
+         semantic_path, namespace, hierarchy_label, semantic_role, community_id, importance_score, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertEdge = this.db.prepare(`
@@ -251,6 +256,12 @@ export class SQLiteStorage {
           node.location?.endCol ?? 0,
           node.summary || "",
           JSON.stringify(node.metadata || {}),
+          node.semanticPath || null,
+          node.namespace || null,
+          node.hierarchyLabel || null,
+          node.semanticRole || null,
+          node.communityId || null,
+          node.importanceScore || 0,
           node.provenance.createdAt || now,
           node.provenance.updatedAt || now,
         );
@@ -306,6 +317,12 @@ export class SQLiteStorage {
       end_col: number;
       summary: string;
       metadata: string;
+      semantic_path: string | null;
+      namespace: string | null;
+      hierarchy_label: string | null;
+      semantic_role: string | null;
+      community_id: number | null;
+      importance_score: number;
       created_at: number;
       updated_at: number;
     }>;
@@ -328,6 +345,14 @@ export class SQLiteStorage {
         row.summary || undefined,
         row.metadata ? JSON.parse(row.metadata) : {},
       );
+
+      // Restore semantic fields
+      node.semanticPath = row.semantic_path || undefined;
+      node.namespace = row.namespace || undefined;
+      node.hierarchyLabel = row.hierarchy_label || undefined;
+      node.semanticRole = row.semantic_role || undefined;
+      node.communityId = row.community_id || undefined;
+      node.importanceScore = row.importance_score || 0;
 
       node.provenance = this.getProvenanceFor(
         row.id,
@@ -492,6 +517,224 @@ export class SQLiteStorage {
     logger.debug("Database closed");
   }
 
+  /**
+   * Search nodes using FTS5 full-text search with BM25 ranking.
+   * Falls back to LIKE search if FTS5 is not available.
+   */
+  searchNodes(projectRoot: string, query: string, limit: number = 50): GraphNode[] {
+    const projectId = this.getProjectId(projectRoot);
+    
+    try {
+      // Try FTS5 search first
+      const ftsResults = this.db
+        .prepare(`
+          SELECT n.*, fts.rank
+          FROM nodes_fts fts
+          JOIN nodes n ON n.id = fts.node_id
+          WHERE n.project_id = ? AND nodes_fts MATCH ?
+          ORDER BY fts.rank
+          LIMIT ?
+        `)
+        .all(projectId, query, limit) as Array<{
+        id: string;
+        type: string;
+        name: string;
+        full_name: string;
+        file_path: string;
+        start_line: number;
+        end_line: number;
+        start_col: number;
+        end_col: number;
+        summary: string;
+        metadata: string;
+        semantic_path: string | null;
+        namespace: string | null;
+        hierarchy_label: string | null;
+        semantic_role: string | null;
+        community_id: number | null;
+        importance_score: number;
+        created_at: number;
+        updated_at: number;
+        rank: number;
+      }>;
+
+      return ftsResults.map((row) => {
+        const node = this.rowToGraphNode(row, projectId);
+        return node;
+      });
+    } catch (error) {
+      // FTS5 not available, fall back to LIKE search
+      logger.debug("FTS5 not available, using LIKE search");
+      const likePattern = `%${query}%`;
+      const likeResults = this.db
+        .prepare(`
+          SELECT *
+          FROM nodes
+          WHERE project_id = ? AND (
+            name LIKE ? OR
+            full_name LIKE ? OR
+            semantic_path LIKE ? OR
+            summary LIKE ?
+          )
+          ORDER BY 
+            CASE 
+              WHEN name = ? THEN 0
+              WHEN name LIKE ? THEN 1
+              ELSE 2
+            END,
+            importance_score DESC,
+            name
+          LIMIT ?
+        `)
+        .all(
+          projectId,
+          likePattern,
+          likePattern,
+          likePattern,
+          likePattern,
+          query,
+          `${query}%`,
+          limit,
+        ) as Array<{
+        id: string;
+        type: string;
+        name: string;
+        full_name: string;
+        file_path: string;
+        start_line: number;
+        end_line: number;
+        start_col: number;
+        end_col: number;
+        summary: string;
+        metadata: string;
+        semantic_path: string | null;
+        namespace: string | null;
+        hierarchy_label: string | null;
+        semantic_role: string | null;
+        community_id: number | null;
+        importance_score: number;
+        created_at: number;
+        updated_at: number;
+      }>;
+
+      return likeResults.map((row) => this.rowToGraphNode(row, projectId));
+    }
+  }
+
+  /**
+   * Save analytics results to cache.
+   */
+  saveAnalyticsCache(
+    projectRoot: string,
+    algorithm: string,
+    results: unknown,
+    fingerprint: string
+  ): void {
+    const projectId = this.getProjectId(projectRoot);
+    const now = Date.now();
+    
+    this.db
+      .prepare(`
+        INSERT OR REPLACE INTO analytics_cache
+        (project_id, algorithm, result_json, graph_fingerprint, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      .run(projectId, algorithm, JSON.stringify(results), fingerprint, now);
+  }
+
+  /**
+   * Get cached analytics results if fingerprint matches.
+   */
+  getAnalyticsCache(
+    projectRoot: string,
+    algorithm: string,
+    fingerprint: string
+  ): unknown | null {
+    const projectId = this.getProjectId(projectRoot);
+    
+    try {
+      const row = this.db
+        .prepare(`
+          SELECT result_json, graph_fingerprint
+          FROM analytics_cache
+          WHERE project_id = ? AND algorithm = ?
+        `)
+        .get(projectId, algorithm) as { result_json: string; graph_fingerprint: string } | undefined;
+
+      if (!row) return null;
+      
+      // Check if fingerprint matches
+      if (row.graph_fingerprint !== fingerprint) return null;
+      
+      return JSON.parse(row.result_json);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Convert a database row to a GraphNode.
+   */
+  private rowToGraphNode(
+    row: {
+      id: string;
+      type: string;
+      name: string;
+      full_name: string;
+      file_path: string;
+      start_line: number;
+      end_line: number;
+      start_col: number;
+      end_col: number;
+      summary: string;
+      metadata: string;
+      semantic_path: string | null;
+      namespace: string | null;
+      hierarchy_label: string | null;
+      semantic_role: string | null;
+      community_id: number | null;
+      importance_score: number;
+      created_at: number;
+      updated_at: number;
+    },
+    projectId: string,
+  ): GraphNode {
+    const source: SourceSpan = {
+      file: row.file_path || "",
+      startLine: row.start_line,
+      endLine: row.end_line,
+      startCol: row.start_col,
+      endCol: row.end_col,
+    };
+
+    const node = createGraphNode(
+      row.id,
+      row.type as NodeType,
+      row.name,
+      source,
+      row.full_name,
+      row.summary || undefined,
+      row.metadata ? JSON.parse(row.metadata) : {},
+    );
+
+    // Restore semantic fields
+    node.semanticPath = row.semantic_path || undefined;
+    node.namespace = row.namespace || undefined;
+    node.hierarchyLabel = row.hierarchy_label || undefined;
+    node.semanticRole = row.semantic_role || undefined;
+    node.communityId = row.community_id || undefined;
+    node.importanceScore = row.importance_score || 0;
+
+    node.provenance = this.getProvenanceFor(
+      row.id,
+      projectId,
+      row.created_at,
+      row.updated_at,
+    );
+
+    return node;
+  }
+
   private insertProvenanceSpans(
     insertProv: Database.Statement,
     projectId: string,
@@ -596,13 +839,6 @@ export class SQLiteStorage {
   private getFileCount(projectId: string): number {
     const row = this.db
       .prepare("SELECT COUNT(*) as count FROM files WHERE project_id = ?")
-      .get(projectId) as { count: number };
-    return row?.count || 0;
-  }
-
-  private getNodeCount(projectId: string): number {
-    const row = this.db
-      .prepare("SELECT COUNT(*) as count FROM nodes WHERE project_id = ?")
       .get(projectId) as { count: number };
     return row?.count || 0;
   }

@@ -3,6 +3,7 @@ import fs from "fs";
 import { Server } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
+import { WebSocketServer, WebSocket } from "ws";
 import { QueryEngine } from "../retrieval/query.js";
 import { logger, getDbPath } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
@@ -193,7 +194,7 @@ function findCycles(
 export async function createGraphServer(
   projectRoot: string,
   port: number = 3000,
-): Promise<Server> {
+): Promise<{ server: Server; wss: WebSocketServer; broadcast: (message: unknown) => void }> {
   const app = express();
   app.use(express.json());
   const uiDist = path.resolve(__dirname, "../../ui/dist");
@@ -206,7 +207,7 @@ export async function createGraphServer(
 
   const storage = new SQLiteStorage(getDbPath(projectRoot));
   const graph = storage.loadGraph(projectRoot);
-  const queryEngine = new QueryEngine(graph);
+  const queryEngine = new QueryEngine(graph, storage, projectRoot);
   const stats = graph.getStats();
   const analytics = computeAnalytics(graph);
   let rankingScores = storage.getRankingScores(projectRoot);
@@ -229,7 +230,260 @@ export async function createGraphServer(
 
   logger.success("Graph loaded for visualization");
 
-  app.get("/api/graph", (_req, res) => {
+  // Add level-based graph endpoint
+  app.get("/api/graph", (req, res) => {
+    const level = Number.parseInt(String(req.query.level || "0"), 10);
+    const communityId = req.query.community ? Number.parseInt(String(req.query.community), 10) : undefined;
+    const focusNodeId = String(req.query.focus || "");
+
+    // Level 0: Cluster view (30-100 nodes representing communities)
+    if (level === 0 && !communityId) {
+      const communities = analytics.communities || [];
+      const clusterNodes = communities.slice(0, 30).map((community, index) => {
+        const memberNodes = community.nodeIds
+          .map(id => graph.getNode(id))
+          .filter((n): n is GraphNode => Boolean(n));
+        
+        const topMember = memberNodes
+          .sort((a, b) => (rankingByNode.get(b.id)?.score || 0) - (rankingByNode.get(a.id)?.score || 0))[0];
+        
+        const avgImportance = memberNodes.reduce((sum, n) => sum + (rankingByNode.get(n.id)?.score || 0), 0) / memberNodes.length;
+
+        return {
+          id: `cluster_${index}`,
+          name: community.label || `Cluster ${index + 1}`,
+          type: 'module',
+          fullName: community.label,
+          summary: `${community.size} nodes`,
+          file: topMember?.location?.file || 'unknown',
+          metadata: {
+            isCluster: true,
+            communityId: index,
+            memberCount: community.size,
+            topSymbols: memberNodes.slice(0, 5).map(n => n.name),
+          },
+          location: topMember?.location ? stripSourceText(topMember.location) : undefined,
+          vscodeUri: topMember ? toVsCodeUri(topMember.location) : undefined,
+          rank: { nodeId: `cluster_${index}`, score: avgImportance, algorithm: 'cluster_importance' },
+          degree: community.size,
+          incomingCount: 0,
+          outgoingCount: 0,
+        };
+      });
+
+      // Create edges between clusters based on inter-cluster connections
+      const clusterEdges: any[] = [];
+      const nodeToCluster = new Map<string, number>();
+      communities.forEach((community, index) => {
+        community.nodeIds.forEach(nodeId => nodeToCluster.set(nodeId, index));
+      });
+
+      const interClusterEdges = new Map<string, number>();
+      for (const edge of graph.getEdges()) {
+        const fromCluster = nodeToCluster.get(edge.from);
+        const toCluster = nodeToCluster.get(edge.to);
+        if (fromCluster !== undefined && toCluster !== undefined && fromCluster !== toCluster) {
+          const key = `${fromCluster}-${toCluster}`;
+          interClusterEdges.set(key, (interClusterEdges.get(key) || 0) + 1);
+        }
+      }
+
+      for (const [key, count] of interClusterEdges) {
+        const [from, to] = key.split('-').map(Number);
+        if (count > 5) { // Only show significant connections
+          clusterEdges.push({
+            id: `cluster_edge_${key}`,
+            from: `cluster_${from}`,
+            to: `cluster_${to}`,
+            type: 'DEPENDS_ON',
+            resolved: true,
+            metadata: { edgeCount: count },
+          });
+        }
+      }
+
+      res.json({
+        nodes: clusterNodes,
+        edges: clusterEdges,
+        stats: { ...stats, level: 0, clustered: true },
+        ranking: rankingScores.slice(0, 50),
+        analytics: {
+          health: analytics.health,
+          hubs: analytics.hubs,
+          communities: analytics.communities,
+        },
+      });
+      return;
+    }
+
+    // Community expansion: Return all nodes in a specific community
+    if (communityId !== undefined) {
+      const community = analytics.communities[communityId];
+      if (!community) {
+        res.status(404).json({ error: 'Community not found' });
+        return;
+      }
+
+      const communityNodeIds = new Set(community.nodeIds);
+      const nodes = Array.from(communityNodeIds)
+        .map(id => graph.getNode(id))
+        .filter((node): node is GraphNode => Boolean(node))
+        .slice(0, 300) // Limit to 300 nodes
+        .map(node => ({
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          fullName: node.fullName,
+          summary: node.summary || "unknown",
+          file: node.location?.file || "unknown",
+          metadata: node.metadata || {},
+          location: node.location ? stripSourceText(node.location) : undefined,
+          vscodeUri: toVsCodeUri(node.location),
+          rank: rankingByNode.get(node.id),
+          degree: graph.getIncomingEdges(node.id).length + graph.getOutgoingEdges(node.id).length,
+          incomingCount: graph.getIncomingEdges(node.id).length,
+          outgoingCount: graph.getOutgoingEdges(node.id).length,
+        }));
+
+      const nodeIds = new Set(nodes.map(n => n.id));
+      const edges = graph.getEdges()
+        .filter(edge => nodeIds.has(edge.from) && nodeIds.has(edge.to))
+        .map(edge => ({
+          id: edge.id,
+          from: edge.from,
+          to: edge.to,
+          type: edge.type,
+          resolved: edge.resolved,
+        }));
+
+      res.json({
+        nodes,
+        edges,
+        stats: { ...stats, level: 2, communityId },
+        ranking: rankingScores.slice(0, 50),
+      });
+      return;
+    }
+
+    // Level 1: File-level nodes only (no methods/functions)
+    if (level === 1) {
+      const fileNodes = graph.getNodes()
+        .filter(node => ['project', 'file', 'module', 'class'].includes(node.type))
+        .slice(0, 500)
+        .map(node => ({
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          fullName: node.fullName,
+          summary: node.summary || "unknown",
+          file: node.location?.file || "unknown",
+          metadata: node.metadata || {},
+          location: node.location ? stripSourceText(node.location) : undefined,
+          vscodeUri: toVsCodeUri(node.location),
+          rank: rankingByNode.get(node.id),
+          degree: graph.getIncomingEdges(node.id).length + graph.getOutgoingEdges(node.id).length,
+          incomingCount: graph.getIncomingEdges(node.id).length,
+          outgoingCount: graph.getOutgoingEdges(node.id).length,
+        }));
+
+      const nodeIds = new Set(fileNodes.map(n => n.id));
+      const edges = graph.getEdges()
+        .filter(edge => nodeIds.has(edge.from) && nodeIds.has(edge.to))
+        .map(edge => ({
+          id: edge.id,
+          from: edge.from,
+          to: edge.to,
+          type: edge.type,
+          resolved: edge.resolved,
+        }));
+
+      res.json({
+        nodes: fileNodes,
+        edges,
+        stats: { ...stats, level: 1 },
+        ranking: rankingScores.slice(0, 50),
+        analytics: {
+          health: analytics.health,
+          hubs: analytics.hubs,
+          communities: analytics.communities,
+        },
+      });
+      return;
+    }
+
+    // Level 2 with focus: Full neighborhood around a node
+    if (level === 2 && focusNodeId) {
+      const focusNode = graph.getNode(focusNodeId);
+      if (!focusNode) {
+        res.status(404).json({ error: 'Focus node not found' });
+        return;
+      }
+
+      const relatedIds = new Set<string>([focusNodeId]);
+      const queue = [focusNodeId];
+      const visited = new Set<string>();
+      const maxDepth = 2;
+      const maxNodes = 300;
+
+      while (queue.length > 0 && relatedIds.size < maxNodes) {
+        const currentId = queue.shift()!;
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+
+        const outgoing = graph.getOutgoingEdges(currentId);
+        const incoming = graph.getIncomingEdges(currentId);
+
+        for (const edge of [...outgoing, ...incoming]) {
+          const nextId = edge.from === currentId ? edge.to : edge.from;
+          if (!visited.has(nextId) && relatedIds.size < maxNodes) {
+            relatedIds.add(nextId);
+            if (visited.size < maxDepth * 10) {
+              queue.push(nextId);
+            }
+          }
+        }
+      }
+
+      const nodes = Array.from(relatedIds)
+        .map(id => graph.getNode(id))
+        .filter((node): node is GraphNode => Boolean(node))
+        .map(node => ({
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          fullName: node.fullName,
+          summary: node.summary || "unknown",
+          file: node.location?.file || "unknown",
+          metadata: node.metadata || {},
+          location: node.location ? stripSourceText(node.location) : undefined,
+          vscodeUri: toVsCodeUri(node.location),
+          rank: rankingByNode.get(node.id),
+          degree: graph.getIncomingEdges(node.id).length + graph.getOutgoingEdges(node.id).length,
+          incomingCount: graph.getIncomingEdges(node.id).length,
+          outgoingCount: graph.getOutgoingEdges(node.id).length,
+        }));
+
+      const nodeIds = new Set(nodes.map(n => n.id));
+      const edges = graph.getEdges()
+        .filter(edge => nodeIds.has(edge.from) && nodeIds.has(edge.to))
+        .map(edge => ({
+          id: edge.id,
+          from: edge.from,
+          to: edge.to,
+          type: edge.type,
+          resolved: edge.resolved,
+        }));
+
+      res.json({
+        nodes,
+        edges,
+        stats: { ...stats, level: 2, focus: focusNodeId },
+        ranking: rankingScores.slice(0, 50),
+      });
+      return;
+    }
+
+    // Default: Return full graph (legacy behavior, but warn if too large)
     const nodes = graph.getNodes().map((node) => ({
       id: node.id,
       name: node.name,
@@ -264,6 +518,7 @@ export async function createGraphServer(
         hubs: analytics.hubs,
         communities: analytics.communities,
       },
+      warning: nodes.length > 5000 ? 'Large graph: Consider using ?level=0 for cluster view' : undefined,
     });
   });
 
@@ -424,6 +679,116 @@ export async function createGraphServer(
     });
   });
 
+  app.get("/api/analyze/cycles", (_req, res) => {
+    const cycles = queryEngine.findCycles(50);
+    res.json({
+      count: cycles.length,
+      cycles: cycles.map(cycle => ({
+        nodes: cycle.map(n => ({
+          id: n.id,
+          name: n.name,
+          type: n.type,
+          file: n.location?.file
+        })),
+        length: cycle.length
+      }))
+    });
+  });
+
+  app.get("/api/analyze/dead-exports", (_req, res) => {
+    const deadExports = queryEngine.findDeadExports();
+    res.json({
+      count: deadExports.length,
+      exports: deadExports.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        file: n.location?.file,
+        fullName: n.fullName
+      }))
+    });
+  });
+
+  app.get("/api/analyze/orphans", (_req, res) => {
+    const orphans = queryEngine.findOrphans();
+    res.json({
+      count: orphans.length,
+      files: orphans.map(n => ({
+        id: n.id,
+        name: n.name,
+        path: n.location?.file
+      }))
+    });
+  });
+
+  app.get("/api/query/callers", (req, res) => {
+    const symbol = String(req.query.symbol || "");
+    if (!symbol) {
+      res.status(400).json({ error: "Query parameter symbol is required" });
+      return;
+    }
+    const callers = queryEngine.findCallers(symbol);
+    res.json({
+      symbol,
+      count: callers.length,
+      callers: callers.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        file: n.location?.file
+      }))
+    });
+  });
+
+  app.get("/api/query/callees", (req, res) => {
+    const symbol = String(req.query.symbol || "");
+    if (!symbol) {
+      res.status(400).json({ error: "Query parameter symbol is required" });
+      return;
+    }
+    const callees = queryEngine.findCallees(symbol);
+    res.json({
+      symbol,
+      count: callees.length,
+      callees: callees.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        file: n.location?.file
+      }))
+    });
+  });
+
+  app.get("/api/query/impact", (req, res) => {
+    const target = String(req.query.target || "");
+    if (!target) {
+      res.status(400).json({ error: "Query parameter target is required" });
+      return;
+    }
+    const impact = queryEngine.findImpact(target);
+    res.json({
+      target,
+      impactedCount: impact.impactedNodes.length,
+      impactedFiles: impact.impactedFiles.map(n => ({
+        id: n.id,
+        name: n.name,
+        path: n.location?.file,
+        importance: n.importanceScore
+      })),
+      criticalDependencies: impact.criticalDependencies.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        importance: n.importanceScore
+      })),
+      coveringTests: impact.coveringTests.map(n => ({
+        id: n.id,
+        name: n.name,
+        file: n.location?.file
+      }))
+    });
+  });
+
   app.get("*", (_req, res, next) => {
     if (!fs.existsSync(path.join(staticDir, "index.html"))) {
       next();
@@ -436,7 +801,36 @@ export async function createGraphServer(
     const server = app.listen(port, () => {
       logger.success(`Graph server running on http://localhost:${port}`);
       logger.info("Press Ctrl+C to stop");
-      resolve(server);
+      
+      // Create WebSocket server
+      const wss = new WebSocketServer({ server });
+      
+      wss.on('connection', (ws: WebSocket) => {
+        logger.debug('WebSocket client connected');
+        
+        ws.on('error', (error) => {
+          logger.debug('WebSocket error:', error);
+        });
+        
+        ws.on('close', () => {
+          logger.debug('WebSocket client disconnected');
+        });
+        
+        // Send initial connection message
+        ws.send(JSON.stringify({ type: 'connected', timestamp: Date.now() }));
+      });
+      
+      // Broadcast function to send messages to all connected clients
+      const broadcast = (message: unknown) => {
+        const payload = JSON.stringify(message);
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(payload);
+          }
+        });
+      };
+      
+      resolve({ server, wss, broadcast });
     });
 
     server.on("error", (error) => {

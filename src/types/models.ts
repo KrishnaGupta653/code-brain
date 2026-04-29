@@ -73,6 +73,10 @@ export interface GraphNode {
   hierarchyLabel?: string; // e.g., "API > Handlers > authHandler"
   semanticRole?: string; // e.g., "request_handler", "utility", "service"
   moduleContext?: string; // e.g., "authentication_module"
+  
+  // Analytics fields
+  communityId?: number; // Cluster/community assignment from analytics
+  importanceScore?: number; // Computed importance score (0-1)
 }
 
 export interface GraphEdge {
@@ -168,6 +172,8 @@ export interface AIExportBundle extends ExportBundle {
   ranking?: RankingScore[];
   focus?: string;
   rules: string[];
+  modules?: any[]; // Module summaries for hierarchical export
+  pathMap?: Record<string, string>; // File path compression map
 }
 
 export interface RankingScore {
@@ -200,6 +206,7 @@ export interface CodeBrainConfig {
   dbPath?: string;
   enableAnalytics?: boolean;
   maxTokensExport?: number;
+  parserPlugins?: string[];
 }
 
 export interface ParsedImportBinding {

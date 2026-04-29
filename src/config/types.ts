@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { CodeBrainConfig } from '../types/models.js';
 
 export interface ConfigSource {
@@ -10,6 +11,19 @@ export interface ConfigSource {
   enableAnalytics?: boolean;
   maxTokensExport?: number;
 }
+
+// Zod schema for validation
+export const ConfigSchema = z.object({
+  projectRoot: z.string(),
+  include: z.array(z.string()).min(1),
+  exclude: z.array(z.string()),
+  languages: z.array(z.string()).min(1),
+  pythonPath: z.string().optional(),
+  dbPath: z.string().optional(),
+  enableAnalytics: z.boolean(),
+  maxTokensExport: z.number().positive(),
+  parserPlugins: z.array(z.string()),
+});
 
 export const DEFAULT_CONFIG: CodeBrainConfig = {
   projectRoot: process.cwd(),
@@ -24,32 +38,43 @@ export const DEFAULT_CONFIG: CodeBrainConfig = {
     '.idea',
     'coverage'
   ],
-  languages: ['typescript', 'javascript'],
+  languages: ['typescript', 'javascript', 'java'],
   enableAnalytics: true,
-  maxTokensExport: 8000
+  maxTokensExport: 8000,
+  parserPlugins: []
 };
 
 export class ConfigLoader {
   static load(source: ConfigSource): CodeBrainConfig {
-    return {
+    const config = {
       ...DEFAULT_CONFIG,
       ...source
     };
+    
+    // Validate with Zod
+    try {
+      ConfigSchema.parse(config);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const issues = error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+        throw new Error(`Config validation failed: ${issues}`);
+      }
+      throw error;
+    }
+    
+    return config;
   }
 
   static validate(config: CodeBrainConfig): boolean {
-    if (!config.projectRoot) {
-      throw new Error('projectRoot is required');
+    try {
+      ConfigSchema.parse(config);
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const issues = error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+        throw new Error(`Config validation failed: ${issues}`);
+      }
+      throw error;
     }
-    if (!Array.isArray(config.include)) {
-      throw new Error('include must be an array');
-    }
-    if (!Array.isArray(config.exclude)) {
-      throw new Error('exclude must be an array');
-    }
-    if (!Array.isArray(config.languages)) {
-      throw new Error('languages must be an array');
-    }
-    return true;
   }
 }

@@ -70,7 +70,9 @@ const EDGE_COLORS: Record<string, string> = {
 
 function nodeSize(node: GraphNode): number {
   const rankBoost = node.rank ? Math.min(10, node.rank.score * 14) : 0;
-  return Math.max(3.5, Math.min(18, 4 + Math.sqrt(node.degree || 1) * 1.6 + rankBoost));
+  const isCluster = node.metadata?.isCluster;
+  const baseSize = isCluster ? 8 : 4; // Clusters are larger
+  return Math.max(3.5, Math.min(18, baseSize + Math.sqrt(node.degree || 1) * 1.6 + rankBoost));
 }
 
 function typeIcon(type: string) {
@@ -149,18 +151,127 @@ function clamp(value: number, min: number, max: number): number {
 function useGraphData() {
   const [payload, setPayload] = useState<GraphPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [level, setLevel] = useState<number>(0);
+  const [expandedCommunities, setExpandedCommunities] = useState<Set<number>>(new Set());
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/graph")
+    // Determine which level to fetch based on graph size
+    fetch("/api/graph?level=0")
       .then((response) => {
         if (!response.ok) throw new Error("Unable to load graph");
         return response.json() as Promise<GraphPayload>;
+      })
+      .then((data) => {
+        // If cluster view has < 100 nodes, fetch full graph instead
+        if (data.nodes.length < 100 && data.stats.nodeCount > 100) {
+          return fetch("/api/graph?level=1").then(r => r.json() as Promise<GraphPayload>);
+        }
+        return data;
       })
       .then(setPayload)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
-  return { payload, error };
+  // WebSocket connection for live updates
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+          console.info('WebSocket connected');
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            
+            if (message.type === 'graph-updated') {
+              console.info('Graph updated:', message.message);
+              setLastUpdate(message.message);
+              
+              // Reload graph data
+              fetch("/api/graph?level=0")
+                .then((response) => response.json() as Promise<GraphPayload>)
+                .then((data) => {
+                  if (data.nodes.length < 100 && data.stats.nodeCount > 100) {
+                    return fetch("/api/graph?level=1").then(r => r.json() as Promise<GraphPayload>);
+                  }
+                  return data;
+                })
+                .then(setPayload)
+                .catch((err) => console.error('Failed to reload graph:', err));
+            }
+          } catch (err) {
+            console.error('Failed to parse WebSocket message:', err);
+          }
+        };
+        
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+        
+        ws.onclose = () => {
+          console.info('WebSocket disconnected, reconnecting in 3s...');
+          reconnectTimer = setTimeout(connect, 3000);
+        };
+      } catch (err) {
+        console.error('Failed to create WebSocket:', err);
+        reconnectTimer = setTimeout(connect, 3000);
+      }
+    };
+    
+    connect();
+    
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, []);
+
+  const expandCommunity = async (communityId: number) => {
+    if (expandedCommunities.has(communityId)) return;
+    
+    try {
+      const response = await fetch(`/api/graph?community=${communityId}`);
+      const communityData = await response.json() as GraphPayload;
+      
+      setPayload((prev) => {
+        if (!prev) return communityData;
+        
+        // Merge community nodes into existing graph
+        const existingNodeIds = new Set(prev.nodes.map(n => n.id));
+        const newNodes = communityData.nodes.filter(n => !existingNodeIds.has(n.id));
+        const newEdges = communityData.edges.filter(e => 
+          !prev.edges.some(existing => existing.id === e.id)
+        );
+        
+        // Remove the cluster node
+        const filteredNodes = prev.nodes.filter(n => n.id !== `cluster_${communityId}`);
+        
+        return {
+          ...prev,
+          nodes: [...filteredNodes, ...newNodes],
+          edges: [...prev.edges, ...newEdges],
+        };
+      });
+      
+      setExpandedCommunities(prev => new Set([...prev, communityId]));
+    } catch (err) {
+      console.error('Failed to expand community', err);
+    }
+  };
+
+  return { payload, error, level, expandCommunity, lastUpdate };
 }
 
 function GraphStage({
@@ -170,6 +281,7 @@ function GraphStage({
   activeTypes,
   onSelect,
   onHover,
+  onExpandCluster,
 }: {
   payload: GraphPayload;
   selectedId: string | null;
@@ -177,6 +289,7 @@ function GraphStage({
   activeTypes: Set<string>;
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
+  onExpandCluster?: (communityId: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -269,11 +382,15 @@ function GraphStage({
       }
     });
 
-    if (graph.order > 2) {
+    // Only run ForceAtlas2 for small to medium graphs
+    // For large graphs (>1000 nodes), use the initial circular layout
+    if (graph.order > 2 && graph.order < 1000) {
       forceAtlas2.assign(graph, {
         iterations: Math.min(140, Math.max(45, graph.order * 2)),
         settings: forceAtlas2.inferSettings(graph),
       });
+    } else if (graph.order >= 1000) {
+      console.info(`Large graph detected (${graph.order} nodes), using optimized layout`);
     }
 
     graph.forEachNode((id, attrs) => {
@@ -298,7 +415,18 @@ function GraphStage({
       maxCameraRatio: 4,
     });
 
-    sigma.on("clickNode", ({ node }) => onSelect(node));
+    sigma.on("clickNode", ({ node }) => {
+      const nodeData = nodeLookup.get(node);
+      // Check if this is a cluster node
+      if (nodeData?.metadata?.isCluster && onExpandCluster) {
+        const communityId = nodeData.metadata.communityId;
+        if (typeof communityId === 'number') {
+          onExpandCluster(communityId);
+          return;
+        }
+      }
+      onSelect(node);
+    });
     sigma.on("enterNode", ({ node }) => onHover(node));
     sigma.on("leaveNode", () => onHover(null));
     sigmaRef.current = sigma;
@@ -452,7 +580,7 @@ function GraphStage({
 }
 
 function App() {
-  const { payload, error } = useGraphData();
+  const { payload, error, level, expandCommunity, lastUpdate } = useGraphData();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GraphNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -591,6 +719,20 @@ function App() {
           </div>
         </header>
 
+        {lastUpdate && (
+          <div style={{
+            padding: '8px 12px',
+            margin: '8px 12px',
+            background: 'rgba(74, 222, 128, 0.1)',
+            border: '1px solid rgba(74, 222, 128, 0.3)',
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: '#4ade80'
+          }}>
+            ✓ {lastUpdate}
+          </div>
+        )}
+
         <section className="tool-panel search-panel">
           <label>
             <Search size={15} />
@@ -682,6 +824,7 @@ function App() {
         activeTypes={activeTypes}
         onSelect={selectNode}
         onHover={setHoveredId}
+        onExpandCluster={expandCommunity}
       />
 
       <div

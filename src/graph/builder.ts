@@ -30,6 +30,7 @@ export class GraphBuilder {
   private parsedFiles: Map<string, ParsedFile> = new Map();
   private fileIdMap: Map<string, string> = new Map();
   private symbolIdMap: Map<string, string> = new Map();
+  private fileHashMap: Map<string, { hash: string; language: string; size: number }> = new Map();
   private projectId = "";
   private projectRoot = "";
   private pathAliases: PathAlias[] = [];
@@ -44,6 +45,7 @@ export class GraphBuilder {
     this.parsedFiles.clear();
     this.fileIdMap.clear();
     this.symbolIdMap.clear();
+    this.fileHashMap.clear();
     this.projectRoot = root;
     this.projectId = stableId("project", root);
     this.pathAliases = this.loadPathAliases(root);
@@ -77,6 +79,12 @@ export class GraphBuilder {
         const parsed = Parser.parseFile(file);
         this.parsedFiles.set(file, parsed);
         this.addFileAndSymbols(file, parsed);
+        // Store file hash for later use
+        this.fileHashMap.set(file, {
+          hash: parsed.hash,
+          language: parsed.language,
+          size: fs.statSync(file).size
+        });
       } catch (error) {
         logger.warn(`Failed to parse: ${file}`, error);
       }
@@ -101,6 +109,10 @@ export class GraphBuilder {
 
   getGraph(): GraphModel {
     return this.graph;
+  }
+
+  getFileHashes(): Map<string, { hash: string; language: string; size: number }> {
+    return new Map(this.fileHashMap);
   }
 
   private addFileAndSymbols(filePath: string, parsed: ParsedFile): void {
@@ -259,13 +271,56 @@ export class GraphBuilder {
   }
 
   private buildRelationshipEdges(): void {
+    // First pass: build import resolver maps for all files
+    const importResolverMaps = new Map<string, Map<string, { resolvedFilePath: string; exportName: string }>>();
+    
+    for (const [filePath, parsed] of this.parsedFiles) {
+      const importAliasMap = new Map<string, { resolvedFilePath: string; exportName: string }>();
+      
+      for (const parsedImport of parsed.imports) {
+        const target = this.resolveImportTarget(parsedImport, filePath);
+        
+        // For each binding, try to resolve to actual export
+        for (const binding of parsedImport.bindings) {
+          if (target.type === 'file') {
+            const parsedTargetFile = this.parsedFiles.get(target.path);
+            if (parsedTargetFile) {
+              // Find matching export
+              const matchedExport = parsedTargetFile.exports.find((item) => {
+                if (binding.kind === 'default') {
+                  return item.exportedName === 'default';
+                }
+                if (binding.kind === 'namespace') {
+                  return false;
+                }
+                return (
+                  item.exportedName === binding.importedName ||
+                  item.name === binding.importedName
+                );
+              });
+              
+              if (matchedExport && matchedExport.name !== '*') {
+                importAliasMap.set(binding.localName, {
+                  resolvedFilePath: target.path,
+                  exportName: matchedExport.name
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      importResolverMaps.set(filePath, importAliasMap);
+    }
+
+    // Second pass: build edges using import resolver maps
     for (const [filePath, parsed] of this.parsedFiles) {
       const fromFileId = this.fileIdMap.get(filePath);
       if (!fromFileId) {
         continue;
       }
 
-      const importAliasMap = new Map<string, string>();
+      const importResolverMap = importResolverMaps.get(filePath) || new Map();
 
       for (const parsedImport of parsed.imports) {
         const target = this.resolveImportTarget(parsedImport, filePath);
@@ -313,7 +368,6 @@ export class GraphBuilder {
             binding,
           );
           if (resolvedSymbolId) {
-            importAliasMap.set(binding.localName, resolvedSymbolId);
             this.graph.addEdge(
               createGraphEdge(
                 stableId(
@@ -378,7 +432,7 @@ export class GraphBuilder {
         this.connectSymbolRelationships(
           filePath,
           symbol,
-          importAliasMap,
+          importResolverMap,
           parsed.isTestFile,
         );
       }
@@ -388,7 +442,7 @@ export class GraphBuilder {
   private connectSymbolRelationships(
     filePath: string,
     symbol: ParsedSymbol,
-    importAliasMap: Map<string, string>,
+    importResolverMap: Map<string, { resolvedFilePath: string; exportName: string }>,
     isTestFile: boolean,
   ): void {
     const symbolId = this.resolveLocalSymbolId(
@@ -402,17 +456,23 @@ export class GraphBuilder {
 
     if (symbol.type === "class") {
       if (symbol.extendsName) {
-        const targetId =
-          importAliasMap.get(symbol.extendsName) ||
+        const importResolution = importResolverMap.get(symbol.extendsName);
+        const targetId = importResolution
+          ? this.symbolIdMap.get(`${importResolution.resolvedFilePath}::${importResolution.exportName}`)
+          : undefined;
+        
+        const finalTarget =
+          targetId ||
           this.resolveLocalSymbolId(filePath, symbol.extendsName) ||
           this.findGlobalSymbolId(symbol.extendsName);
-        if (targetId) {
+          
+        if (finalTarget) {
           this.graph.addEdge(
             createGraphEdge(
-              stableId("edge", "EXTENDS", symbolId, targetId),
+              stableId("edge", "EXTENDS", symbolId, finalTarget),
               "EXTENDS",
               symbolId,
-              targetId,
+              finalTarget,
               true,
               [symbol.location],
             ),
@@ -421,17 +481,23 @@ export class GraphBuilder {
       }
 
       for (const implemented of symbol.implements || []) {
-        const targetId =
-          importAliasMap.get(implemented) ||
+        const importResolution = importResolverMap.get(implemented);
+        const targetId = importResolution
+          ? this.symbolIdMap.get(`${importResolution.resolvedFilePath}::${importResolution.exportName}`)
+          : undefined;
+        
+        const finalTarget =
+          targetId ||
           this.resolveLocalSymbolId(filePath, implemented) ||
           this.findGlobalSymbolId(implemented);
-        if (targetId) {
+          
+        if (finalTarget) {
           this.graph.addEdge(
             createGraphEdge(
-              stableId("edge", "IMPLEMENTS", symbolId, targetId),
+              stableId("edge", "IMPLEMENTS", symbolId, finalTarget),
               "IMPLEMENTS",
               symbolId,
-              targetId,
+              finalTarget,
               true,
               [symbol.location],
             ),
@@ -440,16 +506,22 @@ export class GraphBuilder {
       }
 
       for (const decorator of symbol.decorators || []) {
-        const targetId =
-          importAliasMap.get(decorator) ||
+        const importResolution = importResolverMap.get(decorator);
+        const targetId = importResolution
+          ? this.symbolIdMap.get(`${importResolution.resolvedFilePath}::${importResolution.exportName}`)
+          : undefined;
+        
+        const finalTarget =
+          targetId ||
           this.resolveLocalSymbolId(filePath, decorator) ||
           this.findGlobalSymbolId(decorator);
-        if (targetId) {
+          
+        if (finalTarget) {
           this.graph.addEdge(
             createGraphEdge(
-              stableId("edge", "DECORATES", targetId, symbolId),
+              stableId("edge", "DECORATES", finalTarget, symbolId),
               "DECORATES",
-              targetId,
+              finalTarget,
               symbolId,
               true,
               [symbol.location],
@@ -485,20 +557,25 @@ export class GraphBuilder {
     }
 
     if (symbol.type === "route" && symbol.relatedTo) {
-      const targetId =
-        importAliasMap.get(symbol.relatedTo) ||
+      const importResolution = importResolverMap.get(symbol.relatedTo);
+      const targetId = importResolution
+        ? this.symbolIdMap.get(`${importResolution.resolvedFilePath}::${importResolution.exportName}`)
+        : undefined;
+      
+      const finalTarget =
+        targetId ||
         this.resolveLocalSymbolId(filePath, symbol.relatedTo) ||
         this.findGlobalSymbolId(
           symbol.relatedTo.split(".").pop() || symbol.relatedTo,
         );
 
-      if (targetId) {
+      if (finalTarget) {
         this.graph.addEdge(
           createGraphEdge(
-            stableId("edge", "USES", symbolId, targetId),
+            stableId("edge", "USES", symbolId, finalTarget),
             "USES",
             symbolId,
-            targetId,
+            finalTarget,
             true,
             [symbol.location],
           ),
@@ -507,7 +584,7 @@ export class GraphBuilder {
     }
 
     for (const call of symbol.calls || []) {
-      this.addCallEdge(symbolId, filePath, call, importAliasMap, isTestFile);
+      this.addCallEdge(symbolId, filePath, call, importResolverMap, isTestFile);
     }
   }
 
@@ -515,18 +592,39 @@ export class GraphBuilder {
     fromSymbolId: string,
     filePath: string,
     call: ParsedCall,
-    importAliasMap: Map<string, string>,
+    importResolverMap: Map<string, { resolvedFilePath: string; exportName: string }>,
     isTestFile: boolean,
   ): void {
-    const localTarget =
-      importAliasMap.get(call.name) ||
-      this.resolveLocalSymbolId(filePath, call.name) ||
-      this.resolveLocalSymbolId(
-        filePath,
-        call.fullName.split(".").pop() || call.name,
-      ) ||
-      this.findGlobalSymbolId(call.name) ||
-      this.findGlobalSymbolId(call.fullName.split(".").pop() || call.name);
+    // First, check if the call target is in the import resolver map
+    const importResolution = importResolverMap.get(call.name);
+    
+    let localTarget: string | undefined;
+    
+    if (importResolution) {
+      // Resolve using import information
+      localTarget = this.symbolIdMap.get(
+        `${importResolution.resolvedFilePath}::${importResolution.exportName}`
+      );
+      
+      if (!localTarget) {
+        // Try without owner prefix
+        localTarget = this.symbolIdMap.get(
+          `${importResolution.resolvedFilePath}::${importResolution.exportName}`
+        );
+      }
+    }
+    
+    // Fall back to local resolution
+    if (!localTarget) {
+      localTarget =
+        this.resolveLocalSymbolId(filePath, call.name) ||
+        this.resolveLocalSymbolId(
+          filePath,
+          call.fullName.split(".").pop() || call.name,
+        ) ||
+        this.findGlobalSymbolId(call.name) ||
+        this.findGlobalSymbolId(call.fullName.split(".").pop() || call.name);
+    }
 
     if (localTarget) {
       this.graph.addEdge(
@@ -545,12 +643,14 @@ export class GraphBuilder {
           [call.location],
           {
             fullName: call.fullName,
+            resolvedViaImport: Boolean(importResolution),
           },
         ),
       );
       return;
     }
 
+    // Create unresolved call
     const unresolvedId = stableId("module", "unresolved-call", call.fullName);
     if (!this.graph.getNode(unresolvedId)) {
       this.graph.addNode(
@@ -584,6 +684,7 @@ export class GraphBuilder {
         [call.location],
         {
           inferred: false,
+          unresolvedName: call.name,
         },
       ),
     );

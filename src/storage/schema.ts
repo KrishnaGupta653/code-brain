@@ -115,16 +115,19 @@ CREATE TABLE IF NOT EXISTS ranking_scores (
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
 CREATE INDEX IF NOT EXISTS idx_nodes_project_id ON nodes(project_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_project_type ON nodes(project_id, type);
 CREATE INDEX IF NOT EXISTS idx_nodes_file_path ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
 CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
 CREATE INDEX IF NOT EXISTS idx_edges_project_id ON edges(project_id);
 CREATE INDEX IF NOT EXISTS idx_edges_from_id ON edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to_id ON edges(to_id);
-CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
+CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(project_id, type);
 CREATE INDEX IF NOT EXISTS idx_provenance_project_id ON provenance(project_id);
 CREATE INDEX IF NOT EXISTS idx_provenance_node_id ON provenance(node_id);
+CREATE INDEX IF NOT EXISTS idx_prov_node ON provenance(project_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_scores_node_id ON ranking_scores(node_id);
+CREATE INDEX IF NOT EXISTS idx_ranking_project ON ranking_scores(project_id, score DESC);
 `;
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 9;

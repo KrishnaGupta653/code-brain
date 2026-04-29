@@ -4,9 +4,10 @@ code-brain analytics layer.
 Uses NetworkX for graph analysis and centrality computation.
 """
 
+import argparse
 import json
 import sys
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any
 
 try:
     import networkx as nx
@@ -14,110 +15,103 @@ except ImportError:
     print('Error: networkx not installed. Run: pip install networkx', file=sys.stderr)
     sys.exit(1)
 
-
-def build_graph(nodes: List[Dict], edges: List[Dict]) -> nx.DiGraph:
-    """Build a directed graph from nodes and edges."""
-    G = nx.DiGraph()
-
-    # Add nodes with attributes
-    for node in nodes:
-        G.add_node(node['id'], **node)
-
-    # Add edges
-    for edge in edges:
-        G.add_edge(edge['from'], edge['to'], type=edge.get('type', 'UNKNOWN'))
-
-    return G
+from graph import GraphAnalytics
 
 
-def compute_centrality(G: nx.DiGraph) -> Dict[str, float]:
-    """Compute betweenness centrality for all nodes."""
-    try:
-        centrality = nx.betweenness_centrality(G)
-        return {k: float(v) for k, v in centrality.items()}
-    except Exception as e:
-        print(f'Error computing centrality: {e}', file=sys.stderr)
-        return {}
-
-
-def detect_communities(G: nx.DiGraph) -> List[List[str]]:
-    """Detect communities using modularity optimization."""
-    try:
-        # Convert to undirected for community detection
-        G_undirected = G.to_undirected()
-        communities = list(nx.community.greedy_modularity_communities(G_undirected))
-        return [list(community) for community in communities]
-    except Exception as e:
-        print(f'Error detecting communities: {e}', file=sys.stderr)
-        return []
-
-
-def find_shortest_paths(G: nx.DiGraph, source: str, target: str) -> List[str]:
-    """Find shortest path between two nodes."""
-    try:
-        if source not in G or target not in G:
-            return []
-        return nx.shortest_path(G, source, target)
-    except nx.NetworkXNoPath:
-        return []
-    except Exception as e:
-        print(f'Error finding shortest path: {e}', file=sys.stderr)
-        return []
-
-
-def compute_importance(G: nx.DiGraph) -> Dict[str, float]:
-    """Compute node importance using PageRank."""
-    try:
-        importance = nx.pagerank(G)
-        return {k: float(v) for k, v in importance.items()}
-    except Exception as e:
-        try:
-            degree = nx.degree_centrality(G)
-            return {k: float(v) for k, v in degree.items()}
-        except Exception:
-            print(f'Error computing importance: {e}', file=sys.stderr)
-            return {}
-
-
-def analyze_graph(graph_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Main analysis function."""
+def analyze_graph(graph_data: Dict[str, Any], fast_mode: bool = False) -> Dict[str, Any]:
+    """Main analysis function with partial result support."""
     nodes = graph_data.get('nodes', [])
     edges = graph_data.get('edges', [])
+    fingerprint = graph_data.get('fingerprint', '')
 
-    if not nodes or not edges:
-        return {'error': 'No nodes or edges provided'}
+    if not nodes:
+        return {'error': 'No nodes provided', 'fingerprint': fingerprint}
 
     # Build graph
-    G = build_graph(nodes, edges)
+    try:
+        analytics = GraphAnalytics(nodes, edges)
+    except Exception as e:
+        return {'error': f'Failed to build graph: {e}', 'fingerprint': fingerprint}
 
-    # Run analyses
-    centrality = compute_centrality(G)
-    communities = detect_communities(G)
-    importance = compute_importance(G)
-
-    return {
-        'centrality': centrality,
-        'communities': communities,
-        'importance': importance,
+    # Initialize results with defaults
+    results: Dict[str, Any] = {
+        'centrality': {},
+        'communities': [],
+        'importance': {},
+        'fingerprint': fingerprint,
         'graph_stats': {
-            'nodes': G.number_of_nodes(),
-            'edges': G.number_of_edges(),
-            'density': float(nx.density(G))
-        }
+            'nodes': len(nodes),
+            'edges': len(edges),
+            'density': 0.0
+        },
+        'partial': False,
+        'errors': []
     }
+
+    # Compute centrality (always try, even in fast mode)
+    try:
+        if not fast_mode:
+            results['centrality'] = analytics.centrality()
+    except Exception as e:
+        results['errors'].append(f'Centrality failed: {str(e)}')
+        results['partial'] = True
+
+    # Compute importance (PageRank or degree centrality)
+    try:
+        results['importance'] = analytics.pagerank()
+    except Exception as e:
+        results['errors'].append(f'Importance failed: {str(e)}')
+        results['partial'] = True
+
+    # Detect communities (skip in fast mode for very large graphs)
+    try:
+        if not fast_mode or len(nodes) < 10000:
+            results['communities'] = analytics.communities()
+    except Exception as e:
+        results['errors'].append(f'Communities failed: {str(e)}')
+        results['partial'] = True
+
+    # Compute graph statistics
+    try:
+        stats = analytics.statistics()
+        results['graph_stats'] = stats
+    except Exception as e:
+        results['errors'].append(f'Statistics failed: {str(e)}')
+
+    return results
 
 
 def main():
     """Read graph from stdin and output analysis results."""
+    parser = argparse.ArgumentParser(description='Analyze code graph')
+    parser.add_argument('--fast', action='store_true', 
+                       help='Fast mode: skip expensive algorithms')
+    
+    args = parser.parse_args()
+
     try:
         input_data = json.load(sys.stdin)
-        results = analyze_graph(input_data)
+        results = analyze_graph(input_data, fast_mode=args.fast)
         json.dump(results, sys.stdout, indent=2)
     except json.JSONDecodeError as e:
-        print(f'Error parsing JSON: {e}', file=sys.stderr)
+        error_result = {
+            'error': f'JSON parse error: {e}',
+            'centrality': {},
+            'communities': [],
+            'importance': {},
+            'partial': True
+        }
+        json.dump(error_result, sys.stdout, indent=2)
         sys.exit(1)
     except Exception as e:
-        print(f'Error: {e}', file=sys.stderr)
+        error_result = {
+            'error': str(e),
+            'centrality': {},
+            'communities': [],
+            'importance': {},
+            'partial': True
+        }
+        json.dump(error_result, sys.stdout, indent=2)
         sys.exit(1)
 
 

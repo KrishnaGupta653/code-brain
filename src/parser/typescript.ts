@@ -46,6 +46,30 @@ export class TypeScriptParser {
       const isTestFile = this.isTestFile(filePath);
       const isConfigFile = this.isConfigFile(filePath);
 
+      // Track router variables dynamically
+      const routerVars = new Set<string>(['app', 'router', 'server']);
+
+      // First pass: collect router variables
+      const collectRouterVars = (node: ts.Node): void => {
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+          const init = node.initializer;
+          if (init) {
+            const initText = init.getText(sourceFile);
+            if (
+              initText.includes('express()') ||
+              initText.includes('express.Router()') ||
+              initText.includes('Router()') ||
+              initText.includes('createRouter()') ||
+              initText.includes('new Router')
+            ) {
+              routerVars.add(node.name.text);
+            }
+          }
+        }
+        ts.forEachChild(node, collectRouterVars);
+      };
+      collectRouterVars(sourceFile);
+
       const addSymbol = (symbol: ParsedSymbol): void => {
         const key = [
           symbol.type,
@@ -506,7 +530,7 @@ export class TypeScriptParser {
         }
 
         if (ts.isCallExpression(node)) {
-          const route = this.parseRouteCall(node, filePath, sourceFile);
+          const route = this.parseRouteCall(node, filePath, sourceFile, routerVars);
           if (route) {
             const key = `${route.name}::${route.location.startLine}::${route.location.startCol}`;
             if (!seenRoutes.has(key)) {
@@ -617,6 +641,7 @@ export class TypeScriptParser {
     node: ts.CallExpression,
     filePath: string,
     sourceFile: ts.SourceFile,
+    routerVars: Set<string>,
   ): ParsedSymbol | null {
     if (!ts.isPropertyAccessExpression(node.expression)) {
       return null;
@@ -625,10 +650,7 @@ export class TypeScriptParser {
     const objectName = node.expression.expression.getText(sourceFile);
     const methodName = node.expression.name.text;
 
-    if (
-      !["app", "router", "server"].includes(objectName) ||
-      !ROUTE_METHODS.has(methodName)
-    ) {
+    if (!routerVars.has(objectName) || !ROUTE_METHODS.has(methodName)) {
       return null;
     }
 

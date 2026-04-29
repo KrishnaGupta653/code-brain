@@ -22,6 +22,16 @@ export async function indexCommand(
     const configManager = new ConfigManager(projectRoot);
     const config = configManager.getConfig();
 
+    // load parser plugins declared in project or in ./parsers
+    try {
+      // lazy import to avoid startup cost when not needed
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { loadParsersForProject } = await import('../../parser/loader.js');
+      await loadParsersForProject(projectRoot);
+    } catch (err) {
+      logger.warn('Failed to load parser plugins', (err as Error)?.message || err);
+    }
+
     const include = config.include || ['**'];
     const exclude = config.exclude || ['node_modules', 'dist'];
     const allFiles = scanSourceFiles(projectRoot, include, exclude);
@@ -41,7 +51,7 @@ export async function indexCommand(
       project = {
         name: path.basename(projectRoot),
         root: projectRoot,
-        language: 'typescript',
+        language: config.languages && config.languages.length > 0 ? config.languages[0] : 'typescript',
         fileCount: 0,
         symbolCount: 0,
         edgeCount: 0,
@@ -72,24 +82,56 @@ export async function indexCommand(
         existingGraph.addEdge(edge);
       }
 
+      // Consistency sweep: remove edges pointing to deleted nodes
+      existingGraph.removeEdgesByPredicate((edge: GraphEdge) => {
+        return !existingGraph.getNode(edge.from) || !existingGraph.getNode(edge.to);
+      });
+
       graphToPersist = existingGraph;
     } else {
       graphToPersist = partialGraph;
     }
 
+    // Compute communities and assign community IDs to nodes
+    logger.info('Computing graph communities...');
+    try {
+      const { PythonBridge } = await import('../../python/bridge.js');
+      const analyticsResult = await PythonBridge.runAnalytics(
+        {
+          nodes: graphToPersist.getNodes(),
+          edges: graphToPersist.getEdges(),
+        },
+        undefined,
+        storage,
+        projectRoot
+      );
+
+      // Assign community IDs to nodes
+      if (analyticsResult.communities && analyticsResult.communities.length > 0) {
+        analyticsResult.communities.forEach((community, communityIndex) => {
+          community.forEach(nodeId => {
+            const node = graphToPersist.getNode(nodeId);
+            if (node) {
+              node.communityId = communityIndex;
+              // Assign importance score from analytics
+              node.importanceScore = analyticsResult.importance.get(nodeId) || 0;
+            }
+          });
+        });
+        logger.success(`Assigned ${analyticsResult.communities.length} communities to nodes`);
+      }
+    } catch (error) {
+      logger.warn('Community detection failed, continuing without clusters', error);
+    }
+
     storage.replaceGraph(projectRoot, graphToPersist);
 
+    const builderHashes = builder.getFileHashes();
     const fileHashRecords = filesToIndex.map(filePath => {
-      const parsed = Parser.parseFile(filePath);
-      const language = filePath.endsWith('.ts') || filePath.endsWith('.tsx')
-        ? 'typescript'
-        : 'javascript';
-      const size = fs.statSync(filePath).size;
+      const info = builderHashes.get(filePath) || { hash: '', language: 'unknown', size: 0 };
       return {
         path: filePath,
-        hash: parsed.hash,
-        language,
-        size
+        ...info
       };
     });
 

@@ -13,8 +13,9 @@ export async function exportCommand(
   focus?: string,
   maxTokens?: number,
   top?: number,
+  model?: string,
 ): Promise<string> {
-  logger.info(`Exporting code-brain graph (format: ${format})`);
+  logger.info(`Exporting code-brain graph (format: ${format}${model ? `, model: ${model}` : ''})`);
 
   let storage: SQLiteStorage | null = null;
 
@@ -43,7 +44,7 @@ export async function exportCommand(
       updatedAt: Date.now(),
     };
 
-    const queryEngine = new QueryEngine(graph);
+    const queryEngine = new QueryEngine(graph, storage, projectRoot);
     let queryResult;
 
     if (focus) {
@@ -62,7 +63,7 @@ export async function exportCommand(
       );
     }
 
-    // Run analytics if enabled
+    // Run analytics if enabled (with caching)
     let analyticsResult: AnalyticsResult | undefined;
     if (
       config.enableAnalytics &&
@@ -86,6 +87,8 @@ export async function exportCommand(
         analyticsResult = await PythonBridge.runAnalytics(
           graphData,
           config.pythonPath,
+          storage,
+          projectRoot,
         );
 
         if (analyticsResult.centrality.size > 0) {
@@ -107,9 +110,9 @@ export async function exportCommand(
       }
     }
 
-    // Export with optional token limit
+    // Export with optional token limit and model
     const tokenBudget = maxTokens || config.maxTokensExport;
-    const exporter = new ExportEngine(graph, project);
+    const exporter = new ExportEngine(graph, project, projectRoot);
 
     let output = "";
     if (format === "ai") {
@@ -119,6 +122,7 @@ export async function exportCommand(
         analyticsResult,
         tokenBudget,
         top,
+        model,
       );
       output = JSON.stringify(bundle, null, 2);
     } else if (format === "json") {

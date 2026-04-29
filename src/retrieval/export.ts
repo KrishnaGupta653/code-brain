@@ -19,14 +19,50 @@ export interface ExportOptions {
   focus?: string;
   maxTokens?: number;
   top?: number;
+  model?: string;
 }
 
+interface ModuleSummary {
+  path: string;
+  label: string;
+  fileCount: number;
+  symbolCount: number;
+  classCount: number;
+  functionCount: number;
+  routeCount: number;
+  topSymbols: Array<{ id: string; name: string; type: string; importance: number }>;
+  imports: string[];
+  importedBy: string[];
+  importance: number;
+}
+
+interface ModelConfig {
+  tokens: number;
+  safeUse: number;
+}
+
+const MODEL_CONTEXT_WINDOWS: Record<string, ModelConfig> = {
+  'gpt-4': { tokens: 8192, safeUse: 0.7 },
+  'gpt-4-turbo': { tokens: 128000, safeUse: 0.8 },
+  'gpt-4-32k': { tokens: 32768, safeUse: 0.75 },
+  'claude-3-opus': { tokens: 200000, safeUse: 0.8 },
+  'claude-3-sonnet': { tokens: 200000, safeUse: 0.8 },
+  'claude-3-haiku': { tokens: 200000, safeUse: 0.75 },
+  'claude-3.5-sonnet': { tokens: 200000, safeUse: 0.8 },
+  'gemini-1.5-pro': { tokens: 1000000, safeUse: 0.85 },
+  'gemini-1.5-flash': { tokens: 1000000, safeUse: 0.85 },
+  'llama-3-70b': { tokens: 8192, safeUse: 0.7 },
+  'llama-3.1-405b': { tokens: 128000, safeUse: 0.8 },
+};
+
 export class ExportEngine {
-  private static readonly TOKENS_PER_CHAR = 0.25; // Rough estimate
+  private static readonly TOKENS_PER_CHAR = 0.25; // More accurate for JSON/code
+  private static readonly TOKEN_SAFETY_MARGIN = 0.85; // Use only 85% of declared budget
 
   constructor(
     private graph: GraphModel,
     private projectMetadata: ProjectMetadata,
+    private projectRoot?: string,
   ) {}
 
   exportForAI(
@@ -35,7 +71,15 @@ export class ExportEngine {
     analyticsResult?: AnalyticsResult,
     maxTokens?: number,
     top?: number,
+    model?: string,
   ): AIExportBundle {
+    // Determine token budget from model if specified
+    let effectiveMaxTokens = maxTokens;
+    if (model && MODEL_CONTEXT_WINDOWS[model]) {
+      const modelConfig = MODEL_CONTEXT_WINDOWS[model];
+      effectiveMaxTokens = Math.floor(modelConfig.tokens * modelConfig.safeUse);
+    }
+
     const importance = this.computeImportance(queryResult);
     let optimizedResult = this.prepareAIQueryResult(
       queryResult,
@@ -43,16 +87,28 @@ export class ExportEngine {
       top,
     );
 
-    if (maxTokens) {
+    // Generate module summaries for hierarchical export
+    const moduleSummaries = this.generateModuleSummaries(optimizedResult, importance);
+
+    if (effectiveMaxTokens) {
       optimizedResult = this.pruneByTokenBudget(
         optimizedResult,
-        maxTokens,
+        effectiveMaxTokens,
         analyticsResult,
+        moduleSummaries,
       );
     }
 
+    // Build hierarchical structure
+    const hierarchicalBundle = this.buildHierarchicalExport(
+      optimizedResult,
+      moduleSummaries,
+      importance,
+      focus,
+    );
+
     return {
-      ...this.createBundle(optimizedResult, "ai", focus),
+      ...hierarchicalBundle,
       summary: this.buildAISummary(optimizedResult, importance),
       callChains: this.extractCallChains(optimizedResult, 5, 20),
       ranking: analyticsResult
@@ -61,6 +117,265 @@ export class ExportEngine {
       focus,
       rules: this.getAIRules(),
     };
+  }
+
+  /**
+   * Generate module-level summaries by grouping files by directory.
+   */
+  private generateModuleSummaries(
+    queryResult: QueryResult,
+    importance: Map<string, number>,
+  ): Map<string, ModuleSummary> {
+    const summaries = new Map<string, ModuleSummary>();
+    const fileNodes = queryResult.nodes.filter(n => n.type === 'file');
+    
+    // Group files by directory
+    const filesByDir = new Map<string, GraphNode[]>();
+    for (const file of fileNodes) {
+      const filePath = file.location?.file || file.fullName || '';
+      const dir = filePath.includes('/') 
+        ? filePath.substring(0, filePath.lastIndexOf('/'))
+        : '.';
+      
+      if (!filesByDir.has(dir)) {
+        filesByDir.set(dir, []);
+      }
+      filesByDir.get(dir)!.push(file);
+    }
+
+    // Build summary for each directory
+    for (const [dir, files] of filesByDir) {
+      const fileIds = new Set(files.map(f => f.id));
+      
+      // Find all symbols in these files
+      const symbols = queryResult.nodes.filter(n => {
+        const filePath = n.metadata?.filePath as string || n.location?.file || '';
+        return filePath.startsWith(dir + '/') || filePath === dir;
+      });
+
+      const classCount = symbols.filter(s => s.type === 'class').length;
+      const functionCount = symbols.filter(s => s.type === 'function' || s.type === 'method').length;
+      const routeCount = symbols.filter(s => s.type === 'route').length;
+
+      // Find top symbols by importance
+      const topSymbols = symbols
+        .filter(s => !['file', 'module', 'project'].includes(s.type))
+        .sort((a, b) => (importance.get(b.id) || 0) - (importance.get(a.id) || 0))
+        .slice(0, 5)
+        .map(s => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          importance: importance.get(s.id) || 0,
+        }));
+
+      // Find imports (files this module imports from)
+      const imports = new Set<string>();
+      for (const file of files) {
+        const outgoing = queryResult.edges.filter(e => 
+          e.from === file.id && (e.type === 'IMPORTS' || e.type === 'DEPENDS_ON')
+        );
+        for (const edge of outgoing) {
+          const target = queryResult.nodes.find(n => n.id === edge.to);
+          if (target && target.type === 'file') {
+            const targetPath = target.location?.file || target.fullName || '';
+            const targetDir = targetPath.includes('/')
+              ? targetPath.substring(0, targetPath.lastIndexOf('/'))
+              : '.';
+            if (targetDir !== dir) {
+              imports.add(targetDir);
+            }
+          }
+        }
+      }
+
+      // Find importers (files that import from this module)
+      const importedBy = new Set<string>();
+      for (const file of files) {
+        const incoming = queryResult.edges.filter(e =>
+          e.to === file.id && (e.type === 'IMPORTS' || e.type === 'DEPENDS_ON')
+        );
+        for (const edge of incoming) {
+          const source = queryResult.nodes.find(n => n.id === edge.from);
+          if (source && source.type === 'file') {
+            const sourcePath = source.location?.file || source.fullName || '';
+            const sourceDir = sourcePath.includes('/')
+              ? sourcePath.substring(0, sourcePath.lastIndexOf('/'))
+              : '.';
+            if (sourceDir !== dir) {
+              importedBy.add(sourceDir);
+            }
+          }
+        }
+      }
+
+      // Calculate module importance (average of file importances)
+      const moduleImportance = files.reduce((sum, f) => sum + (importance.get(f.id) || 0), 0) / files.length;
+
+      summaries.set(dir, {
+        path: dir,
+        label: dir.split('/').pop() || dir,
+        fileCount: files.length,
+        symbolCount: symbols.length,
+        classCount,
+        functionCount,
+        routeCount,
+        topSymbols,
+        imports: Array.from(imports).sort(),
+        importedBy: Array.from(importedBy).sort(),
+        importance: moduleImportance,
+      });
+    }
+
+    return summaries;
+  }
+
+  /**
+   * Build hierarchical export with 3 levels: project → modules → symbols.
+   */
+  private buildHierarchicalExport(
+    queryResult: QueryResult,
+    moduleSummaries: Map<string, ModuleSummary>,
+    importance: Map<string, number>,
+    focus?: string,
+  ): AIExportBundle {
+    // Level 1: Project overview
+    const unresolvedCalls = queryResult.edges.filter(e => e.type === 'CALLS_UNRESOLVED').length;
+    const totalCalls = queryResult.edges.filter(e => e.type === 'CALLS' || e.type === 'CALLS_UNRESOLVED').length;
+    
+    const projectOverview: ProjectMetadata = {
+      ...this.projectMetadata,
+      description: this.projectMetadata.description || 
+        `Code graph with ${this.projectMetadata.fileCount} files, ${this.projectMetadata.symbolCount} symbols, and ${this.projectMetadata.edgeCount} relationships.`,
+    };
+
+    // Level 2: Module summaries (top modules by importance)
+    const topModules = Array.from(moduleSummaries.values())
+      .sort((a, b) => b.importance - a.importance)
+      .slice(0, 20);
+
+    // Level 3: Symbol details (use semantic compression)
+    const { compressedNodes, compressedEdges, pathMap } = this.applySemanticCompression(
+      queryResult.nodes,
+      queryResult.edges,
+    );
+
+    return {
+      version: 'codebrain-ai/v3-hierarchical',
+      fingerprint: this.computeFingerprint(queryResult.nodes, queryResult.edges),
+      project: projectOverview,
+      modules: topModules,
+      pathMap,
+      nodes: compressedNodes as any,
+      edges: compressedEdges as any,
+      summaries: this.buildSummaries(queryResult.nodes),
+      query: {
+        focus: focus || 'project',
+        truncated: queryResult.truncated,
+        truncationReason: queryResult.truncated
+          ? 'Result was limited by query breadth or token budget.'
+          : undefined,
+        nodeCount: queryResult.nodes.length,
+        edgeCount: queryResult.edges.length,
+      },
+      evidence: this.buildEvidence(queryResult.nodes, queryResult.edges),
+      exportedAt: Date.now(),
+      exportFormat: 'ai',
+      rules: this.getAIRules(),
+      summary: {
+        entryPoints: [],
+        coreModules: topModules.map(m => m.label),
+        keySymbols: [],
+        cycles: [],
+        unresolvedCount: unresolvedCalls,
+      },
+    };
+  }
+
+  /**
+   * Apply semantic compression: replace file paths with short IDs.
+   */
+  private applySemanticCompression(
+    nodes: GraphNode[],
+    edges: GraphEdge[],
+  ): {
+    compressedNodes: any[];
+    compressedEdges: any[];
+    pathMap: Record<string, string>;
+  } {
+    // Build path map
+    const uniquePaths = new Set<string>();
+    for (const node of nodes) {
+      if (node.location?.file) {
+        uniquePaths.add(node.location.file);
+      }
+      if (node.metadata?.filePath) {
+        uniquePaths.add(node.metadata.filePath as string);
+      }
+    }
+
+    const pathMap: Record<string, string> = {};
+    let pathId = 1;
+    for (const path of Array.from(uniquePaths).sort()) {
+      pathMap[`F${pathId}`] = path;
+      pathId++;
+    }
+
+    // Reverse map for compression
+    const reversePathMap = new Map<string, string>();
+    for (const [id, path] of Object.entries(pathMap)) {
+      reversePathMap.set(path, id);
+    }
+
+    // Compress nodes
+    const compressedNodes = nodes.map(node => {
+      const compressed: any = {
+        id: node.id,
+        type: node.type,
+        name: node.name,
+      };
+
+      if (node.fullName) compressed.fullName = node.fullName;
+      if (node.semanticPath) compressed.semanticPath = node.semanticPath;
+      if (node.semanticRole) compressed.role = node.semanticRole;
+      if (node.summary) compressed.summary = node.summary;
+      if (node.importanceScore) compressed.importance = node.importanceScore;
+
+      // Compress file path
+      if (node.location?.file) {
+        compressed.file = reversePathMap.get(node.location.file) || node.location.file;
+        compressed.line = node.location.startLine;
+      } else if (node.metadata?.filePath) {
+        compressed.file = reversePathMap.get(node.metadata.filePath as string) || node.metadata.filePath;
+      }
+
+      // Include only essential metadata
+      if (node.metadata?.exported) compressed.exported = true;
+      if (node.metadata?.testFile) compressed.testFile = true;
+
+      return compressed;
+    });
+
+    // Compress edges
+    const compressedEdges = edges.map(edge => {
+      const compressed: any = {
+        from: edge.from,
+        to: edge.to,
+        type: edge.type,
+        resolved: edge.resolved,
+      };
+      
+      if (edge.metadata?.resolvedViaImport) {
+        compressed.viaImport = true;
+      }
+      if (edge.metadata?.unresolvedName) {
+        compressed.unresolved = edge.metadata.unresolvedName;
+      }
+      
+      return compressed;
+    });
+
+    return { compressedNodes, compressedEdges, pathMap };
   }
 
   exportAsJSON(queryResult: QueryResult, focus?: string): string {
@@ -79,9 +394,10 @@ export class ExportEngine {
     queryResult: QueryResult,
     maxTokens: number,
     analyticsResult?: AnalyticsResult,
+    moduleSummaries?: Map<string, ModuleSummary>,
   ): QueryResult {
-    // Reserve 20% for metadata and structure
-    const contentBudget = Math.floor(maxTokens * 0.8);
+    // Reserve 20% for metadata and structure, apply safety margin
+    const contentBudget = Math.floor(maxTokens * ExportEngine.TOKEN_SAFETY_MARGIN * 0.8);
     const nodeContentBudget = Math.floor(contentBudget * 0.7);
     const edgeContentBudget = Math.floor(contentBudget * 0.3);
 
@@ -689,6 +1005,8 @@ export class ExportEngine {
     return [
       "Use only nodes, edges, summaries, and provenance listed in this bundle.",
       "Do not infer behavior that is not explicitly represented here.",
+      "Fields marked with semanticRoleInferred: true are heuristic guesses, not parser facts.",
+      "Do not treat semanticRole as ground truth. Treat it as a low-confidence hint only.",
       "Treat missing relationships as unknown.",
       "Treat unresolved relationships as unresolved.",
       "Do not fabricate APIs, flows, or modules.",

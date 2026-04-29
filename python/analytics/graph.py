@@ -32,11 +32,26 @@ class GraphAnalytics:
         return G
 
     def centrality(self) -> Dict[str, float]:
-        """Compute betweenness centrality."""
+        """Compute betweenness centrality with size-aware algorithm selection."""
+        n = self.G.number_of_nodes()
+        
         try:
-            return nx.betweenness_centrality(self.G)
-        except:
-            return {}
+            if n < 1000:
+                # Small graph: exact betweenness centrality
+                return nx.betweenness_centrality(self.G, normalized=True)
+            elif n < 10000:
+                # Medium graph: approximate with k pivots
+                k = min(200, n // 10)
+                return nx.betweenness_centrality(self.G, k=k, normalized=True)
+            else:
+                # Large graph: use degree centrality (instant)
+                return nx.degree_centrality(self.G)
+        except Exception:
+            # Fallback to degree centrality
+            try:
+                return nx.degree_centrality(self.G)
+            except Exception:
+                return {}
 
     def pagerank(self) -> Dict[str, float]:
         """Compute PageRank importance."""
@@ -49,12 +64,21 @@ class GraphAnalytics:
                 return {}
 
     def communities(self) -> List[List[str]]:
-        """Detect communities."""
+        """Detect communities with size-aware algorithm selection."""
+        n = self.G.number_of_nodes()
+        
         try:
             G_undirected = self.G.to_undirected()
-            communities = nx.community.greedy_modularity_communities(G_undirected)
+            
+            if n < 5000:
+                # Small/medium graph: greedy modularity (better quality)
+                communities = nx.community.greedy_modularity_communities(G_undirected)
+            else:
+                # Large graph: label propagation (much faster)
+                communities = nx.community.label_propagation_communities(G_undirected)
+            
             return [list(c) for c in communities]
-        except:
+        except Exception:
             return []
 
     def shortest_path(self, source: str, target: str) -> List[str]:

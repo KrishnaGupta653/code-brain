@@ -130,6 +130,15 @@ export class SemanticAnalyzer {
       dirParts,
     );
 
+    // Mark semantic role as inferred
+    if (semanticRole && semanticRole !== 'unknown') {
+      node.metadata = {
+        ...(node.metadata || {}),
+        semanticRoleInferred: true,
+        semanticRoleSource: 'name-pattern-heuristic',
+      };
+    }
+
     // Infer module context
     const moduleContext = this.inferModuleContext(dirParts);
 
