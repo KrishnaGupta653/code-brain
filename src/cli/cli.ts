@@ -191,6 +191,19 @@ export function setupCLI(): Command {
     });
 
   program
+    .command("mcp")
+    .description("Start Model Context Protocol server for AI assistants")
+    .action(async () => {
+      try {
+        const { mcpCommand } = await import("./commands/mcp.js");
+        await mcpCommand();
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
     .command("help")
     .description("Show help")
     .action(() => {

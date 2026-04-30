@@ -8,7 +8,7 @@ import { createGraphServer } from '../src/server/index';
 
 describe('Graph server API', () => {
   let testDir: string;
-  let server: Server | null = null;
+  let serverObj: { server: Server; wss: any; broadcast: (message: unknown) => void } | null = null;
   let baseUrl = '';
 
   beforeEach(async () => {
@@ -30,8 +30,8 @@ describe('Graph server API', () => {
 
     await initCommand(testDir);
     await indexCommand(testDir);
-    server = await createGraphServer(testDir, 0);
-    const address = server.address();
+    serverObj = await createGraphServer(testDir, 0);
+    const address = serverObj.server.address();
     if (!address || typeof address === 'string') {
       throw new Error('Expected TCP test server');
     }
@@ -39,15 +39,17 @@ describe('Graph server API', () => {
   });
 
   afterEach(async () => {
-    if (server) {
-      await new Promise<void>(resolve => server!.close(() => resolve()));
-      server = null;
+    if (serverObj) {
+      await new Promise<void>(resolve => serverObj!.server.close(() => resolve()));
+      serverObj.wss.close();
+      serverObj = null;
     }
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
   it('should expose rich graph, node, path, analytics, and source APIs', async () => {
-    const graphResponse = await fetch(`${baseUrl}/api/graph`);
+    // Request level 2 for full detail
+    const graphResponse = await fetch(`${baseUrl}/api/graph?level=2`);
     expect(graphResponse.ok).toBe(true);
     const graphPayload = await graphResponse.json();
     expect(graphPayload.nodes.length).toBeGreaterThan(0);

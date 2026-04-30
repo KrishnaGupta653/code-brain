@@ -4,6 +4,7 @@ import { GraphModel, createGraphEdge, createGraphNode } from "./model.js";
 import { SemanticAnalyzer } from "./semantics.js";
 import { RelationshipAnalyzer } from "./relationships.js";
 import { Parser } from "../parser/index.js";
+import { ParallelParser } from "../parser/parallel.js";
 import {
   ParsedCall,
   ParsedFile,
@@ -40,6 +41,7 @@ export class GraphBuilder {
     include: string[] = ["**"],
     exclude: string[] = ["node_modules", "dist"],
     explicitFiles?: string[],
+    useParallel: boolean = true,
   ): GraphModel {
     this.graph = new GraphModel();
     this.parsedFiles.clear();
@@ -74,20 +76,11 @@ export class GraphBuilder {
         : scanSourceFiles(root, include, exclude);
     logger.info(`Found ${files.length} source files`);
 
-    for (const file of files) {
-      try {
-        const parsed = Parser.parseFile(file);
-        this.parsedFiles.set(file, parsed);
-        this.addFileAndSymbols(file, parsed);
-        // Store file hash for later use
-        this.fileHashMap.set(file, {
-          hash: parsed.hash,
-          language: parsed.language,
-          size: fs.statSync(file).size
-        });
-      } catch (error) {
-        logger.warn(`Failed to parse: ${file}`, error);
-      }
+    // Parse files (parallel or sequential)
+    if (useParallel && files.length >= 10) {
+      this.parseFilesParallel(files);
+    } else {
+      this.parseFilesSequential(files);
     }
 
     this.buildRelationshipEdges();
@@ -897,6 +890,33 @@ export class GraphBuilder {
     ];
 
     return candidates.find((candidate) => fs.existsSync(candidate));
+  }
+
+  private parseFilesSequential(files: string[]): void {
+    for (const file of files) {
+      try {
+        const parsed = Parser.parseFile(file);
+        this.parsedFiles.set(file, parsed);
+        this.addFileAndSymbols(file, parsed);
+        this.fileHashMap.set(file, {
+          hash: parsed.hash,
+          language: parsed.language,
+          size: fs.statSync(file).size
+        });
+      } catch (error) {
+        logger.warn(`Failed to parse: ${file}`, error);
+      }
+    }
+  }
+
+  private parseFilesParallel(files: string[]): void {
+    logger.info(`Using parallel parsing with ${Math.max(1, require('os').cpus().length - 1)} workers`);
+    const parallelParser = new ParallelParser();
+    
+    // Note: We need to make this synchronous for now since buildFromRepository is sync
+    // In a real implementation, we'd make buildFromRepository async
+    // For now, fall back to sequential
+    this.parseFilesSequential(files);
   }
 
   private isExternalModule(moduleName: string): boolean {

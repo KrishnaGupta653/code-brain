@@ -1,10 +1,10 @@
 {
   "name": "code-brain",
   "version": "1.0.0",
-  "description": "Deterministic codebase intelligence system. Builds persistent knowledge graphs with structured provenance.",
+  "description": "Multi-language codebase intelligence system with AST-based parsing, knowledge graphs, and AI-optimized exports. Supports TypeScript, JavaScript, Java, Python, and Go.",
   "main": "dist/index.js",
   "bin": {
-    "code-brain": "dist/index.js"
+    "code-brain": "dist/cli/cli.js"
   },
   "type": "module",
   "scripts": {
@@ -26,13 +26,25 @@
   "keywords": [
     "codebase",
     "knowledge-graph",
+    "ast",
+    "tree-sitter",
+    "code-analysis",
+    "static-analysis",
     "provenance",
-    "analysis",
-    "ai-context"
+    "ai-context",
+    "mcp",
+    "typescript",
+    "javascript",
+    "java",
+    "python",
+    "go",
+    "graph-database",
+    "code-intelligence"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@react-sigma/core": "^5.0.6",
     "@types/better-sqlite3": "^7.6.8",
     "@types/ws": "^8.18.1",
@@ -51,7 +63,9 @@
     "sigma": "^3.0.2",
     "simple-git": "^3.36.0",
     "tree-sitter": "^0.21.1",
+    "tree-sitter-go": "^0.23.1",
     "tree-sitter-java": "^0.23.5",
+    "tree-sitter-python": "^0.23.5",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "^5.3.3",
     "ws": "^8.20.0",

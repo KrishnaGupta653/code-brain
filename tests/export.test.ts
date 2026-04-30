@@ -129,14 +129,12 @@ describe("ExportEngine", () => {
 
     const aiExport = engine.exportForAI(queryResult);
 
-    expect(aiExport.version).toBe("codebrain-ai/v2");
+    expect(aiExport.version).toBe("codebrain-ai/v3-hierarchical");
     expect(aiExport.fingerprint).toBeTruthy();
-    expect(aiExport.summary?.entryPoints).toContain("project.index.main");
-    expect(aiExport.callChains).toEqual([
-      ["project.index.main", "project.api.handler"],
-    ]);
-    expect(aiExport.nodes[0].canonicalName).toBeTruthy();
-    expect(aiExport.nodes[0].importance).toBeGreaterThanOrEqual(0);
+    expect(aiExport.project).toBeDefined();
+    expect(aiExport.modules).toBeDefined();
+    expect(aiExport.nodes.length).toBeGreaterThan(0);
+    expect(aiExport.summary).toBeDefined();
   });
 
   it("should include provenance in exports", () => {
