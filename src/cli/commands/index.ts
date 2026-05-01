@@ -62,6 +62,7 @@ export async function indexCommand(
 
     project.updatedAt = now;
     storage.saveProject(project);
+    storage.saveParseErrors(projectRoot, builder.getParseErrors());
 
     let graphToPersist: GraphModel;
     if (options.filesToIndex && options.filesToIndex.length > 0) {
@@ -107,18 +108,18 @@ export async function indexCommand(
       );
 
       // Assign community IDs to nodes
-      if (analyticsResult.communities && analyticsResult.communities.length > 0) {
-        analyticsResult.communities.forEach((community, communityIndex) => {
-          community.forEach(nodeId => {
-            const node = graphToPersist.getNode(nodeId);
-            if (node) {
-              node.communityId = communityIndex;
-              // Assign importance score from analytics
-              node.importanceScore = analyticsResult.importance.get(nodeId) || 0;
-            }
-          });
-        });
-        logger.success(`Assigned ${analyticsResult.communities.length} communities to nodes`);
+      if (analyticsResult.communities && analyticsResult.communities.size > 0) {
+        for (const [nodeId, communityId] of analyticsResult.communities.entries()) {
+          const node = graphToPersist.getNode(nodeId);
+          if (node) {
+            node.communityId = communityId;
+            // Assign importance score from analytics
+            node.importanceScore = analyticsResult.importance.get(nodeId) || 0;
+          }
+        }
+        // Count unique communities
+        const uniqueCommunities = new Set(analyticsResult.communities.values()).size;
+        logger.success(`Assigned ${uniqueCommunities} communities to nodes`);
       }
     } catch (error) {
       logger.warn('Community detection failed, continuing without clusters', error);

@@ -25,6 +25,14 @@ interface StoredFileHash {
 export class SQLiteStorage {
   private db: Database.Database;
 
+  /**
+   * Normalize path to forward slashes for cross-platform consistency.
+   * Ensures Windows paths (C:\foo\bar) and Unix paths (/foo/bar) are stored uniformly.
+   */
+  private normalizePath(p: string): string {
+    return path.normalize(p).replace(/\\/g, '/');
+  }
+
   constructor(private dbPath: string) {
     const dir = path.dirname(dbPath);
     if (!fs.existsSync(dir)) {
@@ -62,8 +70,8 @@ export class SQLiteStorage {
       const now = Date.now();
       const stmt = this.db.prepare(`
         INSERT INTO projects
-        (id, name, root, language, version, description, entry_points, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, name, root, language, version, description, entry_points, last_export_fingerprint, last_export_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(root) DO UPDATE SET
           name = excluded.name,
           language = excluded.language,
@@ -81,6 +89,8 @@ export class SQLiteStorage {
         metadata.version || "",
         metadata.description || "",
         metadata.entryPoints ? JSON.stringify(metadata.entryPoints) : "[]",
+        null,
+        null,
         metadata.createdAt || now,
         metadata.updatedAt || now,
       );
@@ -105,6 +115,8 @@ export class SQLiteStorage {
             version: string;
             description: string;
             entry_points: string;
+            last_export_fingerprint?: string | null;
+            last_export_at?: number | null;
             created_at: number;
             updated_at: number;
             id: string;
@@ -246,7 +258,7 @@ export class SQLiteStorage {
         insertNode.run(
           node.id,
           projectId,
-          node.location?.file || null,
+          node.location?.file ? this.normalizePath(node.location.file) : null,
           node.name,
           node.fullName || node.name,
           node.type,
@@ -517,6 +529,13 @@ export class SQLiteStorage {
     logger.debug("Database closed");
   }
 
+  getSchemaVersion(): number {
+    const row = this.db
+      .prepare("SELECT MAX(version) as version FROM schema_version")
+      .get() as { version: number | null } | undefined;
+    return row?.version ?? 0;
+  }
+
   /**
    * Search nodes using FTS5 full-text search with BM25 ranking.
    * Falls back to LIKE search if FTS5 is not available.
@@ -672,6 +691,111 @@ export class SQLiteStorage {
     }
   }
 
+  getLastAnalyticsRun(
+    projectRoot: string,
+    algorithm: string = "full_analytics",
+  ): number | null {
+    const projectId = this.getProjectId(projectRoot);
+    const row = this.db
+      .prepare(
+        `SELECT computed_at
+         FROM analytics_cache
+         WHERE project_id = ? AND algorithm = ?`,
+      )
+      .get(projectId, algorithm) as { computed_at: number } | undefined;
+
+    return row?.computed_at ?? null;
+  }
+
+  saveExportState(projectRoot: string, fingerprint: string): void {
+    const projectId = this.getProjectId(projectRoot);
+    this.db
+      .prepare(
+        `UPDATE projects
+         SET last_export_fingerprint = ?, last_export_at = ?
+         WHERE id = ?`,
+      )
+      .run(fingerprint, Date.now(), projectId);
+  }
+
+  getExportState(projectRoot: string): {
+    lastExportFingerprint: string | null;
+    lastExportAt: number | null;
+  } {
+    const projectId = this.getProjectId(projectRoot);
+    const row = this.db
+      .prepare(
+        `SELECT last_export_fingerprint, last_export_at
+         FROM projects
+         WHERE id = ?`,
+      )
+      .get(projectId) as
+      | {
+          last_export_fingerprint: string | null;
+          last_export_at: number | null;
+        }
+      | undefined;
+
+    return {
+      lastExportFingerprint: row?.last_export_fingerprint ?? null,
+      lastExportAt: row?.last_export_at ?? null,
+    };
+  }
+
+  saveParseErrors(
+    projectRoot: string,
+    errors: Array<{ filePath: string; error: string }>,
+  ): void {
+    const projectId = this.getProjectId(projectRoot);
+    const del = this.db.prepare("DELETE FROM parse_errors WHERE project_id = ?");
+    const ins = this.db.prepare(`
+      INSERT INTO parse_errors (id, project_id, file_path, error_msg, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const now = Date.now();
+    const tx = this.db.transaction(() => {
+      del.run(projectId);
+      for (const item of errors) {
+        ins.run(
+          stableId("parse-error", projectId, item.filePath, item.error),
+          projectId,
+          this.normalizePath(item.filePath),
+          item.error,
+          now,
+        );
+      }
+    });
+
+    tx();
+  }
+
+  listParseErrors(projectRoot: string): Array<{
+    filePath: string;
+    error: string;
+    createdAt: number;
+  }> {
+    const projectId = this.getProjectId(projectRoot);
+    const rows = this.db
+      .prepare(
+        `SELECT file_path, error_msg, created_at
+         FROM parse_errors
+         WHERE project_id = ?
+         ORDER BY file_path ASC`,
+      )
+      .all(projectId) as Array<{
+      file_path: string;
+      error_msg: string;
+      created_at: number;
+    }>;
+
+    return rows.map((row) => ({
+      filePath: row.file_path,
+      error: row.error_msg,
+      createdAt: row.created_at,
+    }));
+  }
+
   /**
    * Convert a database row to a GraphNode.
    */
@@ -756,12 +880,13 @@ export class SQLiteStorage {
 
     let index = 0;
     for (const source of sourceSpans) {
+      const normalizedFile = source.file ? this.normalizePath(source.file) : '';
       insertProv.run(
         stableId(
           "prov",
           projectId,
           nodeId,
-          source.file || "",
+          normalizedFile,
           source.startLine,
           source.startCol,
           index++,
@@ -769,7 +894,7 @@ export class SQLiteStorage {
         projectId,
         nodeId,
         provenance.type,
-        source.file || "",
+        normalizedFile,
         source.startCol || 0,
         source.startLine || 0,
         source.endCol || 0,

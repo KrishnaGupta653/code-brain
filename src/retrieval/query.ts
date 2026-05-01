@@ -6,6 +6,32 @@ export class QueryEngine {
   private storage?: SQLiteStorage;
   private projectRoot?: string;
 
+  // Pre-built bundle patterns for domain-focused exports
+  readonly BUNDLE_PATTERNS: Record<string, {
+    namePatterns?: string[];
+    types?: NodeType[];
+    edgeTypes?: string[];
+  }> = {
+    auth: {
+      namePatterns: ['auth', 'login', 'logout', 'session', 'token', 'jwt', 'oauth', 'password', 'credential', 'permission', 'role', 'user', 'account']
+    },
+    api: {
+      types: ['route']
+    },
+    tests: {
+      types: ['test']
+    },
+    database: {
+      namePatterns: ['storage', 'model', 'schema', 'migration', 'repository', 'db', 'sql', 'query', 'entity', 'table', 'orm']
+    },
+    config: {
+      types: ['config']
+    },
+    core: {
+      edgeTypes: ['ENTRY_POINT']
+    },
+  };
+
   constructor(private graph: GraphModel, storage?: SQLiteStorage, projectRoot?: string) {
     this.storage = storage;
     this.projectRoot = projectRoot;
@@ -514,5 +540,75 @@ export class QueryEngine {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return { impactedNodes, impactedFiles, criticalDependencies, coveringTests };
+  }
+
+  /**
+   * Query a pre-built bundle by name (auth, api, tests, database, config, core)
+   */
+  queryBundle(bundleName: string, depth: number = 2): QueryResult {
+    const pattern = this.BUNDLE_PATTERNS[bundleName];
+    if (!pattern) {
+      throw new Error(`Unknown bundle: ${bundleName}. Valid bundles: ${Object.keys(this.BUNDLE_PATTERNS).join(', ')}`);
+    }
+
+    const seedNodes: GraphNode[] = [];
+
+    // Find nodes by name patterns
+    if (pattern.namePatterns?.length) {
+      for (const p of pattern.namePatterns) {
+        seedNodes.push(...this.findByName(p, 20));
+      }
+    }
+
+    // Find nodes by type
+    if (pattern.types) {
+      for (const t of pattern.types) {
+        seedNodes.push(...this.findByType(t, 50));
+      }
+    }
+
+    // Find nodes by edge type
+    if (pattern.edgeTypes) {
+      for (const et of pattern.edgeTypes) {
+        const entryIds = this.graph.getEdges()
+          .filter(e => e.type === et)
+          .map(e => e.to);
+        for (const id of entryIds) {
+          const n = this.graph.getNode(id);
+          if (n) seedNodes.push(n);
+        }
+      }
+    }
+
+    // Remove duplicates
+    const unique = [...new Map(seedNodes.map(n => [n.id, n])).values()];
+    
+    if (unique.length === 0) {
+      return { nodes: [], edges: [], truncated: false };
+    }
+
+    // Expand from seeds
+    return this.expandFromSeeds(unique, depth);
+  }
+
+  private expandFromSeeds(seeds: GraphNode[], depth: number): QueryResult {
+    const collectedNodes = new Map<string, GraphNode>();
+    const collectedEdges = new Map<string, GraphEdge>();
+
+    for (const seed of seeds) {
+      const result = this.findRelated(seed.id, depth, 500);
+      for (const node of result.nodes) {
+        collectedNodes.set(node.id, node);
+      }
+      for (const edge of result.edges) {
+        collectedEdges.set(edge.id, edge);
+      }
+    }
+
+    return {
+      nodes: Array.from(collectedNodes.values()),
+      edges: Array.from(collectedEdges.values()),
+      truncated: false
+    };
   }
 }

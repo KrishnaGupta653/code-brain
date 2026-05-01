@@ -76,30 +76,24 @@ export class PythonBridge {
   }
 
   private static parseAnalyticsResult(data: unknown): AnalyticsResult {
-    const results = data as {
+    const r = data as {
       centrality?: Record<string, number>;
       importance?: Record<string, number>;
-      communities?: Array<string[]>;
+      communities?: Record<string, number>;
+      keyPaths?: string[][];
+      clustering?: Record<string, number>;
+      layers?: Record<string, number>;
+      removalImpact?: Record<string, number>;
     };
 
-    const centrality = new Map<string, number>(
-      Object.entries(results.centrality || {}).map(([nodeId, score]) => [
-        nodeId,
-        Number(score)
-      ])
-    );
-    const importance = new Map<string, number>(
-      Object.entries(results.importance || {}).map(([nodeId, score]) => [
-        nodeId,
-        Number(score)
-      ])
-    );
-
     return {
-      centrality,
-      communities: results.communities || [],
-      keyPaths: [],
-      importance
+      centrality:     new Map(Object.entries(r.centrality    || {})),
+      importance:     new Map(Object.entries(r.importance    || {})),
+      communities:    new Map(Object.entries(r.communities   || {}).map(([k,v]) => [k, Number(v)])),
+      keyPaths:       r.keyPaths || [],
+      clustering:     new Map(Object.entries(r.clustering    || {})),
+      layers:         new Map(Object.entries(r.layers        || {}).map(([k,v]) => [k, Number(v)])),
+      removalImpact:  new Map(Object.entries(r.removalImpact || {})),
     };
   }
 
@@ -169,9 +163,12 @@ export class PythonBridge {
   private static emptyAnalytics(): AnalyticsResult {
     return {
       centrality: new Map(),
-      communities: [],
+      communities: new Map(),
       keyPaths: [],
-      importance: new Map()
+      importance: new Map(),
+      clustering: new Map(),
+      layers: new Map(),
+      removalImpact: new Map(),
     };
   }
 }

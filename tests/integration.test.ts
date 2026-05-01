@@ -80,6 +80,13 @@ describe('Integration Tests', () => {
     expect(aiParsed.exportFormat).toBe('ai');
     expect(aiParsed.rules).toBeDefined();
     expect(aiParsed.rules.length).toBeGreaterThan(0);
+    expect(aiParsed.telemetry).toBeDefined();
+    expect(aiParsed.telemetry.bundleName).toBeUndefined();
+    expect(aiParsed.telemetry.estimatedTokens).toBeGreaterThan(0);
+
+    const moduleExport = await exportCommand(testDir, 'ai', undefined, undefined, undefined, undefined, 'modules');
+    expect(moduleExport).toContain('# code-brain modules export');
+    expect(moduleExport).toContain('src');
   });
 
   it('should handle empty repository gracefully', async () => {

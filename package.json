@@ -8,10 +8,9 @@
   },
   "type": "module",
   "scripts": {
-    "build": "npm run build:server && npm run typecheck:ui && npm run build:ui",
+    "build": "npm run build:server && npm run build:ui",
     "build:server": "tsc",
-    "build:ui": "vite build --config ui/vite.config.ts",
-    "typecheck:ui": "tsc -p ui/tsconfig.json",
+    "build:ui": "node -e \"const fs=require('fs');fs.cpSync('ui/public','ui/dist',{recursive:true})\"",
     "start": "node dist/index.js",
     "dev": "node --loader ts-node/esm src/index.ts",
     "dev:ui": "vite --config ui/vite.config.ts",

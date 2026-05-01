@@ -176,6 +176,37 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 10,
+    description: 'Add export state columns to projects table',
+    up: (db) => {
+      try {
+        db.exec(`
+          ALTER TABLE projects ADD COLUMN last_export_fingerprint TEXT;
+          ALTER TABLE projects ADD COLUMN last_export_at INTEGER;
+        `);
+      } catch {
+        // Columns may already exist — safe to ignore
+      }
+    },
+  },
+  {
+    version: 11,
+    description: 'Create parse_errors table',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS parse_errors (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id),
+          file_path TEXT NOT NULL,
+          error_msg TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_parse_errors_project_id
+          ON parse_errors(project_id);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

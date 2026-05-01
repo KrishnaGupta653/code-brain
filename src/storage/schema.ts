@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS projects (
   version TEXT,
   description TEXT,
   entry_points TEXT,
+  last_export_fingerprint TEXT,
+  last_export_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -128,6 +130,15 @@ CREATE INDEX IF NOT EXISTS idx_provenance_node_id ON provenance(node_id);
 CREATE INDEX IF NOT EXISTS idx_prov_node ON provenance(project_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_scores_node_id ON ranking_scores(node_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_project ON ranking_scores(project_id, score DESC);
+
+CREATE TABLE IF NOT EXISTS parse_errors (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  file_path TEXT NOT NULL,
+  error_msg TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_parse_errors_project_id ON parse_errors(project_id);
 `;
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 11;

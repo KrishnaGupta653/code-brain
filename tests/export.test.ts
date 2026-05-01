@@ -129,7 +129,7 @@ describe("ExportEngine", () => {
 
     const aiExport = engine.exportForAI(queryResult);
 
-    expect(aiExport.version).toBe("codebrain-ai/v2");
+    expect(aiExport.version).toBe("codebrain-ai/v3-hierarchical");
     expect(aiExport.fingerprint).toBeTruthy();
     expect(aiExport.summary?.entryPoints).toContain("project.index.main");
     expect(aiExport.callChains).toEqual([
@@ -149,5 +149,74 @@ describe("ExportEngine", () => {
     const json = engine.exportAsJSON(queryResult);
     const parsed = JSON.parse(json);
     expect(parsed.exportedAt).toBeTruthy();
+  });
+
+  it("should export module summaries", () => {
+    const fileSpan: SourceSpan = {
+      file: "/test/src/retrieval/export.ts",
+      startLine: 1,
+      endLine: 1,
+      startCol: 1,
+      endCol: 20,
+    };
+    const queryResult = {
+      nodes: [
+        {
+          id: "file-export",
+          type: "file",
+          name: "export.ts",
+          fullName: "/test/src/retrieval/export.ts",
+          location: fileSpan,
+          metadata: { filePath: "/test/src/retrieval/export.ts" },
+          provenance: {
+            nodeId: "file-export",
+            type: "parser",
+            source: [fileSpan],
+            confidence: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+        {
+          id: "fn-exportForAI",
+          type: "function",
+          name: "exportForAI",
+          fullName: "/test/src/retrieval/export.ts::exportForAI",
+          location: fileSpan,
+          metadata: { filePath: "/test/src/retrieval/export.ts", exported: true },
+          provenance: {
+            nodeId: "fn-exportForAI",
+            type: "parser",
+            source: [fileSpan],
+            confidence: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ] as GraphNode[],
+      edges: [
+        {
+          id: "defines-export",
+          type: "DEFINES",
+          from: "file-export",
+          to: "fn-exportForAI",
+          resolved: true,
+          provenance: {
+            nodeId: "defines-export",
+            type: "parser",
+            source: [fileSpan],
+            confidence: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ] as GraphEdge[],
+      truncated: false,
+    };
+
+    const modules = engine.exportModules(queryResult);
+    expect(modules).toContain("# code-brain modules export");
+    expect(modules).toContain("src/retrieval");
+    expect(modules).toContain("exportForAI");
   });
 });

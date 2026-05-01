@@ -194,7 +194,7 @@ function findCycles(
 export async function createGraphServer(
   projectRoot: string,
   port: number = 3000,
-): Promise<{ server: Server; wss: WebSocketServer; broadcast: (message: unknown) => void }> {
+): Promise<Server & { wss: WebSocketServer; broadcast: (message: unknown) => void }> {
   const app = express();
   app.use(express.json());
   const uiDist = path.resolve(__dirname, "../../ui/dist");
@@ -232,7 +232,10 @@ export async function createGraphServer(
 
   // Add level-based graph endpoint
   app.get("/api/graph", (req, res) => {
-    const level = Number.parseInt(String(req.query.level || "0"), 10);
+    const level = Number.parseInt(
+      String(req.query.level ?? (req.query.community ? "2" : "2")),
+      10,
+    );
     const communityId = req.query.community ? Number.parseInt(String(req.query.community), 10) : undefined;
     const focusNodeId = String(req.query.focus || "");
 
@@ -830,7 +833,8 @@ export async function createGraphServer(
         });
       };
       
-      resolve({ server, wss, broadcast });
+      const enhancedServer = Object.assign(server, { wss, broadcast });
+      resolve(enhancedServer);
     });
 
     server.on("error", (error) => {

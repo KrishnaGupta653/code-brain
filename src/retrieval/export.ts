@@ -4,6 +4,7 @@ import {
   AIExportBundle,
   AnalyticsResult,
   ExportBundle,
+  ExportQuality,
   GraphEdge,
   GraphNode,
   ProjectMetadata,
@@ -20,6 +21,9 @@ export interface ExportOptions {
   maxTokens?: number;
   top?: number;
   model?: string;
+  mode?: "full" | "signatures" | "modules";
+  since?: string; // Git diff: date, commit, or branch
+  bundle?: string; // Pre-built bundle name
 }
 
 interface ModuleSummary {
@@ -64,6 +68,96 @@ export class ExportEngine {
     private projectMetadata: ProjectMetadata,
     private projectRoot?: string,
   ) {}
+
+  /**
+   * Filter query result to only include changed files and their dependencies.
+   * Used for diff-based exports (--since flag).
+   */
+  filterByChangedFiles(
+    queryResult: QueryResult,
+    changedFiles: string[],
+    includeDepth: number = 1,
+  ): QueryResult {
+    if (changedFiles.length === 0) {
+      return { nodes: [], edges: [], truncated: false };
+    }
+
+    // Normalize changed file paths
+    const normalizedChangedFiles = new Set(
+      changedFiles.map(f => f.replace(/\\/g, '/'))
+    );
+
+    // Find file nodes that match changed files
+    const changedFileNodes = queryResult.nodes.filter(node => {
+      if (node.type !== 'file') return false;
+      const filePath = (node.location?.file || node.fullName || '').replace(/\\/g, '/');
+      return normalizedChangedFiles.has(filePath) || 
+             Array.from(normalizedChangedFiles).some(cf => filePath.endsWith(cf));
+    });
+
+    if (changedFileNodes.length === 0) {
+      return { nodes: [], edges: [], truncated: false };
+    }
+
+    // Collect all nodes in changed files
+    const relevantNodeIds = new Set<string>();
+    for (const fileNode of changedFileNodes) {
+      relevantNodeIds.add(fileNode.id);
+      
+      // Add all symbols defined in this file
+      const definesEdges = queryResult.edges.filter(
+        e => e.from === fileNode.id && e.type === 'DEFINES'
+      );
+      for (const edge of definesEdges) {
+        relevantNodeIds.add(edge.to);
+      }
+    }
+
+    // Expand to include dependencies (imports, calls) up to includeDepth
+    if (includeDepth > 0) {
+      const queue: Array<{ id: string; depth: number }> = Array.from(relevantNodeIds).map(
+        id => ({ id, depth: 0 })
+      );
+      const visited = new Set<string>(relevantNodeIds);
+
+      while (queue.length > 0) {
+        const { id, depth } = queue.shift()!;
+        if (depth >= includeDepth) continue;
+
+        // Follow outgoing edges (what this node depends on)
+        const outgoing = queryResult.edges.filter(e => e.from === id);
+        for (const edge of outgoing) {
+          if (!visited.has(edge.to)) {
+            visited.add(edge.to);
+            relevantNodeIds.add(edge.to);
+            queue.push({ id: edge.to, depth: depth + 1 });
+          }
+        }
+
+        // Follow incoming edges (what depends on this node)
+        const incoming = queryResult.edges.filter(e => e.to === id);
+        for (const edge of incoming) {
+          if (!visited.has(edge.from)) {
+            visited.add(edge.from);
+            relevantNodeIds.add(edge.from);
+            queue.push({ id: edge.from, depth: depth + 1 });
+          }
+        }
+      }
+    }
+
+    // Filter nodes and edges
+    const filteredNodes = queryResult.nodes.filter(n => relevantNodeIds.has(n.id));
+    const filteredEdges = queryResult.edges.filter(
+      e => relevantNodeIds.has(e.from) && relevantNodeIds.has(e.to)
+    );
+
+    return {
+      nodes: filteredNodes,
+      edges: filteredEdges,
+      truncated: false,
+    };
+  }
 
   exportForAI(
     queryResult: QueryResult,
@@ -115,8 +209,105 @@ export class ExportEngine {
         ? this.buildRankingFromAnalytics(analyticsResult)
         : this.buildRankingFromImportance(importance),
       focus,
-      rules: this.getAIRules(),
+      quality: this.computeExportQuality(optimizedResult),
+      rules: this.getAIRules(optimizedResult),
     };
+  }
+
+  private computeExportQuality(queryResult: QueryResult): ExportQuality {
+    let score = 100;
+    const notes: string[] = [];
+
+    const unresolvedPct = queryResult.edges.filter(e => !e.resolved).length /
+      Math.max(1, queryResult.edges.length);
+    const unresolvedDeduction = Math.min(25, Math.round(unresolvedPct * 100));
+    score -= unresolvedDeduction;
+    if (unresolvedDeduction > 0)
+      notes.push(`-${unresolvedDeduction}: ${Math.round(unresolvedPct*100)}% unresolved calls`);
+
+    if (queryResult.truncated) { score -= 15; notes.push('-15: export was truncated'); }
+
+    const testFiles = queryResult.nodes.filter(n => n.type === 'test').length;
+    if (testFiles === 0) { score -= 10; notes.push('-10: no test files present'); }
+
+    const inferredPct = queryResult.nodes.filter(n => n.metadata?.inferred).length /
+      Math.max(1, queryResult.nodes.length);
+    const inferredDeduction = Math.min(10, Math.round(inferredPct * 50));
+    score -= inferredDeduction;
+    if (inferredDeduction > 0)
+      notes.push(`-${inferredDeduction}: ${Math.round(inferredPct*100)}% inferred symbols`);
+
+    const cycles = this.detectCycles(queryResult, 10);
+    const cycleDeduction = Math.min(15, cycles.length * 3);
+    score -= cycleDeduction;
+    if (cycleDeduction > 0)
+      notes.push(`-${cycleDeduction}: ${cycles.length} circular dependency chains`);
+
+    const finalScore = Math.max(0, Math.round(score));
+    const grade =
+      finalScore >= 90 ? 'A' : finalScore >= 80 ? 'B' :
+      finalScore >= 70 ? 'C' : finalScore >= 60 ? 'D' : 'F';
+
+    return {
+      score: finalScore, grade, notes,
+      unresolvedCallPct: Math.round(unresolvedPct * 100),
+      inferredNodePct: Math.round(inferredPct * 100),
+      truncated: queryResult.truncated,
+      cycleCount: cycles.length,
+      testCoveragePresent: testFiles > 0,
+    };
+  }
+
+  private getAIRules(queryResult?: QueryResult): string[] {
+    const base = [
+      'Use only nodes, edges, and evidence listed in this bundle.',
+      'Do not infer behavior not explicitly represented here.',
+      'Treat missing relationships as unknown. Treat unresolved as unresolved.',
+      'Do not fabricate APIs, flows, or modules absent from source.',
+      'Use source spans as ground truth. If evidence is absent, say "not found".',
+    ];
+
+    if (!queryResult) return base;
+
+    const dynamic: string[] = [];
+
+    const unresolvedPct = Math.round(
+      queryResult.edges.filter(e => !e.resolved).length /
+      Math.max(1, queryResult.edges.length) * 100
+    );
+    if (unresolvedPct > 15) {
+      dynamic.push(
+        `CAUTION: ${unresolvedPct}% of call edges are CALLS_UNRESOLVED ` +
+        `(callbacks, dynamic dispatch, or cross-module calls not yet resolved). ` +
+        `Do not assume call chains in this export are complete.`
+      );
+    }
+
+    const cycles = this.detectCycles(queryResult, 3);
+    if (cycles.length > 0) {
+      dynamic.push(
+        `CIRCULAR DEPS: ${cycles.length} circular import chains detected: ` +
+        cycles.slice(0,2).map(c => c.join(' → ')).join('; ') +
+        `. Do not assume clean dependency ordering.`
+      );
+    }
+
+    const testCount = queryResult.nodes.filter(n => n.type === 'test').length;
+    if (testCount === 0) {
+      dynamic.push('WARNING: No test files in this export. Assume no automated coverage.');
+    }
+
+    const inferredCount = queryResult.nodes.filter(
+      n => n.metadata?.inferred === true
+    ).length;
+    if (inferredCount > 0) {
+      dynamic.push(
+        `INFERRED: ${inferredCount} symbols were heuristically detected (not parser-proven). ` +
+        `Treat them as low-confidence hints, not facts.`
+      );
+    }
+
+    return [...base, ...dynamic];
   }
 
   /**
@@ -238,15 +429,20 @@ export class ExportEngine {
     moduleSummaries: Map<string, ModuleSummary>,
     importance: Map<string, number>,
     focus?: string,
-  ): AIExportBundle {
+  ): Omit<AIExportBundle, 'rules' | 'summary' | 'callChains' | 'ranking'> {
     // Level 1: Project overview
     const unresolvedCalls = queryResult.edges.filter(e => e.type === 'CALLS_UNRESOLVED').length;
     const totalCalls = queryResult.edges.filter(e => e.type === 'CALLS' || e.type === 'CALLS_UNRESOLVED').length;
     
+    const description =
+      `Code graph export: ${queryResult.nodes.length} nodes, ` +
+      `${queryResult.edges.length} edges` +
+      (focus ? ` (focus: ${focus})` : ' (full project)') +
+      `. Indexed: ${new Date(this.projectMetadata.updatedAt).toISOString().slice(0,10)}.`;
+    
     const projectOverview: ProjectMetadata = {
       ...this.projectMetadata,
-      description: this.projectMetadata.description || 
-        `Code graph with ${this.projectMetadata.fileCount} files, ${this.projectMetadata.symbolCount} symbols, and ${this.projectMetadata.edgeCount} relationships.`,
+      description,
     };
 
     // Level 2: Module summaries (top modules by importance)
@@ -258,6 +454,7 @@ export class ExportEngine {
     const { compressedNodes, compressedEdges, pathMap } = this.applySemanticCompression(
       queryResult.nodes,
       queryResult.edges,
+      importance,
     );
 
     return {
@@ -281,14 +478,6 @@ export class ExportEngine {
       evidence: this.buildEvidence(queryResult.nodes, queryResult.edges),
       exportedAt: Date.now(),
       exportFormat: 'ai',
-      rules: this.getAIRules(),
-      summary: {
-        entryPoints: [],
-        coreModules: topModules.map(m => m.label),
-        keySymbols: [],
-        cycles: [],
-        unresolvedCount: unresolvedCalls,
-      },
     };
   }
 
@@ -298,19 +487,23 @@ export class ExportEngine {
   private applySemanticCompression(
     nodes: GraphNode[],
     edges: GraphEdge[],
+    importance: Map<string, number>,
   ): {
     compressedNodes: any[];
     compressedEdges: any[];
     pathMap: Record<string, string>;
   } {
+    // Normalize path to forward slashes for cross-platform consistency
+    const normalizePath = (p: string): string => p.replace(/\\/g, '/');
+
     // Build path map
     const uniquePaths = new Set<string>();
     for (const node of nodes) {
       if (node.location?.file) {
-        uniquePaths.add(node.location.file);
+        uniquePaths.add(normalizePath(node.location.file));
       }
       if (node.metadata?.filePath) {
-        uniquePaths.add(node.metadata.filePath as string);
+        uniquePaths.add(normalizePath(node.metadata.filePath as string));
       }
     }
 
@@ -324,7 +517,7 @@ export class ExportEngine {
     // Reverse map for compression
     const reversePathMap = new Map<string, string>();
     for (const [id, path] of Object.entries(pathMap)) {
-      reversePathMap.set(path, id);
+      reversePathMap.set(normalizePath(path), id);
     }
 
     // Compress nodes
@@ -333,20 +526,22 @@ export class ExportEngine {
         id: node.id,
         type: node.type,
         name: node.name,
+        canonicalName: this.getCanonicalName(node),
+        importance: Number(
+          (importance.get(node.id) ?? node.importanceScore ?? 0).toFixed(4),
+        ),
       };
 
       if (node.fullName) compressed.fullName = node.fullName;
       if (node.semanticPath) compressed.semanticPath = node.semanticPath;
       if (node.semanticRole) compressed.role = node.semanticRole;
       if (node.summary) compressed.summary = node.summary;
-      if (node.importanceScore) compressed.importance = node.importanceScore;
-
       // Compress file path
       if (node.location?.file) {
-        compressed.file = reversePathMap.get(node.location.file) || node.location.file;
+        compressed.file = reversePathMap.get(normalizePath(node.location.file)) ?? normalizePath(node.location.file);
         compressed.line = node.location.startLine;
       } else if (node.metadata?.filePath) {
-        compressed.file = reversePathMap.get(node.metadata.filePath as string) || node.metadata.filePath;
+        compressed.file = reversePathMap.get(normalizePath(node.metadata.filePath as string)) ?? normalizePath(node.metadata.filePath as string);
       }
 
       // Include only essential metadata
@@ -388,6 +583,146 @@ export class ExportEngine {
 
   exportAsYAML(queryResult: QueryResult, focus?: string): string {
     return toYAML(this.createBundle(queryResult, "yaml", focus));
+  }
+
+  /**
+   * Export signatures only - 10x more token-efficient for code navigation.
+   * Returns function/method/class signatures with minimal metadata.
+   */
+  exportSignatures(queryResult: QueryResult, focus?: string): string {
+    const symbols = queryResult.nodes
+      .filter(n => ['function','method','class','interface','type','route'].includes(n.type))
+      .sort((a,b) => (b.importanceScore??0) - (a.importanceScore??0));
+
+    const lines: string[] = [
+      `// code-brain signatures export | ${new Date().toISOString()}`,
+      `// Project: ${this.projectMetadata.name} | Focus: ${focus ?? 'all'}`,
+      `// ${symbols.length} symbols | read CODEMAP.md for architecture`,
+      '',
+    ];
+
+    for (const sym of symbols) {
+      const loc = sym.location;
+      if (loc) {
+        const relPath = this.projectRoot 
+          ? loc.file.replace(this.projectRoot, '').replace(/^\//, '')
+          : loc.file;
+        lines.push(`// ${relPath}:${loc.startLine}`);
+      }
+      
+      // Extract signature from location.text or build from metadata
+      const sig = this.extractSignature(sym);
+      lines.push(sig);
+      if (sym.summary) lines.push(`→ ${sym.summary}`);
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Export module summaries only - useful for architecture-first navigation.
+   */
+  exportModules(queryResult: QueryResult, focus?: string): string {
+    const importance = this.computeImportance(queryResult);
+    const moduleSummaries = Array.from(
+      this.generateModuleSummaries(queryResult, importance).values(),
+    ).sort((a, b) => b.importance - a.importance);
+
+    const lines: string[] = [
+      `# code-brain modules export`,
+      `# Generated: ${new Date().toISOString()}`,
+      `# Project: ${this.projectMetadata.name} | Focus: ${focus ?? "all"}`,
+      `# Modules: ${moduleSummaries.length} | read CODEMAP.md for full architecture`,
+      "",
+    ];
+
+    for (const moduleSummary of moduleSummaries) {
+      lines.push(`## ${moduleSummary.path}`);
+      lines.push(
+        `files=${moduleSummary.fileCount} symbols=${moduleSummary.symbolCount} ` +
+          `classes=${moduleSummary.classCount} functions=${moduleSummary.functionCount} ` +
+          `routes=${moduleSummary.routeCount} importance=${moduleSummary.importance.toFixed(4)}`,
+      );
+
+      if (moduleSummary.topSymbols.length > 0) {
+        lines.push(
+          `top: ${moduleSummary.topSymbols
+            .map(
+              (symbol) =>
+                `${symbol.name}(${symbol.type}, ${symbol.importance.toFixed(4)})`,
+            )
+            .join(", ")}`,
+        );
+      }
+
+      if (moduleSummary.imports.length > 0) {
+        lines.push(`imports: ${moduleSummary.imports.join(", ")}`);
+      }
+
+      if (moduleSummary.importedBy.length > 0) {
+        lines.push(`importedBy: ${moduleSummary.importedBy.join(", ")}`);
+      }
+
+      lines.push("");
+    }
+
+    return lines.join("\n");
+  }
+
+  async countTokensAccurate(text: string): Promise<number> {
+    try {
+      const dynamicImport = new Function(
+        "specifier",
+        "return import(specifier)",
+      ) as (specifier: string) => Promise<{
+        get_encoding?: (name: string) => {
+          encode(text: string): number[];
+          free?(): void;
+        };
+      }>;
+      const { get_encoding } = await dynamicImport("tiktoken");
+      if (!get_encoding) {
+        throw new Error("tiktoken get_encoding() unavailable");
+      }
+      const encoding = get_encoding("cl100k_base");
+      const count = encoding.encode(text).length;
+      encoding.free?.();
+      return count;
+    } catch {
+      return Math.ceil(text.length * 0.27);
+    }
+  }
+
+  private extractSignature(sym: GraphNode): string {
+    // If we have source text, extract the signature line
+    if (sym.location?.text) {
+      const lines = sym.location.text.split('\n');
+      const firstLine = lines[0].trim();
+      // Remove opening brace if present
+      return firstLine.replace(/\s*\{?\s*$/, '');
+    }
+
+    // Otherwise build from metadata
+    const parts: string[] = [];
+    
+    if (sym.metadata?.async) parts.push('async');
+    if (sym.metadata?.exported) parts.push('export');
+    
+    if (sym.type === 'class') {
+      parts.push('class', sym.name);
+      if (sym.metadata?.extends) parts.push('extends', sym.metadata.extends as string);
+    } else if (sym.type === 'interface') {
+      parts.push('interface', sym.name);
+    } else if (sym.type === 'type') {
+      parts.push('type', sym.name);
+    } else if (sym.type === 'function' || sym.type === 'method') {
+      parts.push('function', `${sym.name}(...)`);
+    } else if (sym.type === 'route') {
+      parts.push(`route ${sym.name}`);
+    }
+
+    return parts.join(' ');
   }
 
   private pruneByTokenBudget(
@@ -891,64 +1226,63 @@ export class ExportEngine {
   }
 
   private detectCycles(queryResult: QueryResult, limit: number): string[][] {
-    const nodeById = new Map(queryResult.nodes.map((node) => [node.id, node]));
+    const nodeById = new Map(queryResult.nodes.map(n => [n.id, n]));
     const adjacency = new Map<string, string[]>();
-    const cycleEdgeTypes = new Set([
-      "IMPORTS",
-      "DEPENDS_ON",
-      "EXTENDS",
-      "IMPLEMENTS",
-    ]);
+    const cycleEdgeTypes = new Set(['IMPORTS','DEPENDS_ON','EXTENDS','IMPLEMENTS']);
+    
     for (const edge of queryResult.edges) {
       if (!cycleEdgeTypes.has(edge.type) || !edge.resolved) continue;
       if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
-      const targets = adjacency.get(edge.from) || [];
-      targets.push(edge.to);
-      adjacency.set(edge.from, targets);
+      const arr = adjacency.get(edge.from) ?? [];
+      arr.push(edge.to);
+      adjacency.set(edge.from, arr);
     }
-
-    const cycles: string[][] = [];
-    const seenCycles = new Set<string>();
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
+    
+    // Tarjan's SCC
+    const index = new Map<string, number>();
+    const lowlink = new Map<string, number>();
+    const onStack = new Set<string>();
     const stack: string[] = [];
-
-    const visit = (nodeId: string): void => {
-      if (cycles.length >= limit) return;
-      if (visiting.has(nodeId)) {
-        const start = stack.indexOf(nodeId);
-        if (start >= 0) {
-          const cycleIds = [...stack.slice(start), nodeId];
-          const names = cycleIds
-            .map((id) => nodeById.get(id))
-            .filter((node): node is GraphNode => Boolean(node))
-            .map((node) => this.getCanonicalName(node));
-          const key = [...new Set(names)].sort().join("|");
-          if (!seenCycles.has(key)) {
-            seenCycles.add(key);
-            cycles.push(names);
-          }
+    const sccs: string[][] = [];
+    let counter = 0;
+    
+    const strongConnect = (v: string): void => {
+      if (sccs.length >= limit) return;
+      index.set(v, counter);
+      lowlink.set(v, counter++);
+      stack.push(v);
+      onStack.add(v);
+      
+      for (const w of adjacency.get(v) ?? []) {
+        if (!index.has(w)) {
+          strongConnect(w);
+          lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
+        } else if (onStack.has(w)) {
+          lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
         }
-        return;
       }
-      if (visited.has(nodeId)) return;
-
-      visiting.add(nodeId);
-      stack.push(nodeId);
-      for (const target of adjacency.get(nodeId) || []) {
-        visit(target);
+      
+      if (lowlink.get(v) === index.get(v)) {
+        const scc: string[] = [];
+        let w: string;
+        do {
+          w = stack.pop()!;
+          onStack.delete(w);
+          scc.push(w);
+        } while (w !== v);
+        if (scc.length > 1) {
+          sccs.push(
+            scc.map(id => this.getCanonicalName(nodeById.get(id)!)).filter(Boolean)
+          );
+        }
       }
-      stack.pop();
-      visiting.delete(nodeId);
-      visited.add(nodeId);
     };
-
+    
     for (const node of queryResult.nodes) {
-      visit(node.id);
-      if (cycles.length >= limit) break;
+      if (!index.has(node.id)) strongConnect(node.id);
+      if (sccs.length >= limit) break;
     }
-
-    return cycles;
+    return sccs;
   }
 
   private getCanonicalName(node: GraphNode): string {
@@ -1001,18 +1335,4 @@ export class ExportEngine {
     return cleaned;
   }
 
-  private getAIRules(): string[] {
-    return [
-      "Use only nodes, edges, summaries, and provenance listed in this bundle.",
-      "Do not infer behavior that is not explicitly represented here.",
-      "Fields marked with semanticRoleInferred: true are heuristic guesses, not parser facts.",
-      "Do not treat semanticRole as ground truth. Treat it as a low-confidence hint only.",
-      "Treat missing relationships as unknown.",
-      "Treat unresolved relationships as unresolved.",
-      "Do not fabricate APIs, flows, or modules.",
-      "Use source spans as the ground truth for every fact.",
-      "If evidence is absent, answer with unknown or not found.",
-      "Do not widen scope beyond the declared query focus.",
-    ];
-  }
 }

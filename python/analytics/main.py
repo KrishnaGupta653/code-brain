@@ -36,8 +36,12 @@ def analyze_graph(graph_data: Dict[str, Any], fast_mode: bool = False) -> Dict[s
     # Initialize results with defaults
     results: Dict[str, Any] = {
         'centrality': {},
-        'communities': [],
+        'communities': {},
         'importance': {},
+        'keyPaths': [],
+        'clustering': {},
+        'layers': {},
+        'removalImpact': {},
         'fingerprint': fingerprint,
         'graph_stats': {
             'nodes': len(nodes),
@@ -66,9 +70,47 @@ def analyze_graph(graph_data: Dict[str, Any], fast_mode: bool = False) -> Dict[s
     # Detect communities (skip in fast mode for very large graphs)
     try:
         if not fast_mode or len(nodes) < 10000:
-            results['communities'] = analytics.communities()
+            communities_list = analytics.communities()
+            # Convert to nodeId -> communityId map
+            community_map = {}
+            for idx, community in enumerate(communities_list):
+                for node_id in community:
+                    community_map[node_id] = idx
+            results['communities'] = community_map
     except Exception as e:
         results['errors'].append(f'Communities failed: {str(e)}')
+        results['partial'] = True
+
+    # Compute clustering coefficients
+    try:
+        if not fast_mode:
+            results['clustering'] = analytics.clustering()
+    except Exception as e:
+        results['errors'].append(f'Clustering failed: {str(e)}')
+        results['partial'] = True
+
+    # Compute topological layers
+    try:
+        if not fast_mode:
+            results['layers'] = analytics.topological_layers()
+    except Exception as e:
+        results['errors'].append(f'Layers failed: {str(e)}')
+        results['partial'] = True
+
+    # Compute removal impact
+    try:
+        if not fast_mode and len(nodes) < 1000:
+            results['removalImpact'] = analytics.removal_impact()
+    except Exception as e:
+        results['errors'].append(f'Removal impact failed: {str(e)}')
+        results['partial'] = True
+
+    # Find key paths
+    try:
+        if not fast_mode and len(nodes) < 5000:
+            results['keyPaths'] = analytics.key_paths(limit=10)
+    except Exception as e:
+        results['errors'].append(f'Key paths failed: {str(e)}')
         results['partial'] = True
 
     # Compute graph statistics
@@ -97,8 +139,12 @@ def main():
         error_result = {
             'error': f'JSON parse error: {e}',
             'centrality': {},
-            'communities': [],
+            'communities': {},
             'importance': {},
+            'keyPaths': [],
+            'clustering': {},
+            'layers': {},
+            'removalImpact': {},
             'partial': True
         }
         json.dump(error_result, sys.stdout, indent=2)
@@ -107,8 +153,12 @@ def main():
         error_result = {
             'error': str(e),
             'centrality': {},
-            'communities': [],
+            'communities': {},
             'importance': {},
+            'keyPaths': [],
+            'clustering': {},
+            'layers': {},
+            'removalImpact': {},
             'partial': True
         }
         json.dump(error_result, sys.stdout, indent=2)

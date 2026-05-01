@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import {
+  GenericTypeParameter,
   ParsedCall,
   ParsedExport,
   ParsedFile,
@@ -25,6 +26,34 @@ const ROUTE_METHODS = new Set([
 ]);
 
 const TEST_CALLS = new Set(["describe", "it", "test"]);
+const REACT_HOOKS = /^use[A-Z0-9]/;
+const DECORATOR_ROLE_MAP = new Map<string, string>([
+  ["Injectable", "injectable"],
+  ["Service", "injectable"],
+  ["Singleton", "injectable"],
+  ["Controller", "controller"],
+  ["RestController", "controller"],
+  ["Get", "route-handler"],
+  ["Post", "route-handler"],
+  ["Put", "route-handler"],
+  ["Delete", "route-handler"],
+  ["Patch", "route-handler"],
+  ["Entity", "orm-entity"],
+  ["Table", "orm-entity"],
+  ["Document", "orm-entity"],
+  ["Column", "orm-field"],
+  ["Field", "orm-field"],
+  ["Property", "orm-field"],
+  ["Test", "test-case"],
+  ["It", "test-case"],
+  ["Spec", "test-case"],
+  ["BeforeEach", "test-lifecycle"],
+  ["AfterEach", "test-lifecycle"],
+  ["BeforeAll", "test-lifecycle"],
+  ["Component", "ui-component"],
+  ["Module", "app-module"],
+  ["Middleware", "middleware"],
+]);
 
 export class TypeScriptParser {
   static parseFile(filePath: string): ParsedFile {
@@ -48,6 +77,102 @@ export class TypeScriptParser {
 
       // Track router variables dynamically
       const routerVars = new Set<string>(['app', 'router', 'server']);
+
+      // Helper: Check if function is a React component
+      const hasJSXReturn = (n: ts.Node | undefined): boolean => {
+        if (!n) return false;
+        if (
+          ts.isJsxElement(n) ||
+          ts.isJsxFragment(n) ||
+          ts.isJsxSelfClosingElement(n)
+        ) {
+          return true;
+        }
+
+        let found = false;
+        ts.forEachChild(n, (child) => {
+          if (!found && hasJSXReturn(child)) {
+            found = true;
+          }
+        });
+        return found;
+      };
+
+      const isReactWrapperCall = (node: ts.Expression | undefined): boolean => {
+        if (!node || !ts.isCallExpression(node)) {
+          return false;
+        }
+
+        const callee = node.expression.getText(sourceFile);
+        return (
+          callee === "React.memo" ||
+          callee === "React.forwardRef" ||
+          callee === "React.lazy" ||
+          callee === "memo" ||
+          callee === "forwardRef" ||
+          callee === "lazy"
+        );
+      };
+
+      const isReactComponent = (
+        node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
+        name: string,
+        wrapperExpression?: ts.Expression,
+      ): boolean => {
+        if (!name || name[0] !== name[0].toUpperCase()) return false;
+        return hasJSXReturn(node.body) || isReactWrapperCall(wrapperExpression);
+      };
+
+      const extractPropsType = (
+        parameter: ts.ParameterDeclaration | undefined,
+      ): string | undefined => {
+        if (!parameter?.type) {
+          return undefined;
+        }
+
+        if (ts.isTypeReferenceNode(parameter.type)) {
+          return parameter.type.typeName.getText(sourceFile);
+        }
+
+        return parameter.type.getText(sourceFile);
+      };
+
+      const extractHooks = (body: ts.Node | undefined): string[] => {
+        if (!body) return [];
+
+        const hooks = new Set<string>();
+        const visitHooks = (node: ts.Node): void => {
+          if (ts.isCallExpression(node)) {
+            const callee = node.expression.getText(sourceFile);
+            const hookName = callee.split(".").pop() || callee;
+            if (REACT_HOOKS.test(hookName)) {
+              hooks.add(hookName);
+            }
+          }
+          ts.forEachChild(node, visitHooks);
+        };
+
+        visitHooks(body);
+        return Array.from(hooks).sort();
+      };
+
+      const extractRenderedComponents = (body: ts.Node | undefined): string[] => {
+        if (!body) return [];
+
+        const rendered = new Set<string>();
+        const visitRendered = (node: ts.Node): void => {
+          if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+            const tagName = node.tagName.getText(sourceFile);
+            if (tagName[0] && tagName[0] === tagName[0].toUpperCase()) {
+              rendered.add(tagName);
+            }
+          }
+          ts.forEachChild(node, visitRendered);
+        };
+
+        visitRendered(body);
+        return Array.from(rendered).sort();
+      };
 
       // First pass: collect router variables
       const collectRouterVars = (node: ts.Node): void => {
@@ -213,10 +338,22 @@ export class TypeScriptParser {
         if (ts.isFunctionDeclaration(statement) && statement.name) {
           const name = statement.name.text;
           const isExported = this.isNodeExported(statement);
+          const isComponent = isReactComponent(statement, name);
+          const typeParams = this.extractTypeParameters(statement);
+          const propsType = isComponent
+            ? extractPropsType(statement.parameters[0])
+            : undefined;
+          const hooks = isComponent ? extractHooks(statement.body) : [];
+          const renderedComponents = isComponent
+            ? extractRenderedComponents(statement.body)
+            : [];
+          const exportKind = isExported && this.isDefaultExport(statement)
+            ? "default"
+            : "named";
 
           addSymbol({
             name,
-            type: "function",
+            type: isComponent ? "component" : "function",
             location: this.createSpan(
               filePath,
               sourceFile,
@@ -229,7 +366,23 @@ export class TypeScriptParser {
               sourceFile,
             ),
             isExported,
+            propsType,
+            hooks: hooks.length > 0 ? hooks : undefined,
+            renderedComponents:
+              renderedComponents.length > 0 ? renderedComponents : undefined,
+            typeParameters: typeParams,
+            async: Boolean(statement.modifiers?.some(
+              (modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword,
+            )),
+            exportKind,
             summary: this.extractDocSummary(statement, content)?.text,
+            metadata: {
+              ...(isComponent ? { isReactComponent: true } : {}),
+              ...(propsType ? { propsType } : {}),
+              ...(hooks.length > 0 ? { hooks } : {}),
+              ...(renderedComponents.length > 0 ? { renderedComponents } : {}),
+              ...(typeParams ? { typeParameters: typeParams } : {}),
+            },
           });
 
           if (isExported) {
@@ -263,6 +416,12 @@ export class TypeScriptParser {
             filePath,
             sourceFile,
           );
+          const decoratorRoles = this.extractDecoratorRoles(decorators);
+          const semanticRole = this.inferSemanticRoleFromDecorators(decorators);
+          const typeParams = this.extractTypeParameters(statement);
+          const exportKind = isExported && this.isDefaultExport(statement)
+            ? "default"
+            : "named";
 
           addSymbol({
             name,
@@ -276,8 +435,17 @@ export class TypeScriptParser {
             extendsName: heritage.extendsName,
             implements: heritage.implementsNames,
             isExported,
-            summary: this.extractDocSummary(statement, content)?.text,
             decorators,
+            decoratorRoles: decoratorRoles.length > 0 ? decoratorRoles : undefined,
+            typeParameters: typeParams,
+            async: false,
+            exportKind,
+            summary: this.extractDocSummary(statement, content)?.text,
+            metadata: {
+              ...(semanticRole ? { semanticRole } : {}),
+              ...(decoratorRoles.length > 0 ? { decoratorRoles } : {}),
+              ...(typeParams ? { typeParameters: typeParams } : {}),
+            },
           });
 
           if (isExported) {
@@ -311,6 +479,15 @@ export class TypeScriptParser {
                 continue;
               }
 
+              const methodDecorators = this.extractDecoratorsFromNode(
+                member,
+                filePath,
+                sourceFile,
+              );
+              const methodDecoratorRoles = this.extractDecoratorRoles(methodDecorators);
+              const methodRole = this.inferSemanticRoleFromDecorators(methodDecorators);
+              const methodTypeParameters = this.extractTypeParameters(member);
+
               addSymbol({
                 name: methodName,
                 type: "method",
@@ -327,7 +504,25 @@ export class TypeScriptParser {
                   sourceFile,
                 ),
                 isExported: false,
+                decorators: methodDecorators.length > 0 ? methodDecorators : undefined,
+                decoratorRoles:
+                  methodDecoratorRoles.length > 0
+                    ? methodDecoratorRoles
+                    : undefined,
+                typeParameters: methodTypeParameters,
+                async: Boolean(member.modifiers?.some(
+                  (modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword,
+                )),
                 summary: this.extractDocSummary(member, content)?.text,
+                metadata: {
+                  ...(methodRole ? { semanticRole: methodRole } : {}),
+                  ...(methodDecoratorRoles.length > 0
+                    ? { decoratorRoles: methodDecoratorRoles }
+                    : {}),
+                  ...(methodTypeParameters
+                    ? { typeParameters: methodTypeParameters }
+                    : {}),
+                },
               });
 
               recordDocForSymbol(`${name}.${methodName}`, member);
@@ -340,6 +535,8 @@ export class TypeScriptParser {
         if (ts.isInterfaceDeclaration(statement)) {
           const name = statement.name.text;
           const isExported = this.isNodeExported(statement);
+          const typeParams = this.extractTypeParameters(statement);
+          
           addSymbol({
             name,
             type: "interface",
@@ -351,6 +548,7 @@ export class TypeScriptParser {
             ),
             isExported,
             summary: this.extractDocSummary(statement, content)?.text,
+            metadata: typeParams ? { typeParameters: typeParams } : undefined,
           });
 
           if (isExported) {
@@ -374,6 +572,8 @@ export class TypeScriptParser {
         if (ts.isTypeAliasDeclaration(statement)) {
           const name = statement.name.text;
           const isExported = this.isNodeExported(statement);
+          const typeParams = this.extractTypeParameters(statement);
+          
           addSymbol({
             name,
             type: "type",
@@ -385,6 +585,7 @@ export class TypeScriptParser {
             ),
             isExported,
             summary: this.extractDocSummary(statement, content)?.text,
+            metadata: typeParams ? { typeParameters: typeParams } : undefined,
           });
 
           if (isExported) {
@@ -455,22 +656,68 @@ export class TypeScriptParser {
               declaration.getEnd(),
             );
 
-            if (
+            const wrappedInitializer =
+              initializer &&
+              ts.isCallExpression(initializer) &&
+              isReactWrapperCall(initializer) &&
+              initializer.arguments[0] &&
+              (ts.isArrowFunction(initializer.arguments[0]) ||
+                ts.isFunctionExpression(initializer.arguments[0]))
+                ? initializer.arguments[0]
+                : undefined;
+
+            const callableInitializer =
               initializer &&
               (ts.isArrowFunction(initializer) ||
                 ts.isFunctionExpression(initializer))
-            ) {
+                ? initializer
+                : wrappedInitializer;
+
+            if (callableInitializer) {
+              const isComponent = isReactComponent(
+                callableInitializer,
+                name,
+                initializer && ts.isCallExpression(initializer)
+                  ? initializer
+                  : undefined,
+              );
+              const propsType = isComponent
+                ? extractPropsType(callableInitializer.parameters[0])
+                : undefined;
+              const hooks = isComponent ? extractHooks(callableInitializer.body) : [];
+              const renderedComponents = isComponent
+                ? extractRenderedComponents(callableInitializer.body)
+                : [];
+              const typeParameters = this.extractTypeParameters(callableInitializer);
+              const exportKind = isExported ? "named" : undefined;
+
               addSymbol({
                 name,
-                type: "function",
+                type: isComponent ? "component" : "function",
                 location,
                 calls: this.extractCallsFromNode(
-                  initializer.body,
+                  callableInitializer.body,
                   filePath,
                   sourceFile,
                 ),
                 isExported,
+                propsType,
+                hooks: hooks.length > 0 ? hooks : undefined,
+                renderedComponents:
+                  renderedComponents.length > 0 ? renderedComponents : undefined,
+                typeParameters,
+                async: Boolean(callableInitializer.modifiers?.some(
+                  (modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword,
+                )),
+                exportKind,
                 summary: this.extractDocSummary(statement, content)?.text,
+                metadata: {
+                  ...(isComponent ? { isReactComponent: true } : {}),
+                  ...(propsType ? { propsType } : {}),
+                  ...(hooks.length > 0 ? { hooks } : {}),
+                  ...(renderedComponents.length > 0 ? { renderedComponents } : {}),
+                  ...(typeParameters ? { typeParameters } : {}),
+                },
               });
 
               if (isExported) {
@@ -807,7 +1054,7 @@ export class TypeScriptParser {
   }
 
   private static extractDecoratorsFromNode(
-    node: ts.ClassDeclaration | ts.MethodDeclaration,
+    node: ts.Node,
     filePath: string,
     sourceFile: ts.SourceFile,
   ): string[] {
@@ -833,6 +1080,91 @@ export class TypeScriptParser {
         return dec.expression.getText(sourceFile);
       })
       .filter(Boolean);
+  }
+
+  /**
+   * Extract generic type parameters from a node.
+   */
+  private static extractTypeParameters(
+    node: { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> },
+  ): GenericTypeParameter[] | undefined {
+    if (!node.typeParameters || node.typeParameters.length === 0) {
+      return undefined;
+    }
+
+    return node.typeParameters.map((tp) => ({
+      name: tp.name.text,
+      constraint: tp.constraint ? tp.constraint.getText() : undefined,
+    }));
+  }
+
+  private static extractDecoratorRoles(decorators: string[]): string[] {
+    const roles = new Set<string>();
+    for (const decorator of decorators) {
+      const normalized = decorator.replace(/^@/, "").split(".").pop() || decorator;
+      const role = DECORATOR_ROLE_MAP.get(normalized);
+      if (role) {
+        roles.add(role);
+      }
+    }
+    return Array.from(roles);
+  }
+
+  /**
+   * Infer semantic role from decorators.
+   * Maps common framework decorators to semantic roles.
+   */
+  private static inferSemanticRoleFromDecorators(decorators: string[]): string | undefined {
+    if (decorators.length === 0) return undefined;
+
+    // NestJS / Angular patterns
+    if (decorators.some(d => d === 'Controller' || d === 'ApiController')) {
+      return 'api_controller';
+    }
+    if (decorators.some(d => d === 'Injectable' || d === 'Service')) {
+      return 'service';
+    }
+    if (decorators.some(d => d === 'Module')) {
+      return 'module_definition';
+    }
+    if (decorators.some(d => d === 'Component')) {
+      return 'ui_component';
+    }
+    if (decorators.some(d => d === 'Directive')) {
+      return 'ui_directive';
+    }
+    if (decorators.some(d => d === 'Pipe')) {
+      return 'data_transformer';
+    }
+    if (decorators.some(d => d === 'Guard' || d === 'CanActivate')) {
+      return 'authorization_guard';
+    }
+    if (decorators.some(d => d === 'Interceptor')) {
+      return 'request_interceptor';
+    }
+    if (decorators.some(d => d === 'Middleware')) {
+      return 'middleware';
+    }
+
+    // TypeORM / Database patterns
+    if (decorators.some(d => d === 'Entity')) {
+      return 'database_entity';
+    }
+    if (decorators.some(d => d === 'Repository')) {
+      return 'data_repository';
+    }
+
+    // Method decorators
+    if (decorators.some(d => ['Get', 'Post', 'Put', 'Delete', 'Patch'].includes(d))) {
+      return 'route_handler';
+    }
+
+    // Testing decorators
+    if (decorators.some(d => d === 'Test' || d === 'TestCase')) {
+      return 'test_case';
+    }
+
+    return 'decorated_class';
   }
 
   private static extractCallsFromNode(

@@ -49,6 +49,14 @@ export function scanSourceFiles(
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(root, fullPath);
 
+      if (
+        entry.name === ".codebrain" ||
+        entry.name === ".codebrainrc.json" ||
+        entry.name === ".git"
+      ) {
+        continue;
+      }
+
       if (matchesPattern(relativePath, exclude)) {
         continue;
       }
@@ -70,4 +78,3 @@ export function scanSourceFiles(
 
   return files.sort();
 }
-

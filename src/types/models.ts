@@ -36,7 +36,8 @@ export type NodeType =
   | "route"
   | "config"
   | "test"
-  | "doc";
+  | "doc"
+  | "component";
 
 export type EdgeType =
   | "IMPORTS"
@@ -53,7 +54,8 @@ export type EdgeType =
   | "EXTENDS"
   | "DECORATES"
   | "REFERENCES"
-  | "ENTRY_POINT";
+  | "ENTRY_POINT"
+  | "RENDERS";
 
 export interface GraphNode {
   id: string;
@@ -155,6 +157,30 @@ export interface ExportBundle {
   rules?: string[];
 }
 
+export interface ExportQuality {
+  score: number;
+  grade: "A" | "B" | "C" | "D" | "F";
+  notes: string[];
+  unresolvedCallPct: number;
+  inferredNodePct: number;
+  truncated: boolean;
+  cycleCount: number;
+  testCoveragePresent: boolean;
+}
+
+export interface ExportTelemetry {
+  estimatedTokens: number;
+  budgetTokens: number | null;
+  utilizationPct: number | null;
+  compressionRatio: number;
+  droppedNodes: number;
+  droppedEdges: number;
+  exportMode: "full" | "signatures" | "modules" | "delta";
+  bundleName?: string;
+  generatedInMs: number;
+  quality: ExportQuality;
+}
+
 export interface AIExportBundle extends ExportBundle {
   summary?: {
     entryPoints: string[];
@@ -174,6 +200,82 @@ export interface AIExportBundle extends ExportBundle {
   rules: string[];
   modules?: any[]; // Module summaries for hierarchical export
   pathMap?: Record<string, string>; // File path compression map
+  quality?: ExportQuality;
+  telemetry?: ExportTelemetry;
+}
+
+export interface DeltaExportBundle {
+  type: "delta";
+  version: "codebrain-delta/v1";
+  baseFingerprint: string;
+  deltaFingerprint: string;
+  deltaAt: number;
+  sinceSha?: string;
+  added: GraphNode[];
+  modified: GraphNode[];
+  deleted: string[];
+  addedEdges: GraphEdge[];
+  removedEdgeIds: string[];
+  rules: string[];
+  qualityScore: number;
+  summary: {
+    addedCount: number;
+    modifiedCount: number;
+    deletedCount: number;
+    newCycles: string[][];
+    resolvedCycles: string[][];
+    callResolutionDelta: number;
+  };
+}
+
+export interface SnapshotFile {
+  version: "codebrain-snapshot/v1";
+  createdAt: number;
+  gitSha?: string;
+  fingerprint: string;
+  project: ProjectMetadata;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  analyticsCache?: AnalyticsResult;
+}
+
+export interface GenericTypeParameter {
+  name: string;
+  constraint?: string;
+}
+
+export interface ParsedSymbol {
+  name: string;
+  type: NodeType;
+  location: SourceSpan;
+  calls?: ParsedCall[];
+  extendsName?: string;
+  implements?: string[];
+  decorators?: string[];
+  decoratorRoles?: string[];
+  owner?: string;
+  relatedTo?: string;
+  renderedComponents?: string[];
+  propsType?: string;
+  hooks?: string[];
+  typeParameters?: GenericTypeParameter[];
+  async?: boolean;
+  exportKind?: "named" | "default";
+  isExported: boolean;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ParsedFile {
+  path: string;
+  language: string;
+  hash: string;
+  symbols: ParsedSymbol[];
+  imports: ParsedImport[];
+  exports: ParsedExport[];
+  entryPoints: string[];
+  isTestFile: boolean;
+  isConfigFile: boolean;
 }
 
 export interface RankingScore {
@@ -191,10 +293,13 @@ export interface QueryResult {
 }
 
 export interface AnalyticsResult {
-  centrality: Map<string, number>;
-  communities: string[][];
-  keyPaths: string[][];
-  importance: Map<string, number>;
+  centrality: Map<string, number>;        // betweenness / degree / approximate
+  importance: Map<string, number>;        // pagerank or degree-based
+  communities: Map<string, number>;       // nodeId → communityId (integer)
+  keyPaths: string[][];                   // important shortest paths as node ID arrays
+  clustering: Map<string, number>;        // local clustering coefficient per node
+  layers: Map<string, number>;            // topological layer (0 = root, n = leaf)
+  removalImpact: Map<string, number>;     // fraction of graph unreachable if removed
 }
 
 export interface CodeBrainConfig {
@@ -234,31 +339,4 @@ export interface ParsedCall {
   name: string;
   fullName: string;
   location: SourceSpan;
-}
-
-export interface ParsedSymbol {
-  name: string;
-  type: NodeType;
-  location: SourceSpan;
-  calls?: ParsedCall[];
-  extendsName?: string;
-  implements?: string[];
-  decorators?: string[];
-  owner?: string;
-  relatedTo?: string;
-  isExported: boolean;
-  summary?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface ParsedFile {
-  path: string;
-  language: string;
-  hash: string;
-  symbols: ParsedSymbol[];
-  imports: ParsedImport[];
-  exports: ParsedExport[];
-  entryPoints: string[];
-  isTestFile: boolean;
-  isConfigFile: boolean;
 }

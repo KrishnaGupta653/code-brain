@@ -38,6 +38,59 @@ export class GitIntegration {
   }
 
   /**
+   * Get hotspots - files with the most changes in a time period
+   */
+  async getHotspots(days: number = 30): Promise<Array<{ file: string; changes: number; authors: number }>> {
+    try {
+      const since = `${days} days ago`;
+      const log: LogResult = await this.git.log(['--since', since, '--name-only', '--pretty=format:%H|%an']);
+
+      const fileChanges = new Map<string, { count: number; authors: Set<string> }>();
+
+      for (const commit of log.all) {
+        const parts = commit.hash.split('|');
+        if (parts.length < 2) continue;
+
+        const author = parts[1];
+
+        // Get files changed in this commit
+        try {
+          const diffSummary = await this.git.diffSummary([`${commit.hash}^`, commit.hash]);
+          
+          for (const file of diffSummary.files) {
+            const existing = fileChanges.get(file.file) || {
+              count: 0,
+              authors: new Set<string>(),
+            };
+
+            existing.count++;
+            existing.authors.add(author);
+
+            fileChanges.set(file.file, existing);
+          }
+        } catch {
+          // Skip commits that can't be diffed (e.g., initial commit)
+          continue;
+        }
+      }
+
+      // Convert to array and sort by change count
+      const hotspots = Array.from(fileChanges.entries())
+        .map(([file, data]) => ({
+          file,
+          changes: data.count,
+          authors: data.authors.size,
+        }))
+        .sort((a, b) => b.changes - a.changes);
+
+      return hotspots;
+    } catch (error) {
+      logger.debug('Failed to get hotspots', error);
+      return [];
+    }
+  }
+
+  /**
    * Get file change statistics for hotspot detection
    */
   async getFileStats(filePaths: string[], since?: string): Promise<Map<string, GitFileStats>> {
@@ -176,6 +229,14 @@ export class GitIntegration {
     }
   }
 
+  async getHeadSha(): Promise<string | null> {
+    try {
+      return (await this.git.revparse(["HEAD"])).trim();
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Get repository remote URL
    */
@@ -186,6 +247,43 @@ export class GitIntegration {
       return origin?.refs.fetch || null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get files changed since a specific date, commit, or branch
+   */
+  async getChangedFiles(since: string): Promise<string[]> {
+    try {
+      // Try as date first (e.g., "2024-01-01", "7 days ago")
+      let diffArgs: string[];
+      
+      if (since.includes('ago') || since.match(/^\d{4}-\d{2}-\d{2}/)) {
+        // Date-based diff
+        const log = await this.git.log(['--since', since, '--name-only', '--pretty=format:']);
+        const files = new Set<string>();
+        
+        for (const commit of log.all) {
+          try {
+            const diffSummary = await this.git.diffSummary([`${commit.hash}^`, commit.hash]);
+            for (const file of diffSummary.files) {
+              files.add(file.file);
+            }
+          } catch {
+            // Skip commits that can't be diffed
+            continue;
+          }
+        }
+        
+        return Array.from(files);
+      } else {
+        // Commit or branch-based diff
+        const diffSummary = await this.git.diffSummary([since, 'HEAD']);
+        return diffSummary.files.map(f => f.file);
+      }
+    } catch (error) {
+      logger.warn(`Failed to get changed files since ${since}`, error);
+      return [];
     }
   }
 }

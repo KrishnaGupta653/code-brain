@@ -4,7 +4,14 @@ import { SQLiteStorage } from '../../storage/index.js';
 import { Parser } from '../../parser/index.js';
 import { ConfigManager } from '../../config/index.js';
 
-export async function updateCommand(projectRoot: string): Promise<void> {
+export interface UpdateCommandOptions {
+  regenerateCodemap?: boolean;
+}
+
+export async function updateCommand(
+  projectRoot: string,
+  options: UpdateCommandOptions = {},
+): Promise<void> {
   logger.info('Updating graph index incrementally...');
 
   try {
@@ -79,6 +86,26 @@ export async function updateCommand(projectRoot: string): Promise<void> {
     await indexCommand(projectRoot);
 
     logger.success('Graph updated incrementally');
+    
+    // Auto-regenerate CODEMAP.md and AGENTS.md if they exist
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    if (
+      options.regenerateCodemap !== false &&
+      fs.existsSync(path.join(projectRoot, 'CODEMAP.md'))
+    ) {
+      const { codemapCommand } = await import('./codemap.js');
+      await codemapCommand(projectRoot, { quiet: true });
+    }
+    
+    if (
+      options.regenerateCodemap !== false &&
+      fs.existsSync(path.join(projectRoot, 'AGENTS.md'))
+    ) {
+      const { agentsCommand } = await import('./agents.js');
+      await agentsCommand(projectRoot, { quiet: true });
+    }
   } catch (error) {
     logger.error('Update failed', error);
     throw error;

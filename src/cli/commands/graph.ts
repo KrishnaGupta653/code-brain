@@ -8,15 +8,15 @@ export async function graphCommand(projectRoot: string, port: number = 3000): Pr
   const { createGraphServer } = await import('../../server/index.js');
 
   try {
-    const { server, wss, broadcast } = await createGraphServer(projectRoot, port);
+    const server = await createGraphServer(projectRoot, port);
     
     // Store broadcast function globally for watch command to use
-    (global as any).__graphServerBroadcast = broadcast;
+    (global as any).__graphServerBroadcast = server.broadcast;
     
     // Handle graceful shutdown
     const shutdown = () => {
       logger.info('Shutting down graph server...');
-      wss.close();
+      server.wss.close();
       server.close();
       delete (global as any).__graphServerBroadcast;
     };

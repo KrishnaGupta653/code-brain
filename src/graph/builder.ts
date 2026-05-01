@@ -5,6 +5,7 @@ import { SemanticAnalyzer } from "./semantics.js";
 import { RelationshipAnalyzer } from "./relationships.js";
 import { Parser } from "../parser/index.js";
 import {
+  GraphNode,
   ParsedCall,
   ParsedFile,
   ParsedImport,
@@ -31,6 +32,7 @@ export class GraphBuilder {
   private fileIdMap: Map<string, string> = new Map();
   private symbolIdMap: Map<string, string> = new Map();
   private fileHashMap: Map<string, { hash: string; language: string; size: number }> = new Map();
+  private parseErrors: Array<{ filePath: string; error: string }> = [];
   private projectId = "";
   private projectRoot = "";
   private pathAliases: PathAlias[] = [];
@@ -46,6 +48,7 @@ export class GraphBuilder {
     this.fileIdMap.clear();
     this.symbolIdMap.clear();
     this.fileHashMap.clear();
+    this.parseErrors = [];
     this.projectRoot = root;
     this.projectId = stableId("project", root);
     this.pathAliases = this.loadPathAliases(root);
@@ -86,11 +89,17 @@ export class GraphBuilder {
           size: fs.statSync(file).size
         });
       } catch (error) {
+        this.parseErrors.push({
+          filePath: file,
+          error: error instanceof Error ? error.message : String(error),
+        });
         logger.warn(`Failed to parse: ${file}`, error);
       }
     }
 
     this.buildRelationshipEdges();
+    this.resolveReexportChains();
+    this.connectRenderRelationships();
 
     // Apply semantic analysis for world-class exports
     logger.info("Analyzing semantic structure...");
@@ -113,6 +122,10 @@ export class GraphBuilder {
 
   getFileHashes(): Map<string, { hash: string; language: string; size: number }> {
     return new Map(this.fileHashMap);
+  }
+
+  getParseErrors(): Array<{ filePath: string; error: string }> {
+    return [...this.parseErrors];
   }
 
   private addFileAndSymbols(filePath: string, parsed: ParsedFile): void {
@@ -189,8 +202,18 @@ export class GraphBuilder {
           filePath,
           owner: symbol.owner,
           exported: symbol.isExported,
+          exportKind: symbol.exportKind,
+          async: symbol.async,
+          propsType: symbol.propsType,
+          hooks: symbol.hooks,
+          renderedComponents: symbol.renderedComponents,
+          decoratorRoles: symbol.decoratorRoles,
+          typeParameters: symbol.typeParameters,
         },
       );
+      if (typeof symbol.metadata?.semanticRole === "string") {
+        node.semanticRole = symbol.metadata.semanticRole as string;
+      }
       this.graph.addNode(node);
 
       this.graph.addEdge(
@@ -422,6 +445,7 @@ export class GraphBuilder {
               {
                 exportedName: exportItem.exportedName,
                 sourceModule: exportItem.sourceModule,
+                kind: exportItem.kind,
               },
             ),
           );
@@ -705,6 +729,73 @@ export class GraphBuilder {
     return this.symbolIdMap.get(`${filePath}::${name}`);
   }
 
+  private resolveExportReference(
+    filePath: string,
+    exportName: string,
+    visited: Set<string> = new Set(),
+  ): { resolvedFilePath: string; exportName: string } | undefined {
+    const visitKey = `${filePath}::${exportName}`;
+    if (visited.has(visitKey)) {
+      return undefined;
+    }
+    visited.add(visitKey);
+
+    const parsedTargetFile = this.parsedFiles.get(filePath);
+    if (!parsedTargetFile) {
+      return undefined;
+    }
+
+    const matchedExport = parsedTargetFile.exports.find((item) => {
+      if (exportName === "default") {
+        return item.exportedName === "default";
+      }
+      return item.exportedName === exportName || item.name === exportName;
+    });
+
+    if (!matchedExport) {
+      return undefined;
+    }
+
+    if (matchedExport.kind === "reexport" && matchedExport.sourceModule) {
+      const reexportTarget = this.resolveImportTarget(
+        {
+          module: matchedExport.sourceModule,
+          location: matchedExport.location,
+          bindings: [],
+          isTypeOnly: false,
+        },
+        filePath,
+      );
+
+      if (reexportTarget.type !== "file") {
+        return undefined;
+      }
+
+      const nextExportName =
+        matchedExport.name === "*" ? exportName : matchedExport.name;
+
+      return (
+        this.resolveExportReference(
+          reexportTarget.path,
+          nextExportName,
+          visited,
+        ) || {
+          resolvedFilePath: reexportTarget.path,
+          exportName: nextExportName,
+        }
+      );
+    }
+
+    if (matchedExport.name === "*") {
+      return undefined;
+    }
+
+    return {
+      resolvedFilePath: filePath,
+      exportName: matchedExport.name,
+    };
+  }
+
   private findGlobalSymbolId(name: string): string | undefined {
     for (const [key, id] of this.symbolIdMap) {
       if (key.endsWith(`::${name}`)) {
@@ -792,38 +883,180 @@ export class GraphBuilder {
       return undefined;
     }
 
-    const parsedTargetFile = this.parsedFiles.get(target.path);
-    if (!parsedTargetFile) {
-      return undefined;
-    }
-
-    const matchedExport = parsedTargetFile.exports.find((item) => {
-      if (binding.kind === "default") {
-        return item.exportedName === "default";
-      }
-
-      if (binding.kind === "namespace") {
-        return false;
-      }
-
-      return (
-        item.exportedName === binding.importedName ||
-        item.name === binding.importedName
-      );
-    });
-
-    if (!matchedExport) {
-      return undefined;
-    }
-
-    if (matchedExport.name === "*" || matchedExport.kind === "reexport") {
+    if (binding.kind === "namespace") {
       return target.id;
     }
 
-    return (
-      this.resolveLocalSymbolId(target.path, matchedExport.name) ||
-      this.findGlobalSymbolId(matchedExport.name)
+    const resolved = this.resolveExportReference(
+      target.path,
+      binding.kind === "default" ? "default" : binding.importedName,
     );
+
+    if (!resolved) {
+      return undefined;
+    }
+
+    return (
+      this.resolveLocalSymbolId(resolved.resolvedFilePath, resolved.exportName) ||
+      this.findGlobalSymbolId(resolved.exportName)
+    );
+  }
+
+  private resolveReexportChains(): void {
+    for (const [filePath, parsed] of this.parsedFiles) {
+      const exportingFileId = this.fileIdMap.get(filePath);
+      if (!exportingFileId) {
+        continue;
+      }
+
+      for (const exportItem of parsed.exports) {
+        if (!exportItem.sourceModule) {
+          continue;
+        }
+
+        if (exportItem.name === "*" || exportItem.exportedName === "*") {
+          const target = this.resolveImportTarget(
+            {
+              module: exportItem.sourceModule,
+              location: exportItem.location,
+              bindings: [],
+              isTypeOnly: false,
+            },
+            filePath,
+          );
+
+          if (target.type !== "file") {
+            continue;
+          }
+
+          const exportedSymbols = this.graph
+            .getOutgoingEdges(target.id)
+            .filter((edge) => edge.type === "EXPORTS")
+            .map((edge) => this.graph.getNode(edge.to))
+            .filter(
+              (node): node is GraphNode =>
+                node !== undefined &&
+                node.type !== "file" &&
+                node.type !== "module",
+            );
+
+          for (const symbol of exportedSymbols) {
+            const edgeId = stableId(
+              "edge",
+              "EXPORTS_TRANSITIVE",
+              exportingFileId,
+              symbol.id,
+            );
+            if (!this.graph.getEdge(edgeId)) {
+              this.graph.addEdge(
+                createGraphEdge(
+                  edgeId,
+                  "EXPORTS",
+                  exportingFileId,
+                  symbol.id,
+                  true,
+                  [exportItem.location],
+                  {
+                    transitive: true,
+                    kind: "reexport",
+                    viaFile: target.path,
+                  },
+                ),
+              );
+            }
+          }
+          continue;
+        }
+
+        const resolved = this.resolveExportReference(filePath, exportItem.exportedName);
+        if (!resolved) {
+          continue;
+        }
+
+        const symbolId =
+          this.resolveLocalSymbolId(resolved.resolvedFilePath, resolved.exportName) ||
+          this.findGlobalSymbolId(resolved.exportName);
+
+        if (!symbolId) {
+          continue;
+        }
+
+        const edgeId = stableId(
+          "edge",
+          "EXPORTS_TRANSITIVE",
+          exportingFileId,
+          symbolId,
+          exportItem.exportedName,
+        );
+        if (!this.graph.getEdge(edgeId)) {
+          this.graph.addEdge(
+            createGraphEdge(
+              edgeId,
+              "EXPORTS",
+              exportingFileId,
+              symbolId,
+              true,
+              [exportItem.location],
+              {
+                transitive: true,
+                kind: "reexport",
+                exportedName: exportItem.exportedName,
+                sourceModule: exportItem.sourceModule,
+              },
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  private connectRenderRelationships(): void {
+    for (const [filePath, parsed] of this.parsedFiles) {
+      for (const symbol of parsed.symbols) {
+        if (symbol.type !== "component" || !symbol.renderedComponents?.length) {
+          continue;
+        }
+
+        const fromId = this.resolveLocalSymbolId(filePath, symbol.name, symbol.owner);
+        if (!fromId) {
+          continue;
+        }
+
+        for (const renderedName of symbol.renderedComponents) {
+          const targetId =
+            this.resolveLocalSymbolId(filePath, renderedName) ||
+            this.findGlobalSymbolId(renderedName);
+
+          const target = targetId ? this.graph.getNode(targetId) : undefined;
+          if (!target || target.type !== "component") {
+            continue;
+          }
+
+          const edgeId = stableId(
+            "edge",
+            "RENDERS",
+            fromId,
+            target.id,
+            renderedName,
+          );
+          if (!this.graph.getEdge(edgeId)) {
+            this.graph.addEdge(
+              createGraphEdge(
+                edgeId,
+                "RENDERS",
+                fromId,
+                target.id,
+                true,
+                [symbol.location],
+                {
+                  componentName: renderedName,
+                },
+              ),
+            );
+          }
+        }
+      }
+    }
   }
 
   private resolveModulePath(

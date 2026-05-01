@@ -116,3 +116,88 @@ class GraphAnalytics:
             'strongly_connected_components': nx.number_strongly_connected_components(self.G),
             'weakly_connected_components': nx.number_weakly_connected_components(self.G)
         }
+
+    def clustering(self) -> Dict[str, float]:
+        """Compute local clustering coefficient for each node."""
+        try:
+            G_undirected = self.G.to_undirected()
+            return nx.clustering(G_undirected)
+        except Exception:
+            return {}
+
+    def topological_layers(self) -> Dict[str, int]:
+        """Compute topological generation (layer) for each node."""
+        try:
+            layers = {}
+            for layer_idx, nodes in enumerate(nx.topological_generations(self.G)):
+                for node in nodes:
+                    layers[node] = layer_idx
+            return layers
+        except nx.NetworkXUnfeasible:
+            # Graph has cycles — use in-degree as proxy for depth
+            in_degrees = dict(self.G.in_degree())
+            max_in = max(in_degrees.values()) if in_degrees else 1
+            return {n: round(d / max_in * 10) for n, d in in_degrees.items()}
+        except Exception:
+            return {}
+
+    def removal_impact(self) -> Dict[str, float]:
+        """
+        For each node, compute fraction of graph unreachable after removal.
+        Uses sampling for large graphs (>5K nodes) for performance.
+        """
+        try:
+            all_nodes = list(self.G.nodes())
+            n = len(all_nodes)
+            
+            if n > 5000:
+                # Sample 500 random nodes for large graphs
+                import random
+                sample = random.sample(all_nodes, min(500, n))
+            else:
+                sample = all_nodes
+            
+            # Compute baseline reachability
+            baseline = sum(len(nx.descendants(self.G, node)) for node in sample)
+            scores = {}
+            
+            for node in all_nodes:
+                G_copy = self.G.copy()
+                G_copy.remove_node(node)
+                remaining = sum(
+                    len(nx.descendants(G_copy, n)) for n in sample if n != node
+                )
+                scores[node] = round(
+                    (baseline - remaining) / max(1, baseline), 4
+                )
+            
+            return scores
+        except Exception:
+            return {}
+
+    def key_paths(self, limit: int = 10) -> List[List[str]]:
+        """Find important shortest paths between high-centrality nodes."""
+        try:
+            # Get top nodes by centrality
+            centrality = self.centrality()
+            if not centrality:
+                return []
+            
+            top_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:20]
+            top_node_ids = [n[0] for n in top_nodes]
+            
+            paths = []
+            for i, source in enumerate(top_node_ids[:10]):
+                for target in top_node_ids[i+1:]:
+                    try:
+                        path = nx.shortest_path(self.G, source, target)
+                        if len(path) > 2:  # Only interesting paths
+                            paths.append(path)
+                            if len(paths) >= limit:
+                                return paths
+                    except:
+                        continue
+            
+            return paths
+        except Exception:
+            return []

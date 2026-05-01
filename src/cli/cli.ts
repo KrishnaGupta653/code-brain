@@ -5,6 +5,11 @@ import { updateCommand } from "./commands/update.js";
 import { graphCommand } from "./commands/graph.js";
 import { exportCommand } from "./commands/export.js";
 import { watchCommand } from "./commands/watch.js";
+import { codemapCommand } from "./commands/codemap.js";
+import { agentsCommand } from "./commands/agents.js";
+import { doctorCommand } from "./commands/doctor.js";
+import { snapshotCommand } from "./commands/snapshot.js";
+import { diffCommand } from "./commands/diff.js";
 import { logger } from "../utils/index.js";
 
 export function setupCLI(): Command {
@@ -45,9 +50,12 @@ export function setupCLI(): Command {
     .command("update")
     .description("Update the graph index with repository changes")
     .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--no-codemap", "Skip CODEMAP.md / AGENTS.md regeneration")
     .action(async (options) => {
       try {
-        await updateCommand(options.path);
+        await updateCommand(options.path, {
+          regenerateCodemap: options.codemap !== false,
+        });
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
@@ -99,7 +107,10 @@ export function setupCLI(): Command {
     .description("Export the code graph in various formats")
     .option("-p, --path <path>", "Project root path", process.cwd())
     .option("--format <format>", "Export format: json, yaml, ai", "json")
+    .option("--mode <mode>", "Export mode: full, signatures, modules", "full")
+    .option("--bundle <name>", "Pre-built bundle: auth, api, tests, database, config, core")
     .option("--focus <module>", "Focus on specific module or symbol")
+    .option("--since <ref>", "Git diff: export only changed files since date/commit/branch (e.g., '7 days ago', '2024-01-01', 'main')")
     .option("--max-tokens <number>", "Maximum tokens for AI export (optional)")
     .option("--top <number>", "Export only the top N most important AI nodes")
     .option("--model <model>", "Target AI model (gpt-4, claude-3-opus, gemini-1.5-pro, etc.)")
@@ -109,6 +120,22 @@ export function setupCLI(): Command {
         if (!validFormats.includes(options.format)) {
           logger.error(
             `Invalid format: ${options.format}. Valid formats: ${validFormats.join(", ")}`,
+          );
+          process.exit(1);
+        }
+
+        const validModes = ["full", "signatures", "modules"];
+        if (options.mode && !validModes.includes(options.mode)) {
+          logger.error(
+            `Invalid mode: ${options.mode}. Valid modes: ${validModes.join(", ")}`,
+          );
+          process.exit(1);
+        }
+
+        const validBundles = ["auth", "api", "tests", "database", "config", "core"];
+        if (options.bundle && !validBundles.includes(options.bundle)) {
+          logger.error(
+            `Invalid bundle: ${options.bundle}. Valid bundles: ${validBundles.join(", ")}`,
           );
           process.exit(1);
         }
@@ -138,8 +165,91 @@ export function setupCLI(): Command {
           maxTokens,
           top,
           options.model,
+          options.mode,
+          options.bundle,
+          options.since,
         );
         console.log(output);
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("codemap")
+    .description("Generate CODEMAP.md - persistent codebase wiki for humans and AI")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--quiet", "Suppress output messages")
+    .action(async (options) => {
+      try {
+        await codemapCommand(options.path, { quiet: options.quiet });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("agents")
+    .description("Generate AGENTS.md - model-agnostic agent instructions file")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--quiet", "Suppress output messages")
+    .option("--validate", "Validate detected conventions without writing the file")
+    .action(async (options) => {
+      try {
+        await agentsCommand(options.path, {
+          quiet: options.quiet,
+          validate: options.validate,
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("doctor")
+    .description("Run index and repository health checks")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--json", "Emit machine-readable JSON")
+    .option("--fix", "Auto-fix a small set of resolvable issues")
+    .action(async (options) => {
+      try {
+        await doctorCommand(options.path, {
+          json: options.json,
+          fix: options.fix,
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("snapshot")
+    .description("Create a compressed snapshot of the current graph state")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("-o, --output <file>", "Output .codebrain file")
+    .action(async (options) => {
+      try {
+        const output = await snapshotCommand(options.path, {
+          output: options.output,
+        });
+        process.stdout.write(`${output}\n`);
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("diff <left> <right>")
+    .description("Diff two code-brain snapshots")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .action(async (left, right, options) => {
+      try {
+        await diffCommand(options.path, left, right);
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
