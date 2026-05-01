@@ -10,6 +10,7 @@ import { GraphEdge, GraphNode, SourceSpan } from '../../types/models.js';
 
 export interface IndexCommandOptions {
   filesToIndex?: string[];
+  gitBlame?: boolean;
 }
 
 export async function indexCommand(
@@ -41,6 +42,12 @@ export async function indexCommand(
 
     const builder = new GraphBuilder();
     const partialGraph = builder.buildFromRepository(projectRoot, include, exclude, filesToIndex);
+
+    // Optionally enrich with git metadata
+    if (options.gitBlame) {
+      logger.info('Enriching with git metadata...');
+      await builder.enrichWithGitMetadata();
+    }
 
     const dbPath = getDbPath(projectRoot);
     const storage = new SQLiteStorage(dbPath);

@@ -1,6 +1,7 @@
 import { GraphModel } from '../graph/index.js';
 import { GraphEdge, GraphNode, NodeType, QueryResult } from '../types/models.js';
 import { SQLiteStorage } from '../storage/index.js';
+import { logger } from '../utils/index.js';
 
 export class QueryEngine {
   private storage?: SQLiteStorage;
@@ -72,9 +73,14 @@ export class QueryEngine {
     // Use FTS5 search if storage is available
     if (this.storage && this.projectRoot) {
       try {
-        return this.storage.searchNodes(this.projectRoot, normalized, limit);
+        const searchResults = this.storage.searchNodesDetailed(this.projectRoot, normalized, limit);
+        // Convert search results to GraphNode objects
+        return searchResults
+          .map(result => this.graph.getNode(result.nodeId))
+          .filter((node): node is GraphNode => Boolean(node));
       } catch (error) {
         // Fall back to in-memory search if FTS5 fails
+        logger.warn('FTS5 search failed, falling back to in-memory search', error);
       }
     }
 

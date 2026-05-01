@@ -518,110 +518,6 @@ export class SQLiteStorage {
   }
 
   /**
-   * Search nodes using FTS5 full-text search with BM25 ranking.
-   * Falls back to LIKE search if FTS5 is not available.
-   */
-  searchNodes(projectRoot: string, query: string, limit: number = 50): GraphNode[] {
-    const projectId = this.getProjectId(projectRoot);
-    
-    try {
-      // Try FTS5 search first
-      const ftsResults = this.db
-        .prepare(`
-          SELECT n.*, fts.rank
-          FROM nodes_fts fts
-          JOIN nodes n ON n.id = fts.node_id
-          WHERE n.project_id = ? AND nodes_fts MATCH ?
-          ORDER BY fts.rank
-          LIMIT ?
-        `)
-        .all(projectId, query, limit) as Array<{
-        id: string;
-        type: string;
-        name: string;
-        full_name: string;
-        file_path: string;
-        start_line: number;
-        end_line: number;
-        start_col: number;
-        end_col: number;
-        summary: string;
-        metadata: string;
-        semantic_path: string | null;
-        namespace: string | null;
-        hierarchy_label: string | null;
-        semantic_role: string | null;
-        community_id: number | null;
-        importance_score: number;
-        created_at: number;
-        updated_at: number;
-        rank: number;
-      }>;
-
-      return ftsResults.map((row) => {
-        const node = this.rowToGraphNode(row, projectId);
-        return node;
-      });
-    } catch (error) {
-      // FTS5 not available, fall back to LIKE search
-      logger.debug("FTS5 not available, using LIKE search");
-      const likePattern = `%${query}%`;
-      const likeResults = this.db
-        .prepare(`
-          SELECT *
-          FROM nodes
-          WHERE project_id = ? AND (
-            name LIKE ? OR
-            full_name LIKE ? OR
-            semantic_path LIKE ? OR
-            summary LIKE ?
-          )
-          ORDER BY 
-            CASE 
-              WHEN name = ? THEN 0
-              WHEN name LIKE ? THEN 1
-              ELSE 2
-            END,
-            importance_score DESC,
-            name
-          LIMIT ?
-        `)
-        .all(
-          projectId,
-          likePattern,
-          likePattern,
-          likePattern,
-          likePattern,
-          query,
-          `${query}%`,
-          limit,
-        ) as Array<{
-        id: string;
-        type: string;
-        name: string;
-        full_name: string;
-        file_path: string;
-        start_line: number;
-        end_line: number;
-        start_col: number;
-        end_col: number;
-        summary: string;
-        metadata: string;
-        semantic_path: string | null;
-        namespace: string | null;
-        hierarchy_label: string | null;
-        semantic_role: string | null;
-        community_id: number | null;
-        importance_score: number;
-        created_at: number;
-        updated_at: number;
-      }>;
-
-      return likeResults.map((row) => this.rowToGraphNode(row, projectId));
-    }
-  }
-
-  /**
    * Save analytics results to cache.
    */
   saveAnalyticsCache(
@@ -670,6 +566,133 @@ export class SQLiteStorage {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Save LLM-generated summary for a node.
+   */
+  saveSummary(
+    projectRoot: string,
+    nodeId: string,
+    summary: string,
+    metadata?: {
+      purpose?: string;
+      keyPoints?: string[];
+      usage?: string;
+      tokens?: number;
+      generatedAt?: number;
+    }
+  ): void {
+    const projectId = this.getProjectId(projectRoot);
+    const id = `summary_${nodeId}`;
+    const now = metadata?.generatedAt || Date.now();
+    
+    this.db
+      .prepare(`
+        INSERT OR REPLACE INTO summaries
+        (id, project_id, node_id, summary, purpose, key_points, usage, tokens, generated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        projectId,
+        nodeId,
+        summary,
+        metadata?.purpose || null,
+        metadata?.keyPoints ? JSON.stringify(metadata.keyPoints) : null,
+        metadata?.usage || null,
+        metadata?.tokens || null,
+        now
+      );
+  }
+
+  /**
+   * Get LLM-generated summary for a node.
+   */
+  getSummary(projectRoot: string, nodeId: string): unknown | null {
+    const projectId = this.getProjectId(projectRoot);
+    
+    try {
+      const row = this.db
+        .prepare(`
+          SELECT summary, purpose, key_points, usage, tokens, generated_at
+          FROM summaries
+          WHERE project_id = ? AND node_id = ?
+        `)
+        .get(projectId, nodeId) as {
+          summary: string;
+          purpose: string | null;
+          key_points: string | null;
+          usage: string | null;
+          tokens: number | null;
+          generated_at: number;
+        } | undefined;
+
+      if (!row) return null;
+      
+      return {
+        summary: row.summary,
+        purpose: row.purpose,
+        keyPoints: row.key_points ? JSON.parse(row.key_points) : [],
+        usage: row.usage,
+        tokens: row.tokens,
+        generatedAt: row.generated_at,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Delete summary for a node.
+   */
+  deleteSummary(projectRoot: string, nodeId: string): void {
+    const projectId = this.getProjectId(projectRoot);
+    
+    this.db
+      .prepare(`
+        DELETE FROM summaries
+        WHERE project_id = ? AND node_id = ?
+      `)
+      .run(projectId, nodeId);
+  }
+
+  /**
+   * Get all summaries for a project.
+   */
+  getAllSummaries(projectRoot: string): Map<string, unknown> {
+    const projectId = this.getProjectId(projectRoot);
+    
+    const rows = this.db
+      .prepare(`
+        SELECT node_id, summary, purpose, key_points, usage, tokens, generated_at
+        FROM summaries
+        WHERE project_id = ?
+      `)
+      .all(projectId) as Array<{
+        node_id: string;
+        summary: string;
+        purpose: string | null;
+        key_points: string | null;
+        usage: string | null;
+        tokens: number | null;
+        generated_at: number;
+      }>;
+
+    const summaries = new Map<string, unknown>();
+    
+    for (const row of rows) {
+      summaries.set(row.node_id, {
+        summary: row.summary,
+        purpose: row.purpose,
+        keyPoints: row.key_points ? JSON.parse(row.key_points) : [],
+        usage: row.usage,
+        tokens: row.tokens,
+        generatedAt: row.generated_at,
+      });
+    }
+    
+    return summaries;
   }
 
   /**
@@ -857,5 +880,116 @@ export class SQLiteStorage {
       .prepare("SELECT COUNT(*) as count FROM edges WHERE project_id = ?")
       .get(projectId) as { count: number };
     return row?.count || 0;
+  }
+
+  /**
+   * Search nodes using FTS5 full-text search.
+   * Returns nodes ranked by relevance with BM25 scoring.
+   * 
+   * @param projectRoot - Project root path
+   * @param query - Search query (supports FTS5 syntax: AND, OR, NOT, quotes, prefix*)
+   * @param limit - Maximum number of results (default: 20)
+   * @returns Array of node IDs with relevance scores
+   */
+  searchNodes(
+    projectRoot: string,
+    query: string,
+    limit = 20
+  ): Array<{ nodeId: string; score: number; rank: number }> {
+    try {
+      const projectId = this.getProjectId(projectRoot);
+      
+      // FTS5 query with BM25 ranking
+      const rows = this.db.prepare(`
+        SELECT 
+          node_id,
+          rank,
+          bm25(nodes_fts) as score
+        FROM nodes_fts
+        WHERE nodes_fts MATCH ?
+          AND node_id IN (
+            SELECT id FROM nodes WHERE project_id = ?
+          )
+        ORDER BY rank
+        LIMIT ?
+      `).all(query, projectId, limit) as Array<{ 
+        node_id: string; 
+        rank: number;
+        score: number;
+      }>;
+      
+      return rows.map(r => ({
+        nodeId: r.node_id,
+        score: -r.score, // BM25 score (negative, higher is better)
+        rank: r.rank,
+      }));
+    } catch (error) {
+      logger.warn('FTS5 search failed, returning empty results', error);
+      return [];
+    }
+  }
+
+  /**
+   * Search nodes with detailed results including node information.
+   * 
+   * @param projectRoot - Project root path
+   * @param query - Search query
+   * @param limit - Maximum number of results (default: 20)
+   * @returns Array of search results with node details
+   */
+  searchNodesDetailed(
+    projectRoot: string,
+    query: string,
+    limit = 20
+  ): Array<{
+    nodeId: string;
+    name: string;
+    type: string;
+    fullName: string | null;
+    filePath: string | null;
+    summary: string | null;
+    score: number;
+  }> {
+    try {
+      const projectId = this.getProjectId(projectRoot);
+      
+      const rows = this.db.prepare(`
+        SELECT 
+          fts.node_id,
+          n.name,
+          n.type,
+          n.full_name,
+          n.file_path,
+          n.summary,
+          bm25(nodes_fts) as score
+        FROM nodes_fts fts
+        INNER JOIN nodes n ON fts.node_id = n.id
+        WHERE nodes_fts MATCH ?
+          AND n.project_id = ?
+        ORDER BY bm25(nodes_fts)
+        LIMIT ?
+      `).all(query, projectId, limit) as Array<{
+        node_id: string;
+        name: string;
+        type: string;
+        full_name: string | null;
+        file_path: string | null;
+        summary: string | null;
+        score: number;
+      }>;
+      
+      return rows.map(r => ({
+        nodeId: r.node_id,
+        name: r.name,
+        type: r.type,
+        fullName: r.full_name,
+        filePath: r.file_path,
+        summary: r.summary,
+        score: -r.score, // BM25 score (negative, higher is better)
+      }));
+    } catch (error) {
+      logger.warn('FTS5 detailed search failed, returning empty results', error);
+      return [];
+    }
   }
 }

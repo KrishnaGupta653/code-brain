@@ -799,7 +799,14 @@ export async function createGraphServer(
 
   return new Promise((resolve, reject) => {
     const server = app.listen(port, () => {
-      logger.success(`Graph server running on http://localhost:${port}`);
+      // Get the actual port (useful when port 0 is used for auto-assignment)
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address !== null ? address.port : port;
+      
+      logger.success(`Graph server running on http://localhost:${actualPort}`);
+      if (port === 0) {
+        logger.info(`Auto-assigned port: ${actualPort}`);
+      }
       logger.info("Press Ctrl+C to stop");
       
       // Create WebSocket server

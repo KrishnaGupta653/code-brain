@@ -3,10 +3,11 @@ import { SQLiteStorage } from '../../storage/index.js';
 import { logger, getDbPath } from '../../utils/index.js';
 
 export interface QueryCommandOptions {
-  type?: 'callers' | 'callees' | 'cycles' | 'dead-exports' | 'orphans' | 'impact' | 'path';
+  type?: 'callers' | 'callees' | 'cycles' | 'dead-exports' | 'orphans' | 'impact' | 'path' | 'search';
   symbol?: string;
   from?: string;
   to?: string;
+  text?: string;
   limit?: number;
 }
 
@@ -19,10 +20,25 @@ export async function queryCommand(
     const graph = storage.loadGraph(projectRoot);
     const queryEngine = new QueryEngine(graph, storage, projectRoot);
 
-    const type = options.type || 'callers';
+    const type = options.type || 'search';
     const limit = options.limit || 50;
 
     switch (type) {
+      case 'search': {
+        if (!options.text) {
+          logger.error('--text is required for search query');
+          return;
+        }
+        const results = storage.searchNodesDetailed(projectRoot, options.text, limit);
+        logger.info(`Found ${results.length} results for "${options.text}":`);
+        results.forEach((result, index) => {
+          console.log(`\n${index + 1}. ${result.name} (${result.type}) [score: ${result.score.toFixed(3)}]`);
+          if (result.fullName) console.log(`   Full name: ${result.fullName}`);
+          if (result.filePath) console.log(`   File: ${result.filePath}`);
+          if (result.summary) console.log(`   Summary: ${result.summary.slice(0, 100)}${result.summary.length > 100 ? '...' : ''}`);
+        });
+        break;
+      }
       case 'callers': {
         if (!options.symbol) {
           logger.error('--symbol is required for callers query');
@@ -123,7 +139,7 @@ export async function queryCommand(
 
       default:
         logger.error(`Unknown query type: ${type}`);
-        logger.info('Available types: callers, callees, cycles, dead-exports, orphans, impact, path');
+        logger.info('Available types: search, callers, callees, cycles, dead-exports, orphans, impact, path');
     }
 
     storage.close();

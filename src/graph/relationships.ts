@@ -1,6 +1,7 @@
 /**
  * Relationship analyzer for understanding why edges exist.
  * Generates explanations for relationships and semantic reasons.
+ * Includes cross-language edge detection for FFI calls.
  */
 
 import { GraphEdge, GraphNode } from "../types/models.js";
@@ -17,11 +18,319 @@ export interface RelationshipExplanation {
   };
 }
 
+export interface CrossLanguageCall {
+  from: GraphNode;
+  to: string; // Target function/module name
+  language: string; // Target language
+  mechanism: string; // How the call is made (subprocess, exec, JNI, etc.)
+  location: {
+    file: string;
+    line: number;
+  };
+}
+
 export class RelationshipAnalyzer {
   private graph: GraphModel;
 
   constructor(graph: GraphModel) {
     this.graph = graph;
+  }
+
+  /**
+   * Detect cross-language calls in the codebase.
+   * Returns edges that represent calls between different languages.
+   */
+  detectCrossLanguageCalls(): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    const nodes = this.graph.getNodes();
+
+    for (const node of nodes) {
+      // Skip non-code nodes
+      if (!['function', 'method', 'file'].includes(node.type)) {
+        continue;
+      }
+
+      const language = this.detectLanguage(node);
+      if (!language) continue;
+
+      // Check for cross-language patterns in the node
+      const crossCalls = this.detectCrossLanguageInNode(node, language);
+      calls.push(...crossCalls);
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect language from node metadata or file extension.
+   */
+  private detectLanguage(node: GraphNode): string | null {
+    const file = node.location?.file;
+    if (!file) return null;
+
+    if (file.endsWith('.ts') || file.endsWith('.tsx') || file.endsWith('.js') || file.endsWith('.jsx')) {
+      return 'typescript';
+    } else if (file.endsWith('.py')) {
+      return 'python';
+    } else if (file.endsWith('.java')) {
+      return 'java';
+    } else if (file.endsWith('.go')) {
+      return 'go';
+    }
+
+    return null;
+  }
+
+  /**
+   * Detect cross-language calls within a node.
+   */
+  private detectCrossLanguageInNode(node: GraphNode, sourceLanguage: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    const sourceText = node.location?.text || '';
+
+    if (sourceLanguage === 'typescript') {
+      // TypeScript calling Python
+      calls.push(...this.detectTypeScriptToPython(node, sourceText));
+      // TypeScript calling Java
+      calls.push(...this.detectTypeScriptToJava(node, sourceText));
+      // TypeScript calling Go
+      calls.push(...this.detectTypeScriptToGo(node, sourceText));
+    } else if (sourceLanguage === 'python') {
+      // Python calling TypeScript/Node
+      calls.push(...this.detectPythonToTypeScript(node, sourceText));
+      // Python calling Java
+      calls.push(...this.detectPythonToJava(node, sourceText));
+      // Python calling Go
+      calls.push(...this.detectPythonToGo(node, sourceText));
+    } else if (sourceLanguage === 'java') {
+      // Java JNI calls
+      calls.push(...this.detectJavaJNI(node, sourceText));
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect TypeScript calling Python via subprocess/exec.
+   */
+  private detectTypeScriptToPython(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: spawn('python', ...), exec('python ...'), execSync('python ...')
+    const patterns = [
+      /spawn\s*\(\s*['"]python3?['"]/g,
+      /exec\s*\(\s*['"]python3?\s+([^'"]+)['"]/g,
+      /execSync\s*\(\s*['"]python3?\s+([^'"]+)['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        const target = match[1] || 'python_script';
+        calls.push({
+          from: node,
+          to: target,
+          language: 'python',
+          mechanism: 'subprocess',
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect TypeScript calling Java.
+   */
+  private detectTypeScriptToJava(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: spawn('java', ...), exec('java ...')
+    const patterns = [
+      /spawn\s*\(\s*['"]java['"]/g,
+      /exec\s*\(\s*['"]java\s+([^'"]+)['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        const target = match[1] || 'java_class';
+        calls.push({
+          from: node,
+          to: target,
+          language: 'java',
+          mechanism: 'subprocess',
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect TypeScript calling Go.
+   */
+  private detectTypeScriptToGo(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: spawn('./binary', ...), exec('./go-binary')
+    const patterns = [
+      /spawn\s*\(\s*['"]\.\/[^'"]*['"]/g,
+      /exec\s*\(\s*['"]\.\/[^'"]+['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        calls.push({
+          from: node,
+          to: 'go_binary',
+          language: 'go',
+          mechanism: 'subprocess',
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect Python calling TypeScript/Node.
+   */
+  private detectPythonToTypeScript(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: subprocess.run(['node', ...]), subprocess.Popen(['node', ...])
+    const patterns = [
+      /subprocess\.(?:run|Popen|call)\s*\(\s*\[\s*['"]node['"]/g,
+      /subprocess\.(?:run|Popen|call)\s*\(\s*['"]node\s+([^'"]+)['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        const target = match[1] || 'node_script';
+        calls.push({
+          from: node,
+          to: target,
+          language: 'typescript',
+          mechanism: 'subprocess',
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect Python calling Java.
+   */
+  private detectPythonToJava(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: subprocess.run(['java', ...]), JPype
+    const patterns = [
+      /subprocess\.(?:run|Popen|call)\s*\(\s*\[\s*['"]java['"]/g,
+      /jpype\.JClass\s*\(\s*['"]([^'"]+)['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        const target = match[1] || 'java_class';
+        const mechanism = pattern.source.includes('jpype') ? 'jpype' : 'subprocess';
+        calls.push({
+          from: node,
+          to: target,
+          language: 'java',
+          mechanism,
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect Python calling Go.
+   */
+  private detectPythonToGo(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: subprocess.run(['./binary', ...])
+    const patterns = [
+      /subprocess\.(?:run|Popen|call)\s*\(\s*\[\s*['"]\.\/[^'"]+['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        calls.push({
+          from: node,
+          to: 'go_binary',
+          language: 'go',
+          mechanism: 'subprocess',
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Detect Java JNI calls to native code.
+   */
+  private detectJavaJNI(node: GraphNode, sourceText: string): CrossLanguageCall[] {
+    const calls: CrossLanguageCall[] = [];
+    
+    // Patterns: native keyword, System.loadLibrary
+    const patterns = [
+      /native\s+\w+\s+(\w+)\s*\(/g,
+      /System\.loadLibrary\s*\(\s*['"]([^'"]+)['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = sourceText.matchAll(pattern);
+      for (const match of matches) {
+        const target = match[1] || 'native_library';
+        calls.push({
+          from: node,
+          to: target,
+          language: 'native',
+          mechanism: 'jni',
+          location: {
+            file: node.location?.file || '',
+            line: node.location?.startLine || 0,
+          },
+        });
+      }
+    }
+
+    return calls;
   }
 
   /**

@@ -176,8 +176,85 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 10,
+    description: 'Update FTS5 table to include file_path',
+    up: (db) => {
+      // Drop and recreate FTS table with file_path
+      db.exec(`
+        DROP TABLE IF EXISTS nodes_fts;
+        
+        CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+          node_id UNINDEXED,
+          name,
+          full_name,
+          summary,
+          file_path,
+          tokenize='porter unicode61'
+        );
+        
+        -- Populate FTS table with existing data
+        INSERT INTO nodes_fts(node_id, name, full_name, summary, file_path)
+        SELECT id, name, 
+               COALESCE(full_name, ''), 
+               COALESCE(summary, ''), 
+               COALESCE(file_path, '') 
+        FROM nodes;
+        
+        -- Drop old triggers
+        DROP TRIGGER IF EXISTS nodes_fts_insert;
+        DROP TRIGGER IF EXISTS nodes_fts_delete;
+        DROP TRIGGER IF EXISTS nodes_fts_update;
+        
+        -- Create new triggers to keep FTS in sync
+        CREATE TRIGGER IF NOT EXISTS nodes_fts_insert AFTER INSERT ON nodes BEGIN
+          INSERT INTO nodes_fts(node_id, name, full_name, summary, file_path)
+          VALUES (new.id, new.name, 
+                  COALESCE(new.full_name, ''), 
+                  COALESCE(new.summary, ''), 
+                  COALESCE(new.file_path, ''));
+        END;
+        
+        CREATE TRIGGER IF NOT EXISTS nodes_fts_delete AFTER DELETE ON nodes BEGIN
+          DELETE FROM nodes_fts WHERE node_id = old.id;
+        END;
+        
+        CREATE TRIGGER IF NOT EXISTS nodes_fts_update AFTER UPDATE ON nodes BEGIN
+          DELETE FROM nodes_fts WHERE node_id = old.id;
+          INSERT INTO nodes_fts(node_id, name, full_name, summary, file_path)
+          VALUES (new.id, new.name, 
+                  COALESCE(new.full_name, ''), 
+                  COALESCE(new.summary, ''), 
+                  COALESCE(new.file_path, ''));
+        END;
+      `);
+    },
+  },
+  {
+    version: 11,
+    description: 'Create summaries table for LLM-generated summaries',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS summaries (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          purpose TEXT,
+          key_points TEXT,
+          usage TEXT,
+          tokens INTEGER,
+          generated_at INTEGER NOT NULL,
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+          FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+          UNIQUE(project_id, node_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_summaries_node_id ON summaries(node_id);
+        CREATE INDEX IF NOT EXISTS idx_summaries_project ON summaries(project_id);
+      `);
+    },
+  },
 ];
-
 export function runMigrations(db: Database.Database): void {
   // Check if schema_version table exists
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'").all() as Array<{ name: string }>;

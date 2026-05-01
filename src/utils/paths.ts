@@ -47,6 +47,14 @@ export function isJavaFile(filePath: string): boolean {
   return /\.(java)$/.test(filePath);
 }
 
+export function isPythonFile(filePath: string): boolean {
+  return /\.(py)$/.test(filePath);
+}
+
+export function isGoFile(filePath: string): boolean {
+  return /\.(go)$/.test(filePath);
+}
+
 export function isSupportedSourceFile(filePath: string): boolean {
   // Consider most textual source files supported. Exclude common binary/document extensions.
   const blacklist = new Set([

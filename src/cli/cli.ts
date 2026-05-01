@@ -32,9 +32,10 @@ export function setupCLI(): Command {
     .command("index")
     .description("Index the repository and build the knowledge graph")
     .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--git-blame", "Enrich file nodes with git metadata (author, last modified, commit SHA)")
     .action(async (options) => {
       try {
-        await indexCommand(options.path);
+        await indexCommand(options.path, { gitBlame: options.gitBlame });
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
@@ -78,12 +79,13 @@ export function setupCLI(): Command {
     .command("graph")
     .description("Start the interactive graph visualization server")
     .option("-p, --path <path>", "Project root path", process.cwd())
-    .option("--port <port>", "Server port", "3000")
+    .option("--port <port>", "Server port (use 0 for auto-assignment)", "3000")
     .action(async (options) => {
       try {
         const port = parseInt(options.port);
-        if (isNaN(port) || port < 1024 || port > 65535) {
-          logger.error("Port must be a number between 1024 and 65535");
+        // Allow port 0 for auto-assignment, or valid port range
+        if (isNaN(port) || port < 0 || port > 65535 || (port > 0 && port < 1024)) {
+          logger.error("Port must be 0 (auto-assign) or between 1024 and 65535");
           process.exit(1);
         }
 
@@ -150,7 +152,8 @@ export function setupCLI(): Command {
     .command("query")
     .description("Query the code graph")
     .option("-p, --path <path>", "Project root path", process.cwd())
-    .option("--type <type>", "Query type: callers, callees, cycles, dead-exports, orphans, impact, path")
+    .option("--type <type>", "Query type: search, callers, callees, cycles, dead-exports, orphans, impact, path")
+    .option("--text <text>", "Search query text (for search type)")
     .option("--symbol <symbol>", "Symbol name for callers/callees/impact queries")
     .option("--from <from>", "Source node for path query")
     .option("--to <to>", "Target node for path query")
@@ -160,10 +163,32 @@ export function setupCLI(): Command {
         const { queryCommand } = await import("./commands/query.js");
         await queryCommand(options.path, {
           type: options.type,
+          text: options.text,
           symbol: options.symbol,
           from: options.from,
           to: options.to,
           limit: parseInt(options.limit, 10),
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("diff")
+    .description("Export only changes since last index")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--format <format>", "Export format: json, yaml, ai", "ai")
+    .option("--since <timestamp>", "Compare against specific timestamp (milliseconds)")
+    .option("--output <file>", "Output file (default: stdout)")
+    .action(async (options) => {
+      try {
+        const { diffCommand } = await import("./commands/diff.js");
+        await diffCommand(options.path, {
+          format: options.format,
+          since: options.since,
+          output: options.output,
         });
       } catch (error) {
         logger.error("Command failed", error);
@@ -184,6 +209,38 @@ export function setupCLI(): Command {
           includeGit: options.git,
           outputFormat: options.format,
         });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("mcp")
+    .description("Start Model Context Protocol server for AI assistants")
+    .action(async () => {
+      try {
+        const { mcpCommand } = await import("./commands/mcp.js");
+        await mcpCommand();
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("summarize")
+    .description("Generate LLM-powered summaries for modules (requires ANTHROPIC_API_KEY)")
+    .option("--regenerate", "Regenerate all summaries (even if they exist)")
+    .option("--stale <days>", "Regenerate summaries older than N days", "7")
+    .option("--batch-size <size>", "Number of summaries per batch", "50")
+    .option("--concurrency <n>", "Number of concurrent API requests", "3")
+    .action(async (options) => {
+      try {
+        const { summarizeCommand } = await import("./commands/summarize.js");
+        await summarizeCommand(program);
+        // Re-parse to execute the command
+        await program.parseAsync(process.argv);
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);

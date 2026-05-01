@@ -8,9 +8,10 @@ import {
   ParsedImport,
   ParsedSymbol,
   ParsedExport,
+  ParsedParam,
   SourceSpan,
 } from '../types/models.js';
-import { ParserError } from '../utils/index.js';
+import { ParserError, logger } from '../utils/index.js';
 
 export class JavaParser {
   private static parser: Parser | null = null;
@@ -26,9 +27,22 @@ export class JavaParser {
   static parseFile(filePath: string): ParsedFile {
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
+      
+      // Check file size - tree-sitter has limits
+      if (content.length > 1000000) { // 1MB limit
+        logger.debug(`File too large for tree-sitter, using fallback: ${filePath}`);
+        return this.parseFallback(filePath, content);
+      }
+      
       const parser = this.getParser();
       const tree = parser.parse(content);
       const root = tree.rootNode;
+
+      // Check for parse errors
+      if (root.hasError) {
+        logger.debug(`Tree-sitter parse errors, using fallback: ${filePath}`);
+        return this.parseFallback(filePath, content);
+      }
 
       const imports: ParsedImport[] = [];
       const exports: ParsedExport[] = [];
@@ -145,6 +159,8 @@ export class JavaParser {
       const annotations = this.extractAnnotations(methodNode);
       const isStatic = modifiers.includes('static');
       const isPublic = modifiers.includes('public');
+      const params = this.extractParameters(methodNode);
+      const returnType = this.extractReturnType(methodNode);
 
       // Check if this is a main method (entry point)
       const isMain = name === 'main' && isStatic && isPublic;
@@ -160,6 +176,8 @@ export class JavaParser {
         type: methodNode.type === 'constructor_declaration' ? 'method' : 'method',
         location: this.nodeToSpan(filePath, methodNode, content),
         isExported: false,
+        params,
+        returnType,
         metadata: {
           modifiers,
           annotations,
@@ -225,6 +243,57 @@ export class JavaParser {
     return annotations;
   }
 
+  /**
+   * Extract parameters from a Java method/constructor
+   */
+  private static extractParameters(node: Parser.SyntaxNode): ParsedParam[] {
+    const params: ParsedParam[] = [];
+    const parametersNode = node.childForFieldName('parameters');
+    
+    if (!parametersNode) return params;
+
+    for (const child of parametersNode.children) {
+      if (child.type === 'formal_parameter') {
+        const typeNode = child.childForFieldName('type');
+        const nameNode = child.childForFieldName('name');
+        
+        if (nameNode) {
+          const name = nameNode.text;
+          const type = typeNode ? typeNode.text : 'unknown';
+          // Java doesn't have optional parameters in the same way as TS/Python
+          params.push({ name, type, optional: false });
+        }
+      } else if (child.type === 'spread_parameter') {
+        // Varargs parameter: Type... name
+        const typeNode = child.childForFieldName('type');
+        const nameNode = child.childForFieldName('name');
+        
+        if (nameNode) {
+          const name = nameNode.text;
+          const type = typeNode ? `${typeNode.text}...` : 'unknown...';
+          params.push({ name, type, optional: false });
+        }
+      }
+    }
+
+    return params;
+  }
+
+  /**
+   * Extract return type from a Java method
+   */
+  private static extractReturnType(node: Parser.SyntaxNode): string {
+    if (node.type === 'constructor_declaration') {
+      return 'void'; // Constructors don't have return types
+    }
+    
+    const typeNode = node.childForFieldName('type');
+    if (typeNode) {
+      return typeNode.text;
+    }
+    return 'unknown';
+  }
+
   private static nodeToSpan(filePath: string, node: Parser.SyntaxNode, content: string): SourceSpan {
     return {
       file: filePath,
@@ -240,6 +309,133 @@ export class JavaParser {
     if (/Test\.java$/.test(filePath)) return true;
     if (/@Test\b/.test(content)) return true;
     return /(?:^|\/)test(?:s)?(?:\/|$)/i.test(filePath.replace(/\\/g, '/'));
+  }
+
+  /**
+   * Fallback regex-based parser for files that tree-sitter cannot handle
+   * (very large files, complex syntax, etc.)
+   */
+  private static parseFallback(filePath: string, content: string): ParsedFile {
+    const imports: ParsedImport[] = [];
+    const exports: ParsedExport[] = [];
+    const symbols: ParsedSymbol[] = [];
+    const entryPoints: string[] = [];
+
+    // Extract package name
+    let packageName = '';
+    const packageMatch = /^\s*package\s+([\w.]+)\s*;/m.exec(content);
+    if (packageMatch) {
+      packageName = packageMatch[1];
+    }
+
+    // Extract imports
+    const importRe = /^\s*import\s+(?:static\s+)?([\w.*]+)\s*;/gm;
+    let importMatch: RegExpExecArray | null;
+    while ((importMatch = importRe.exec(content)) !== null) {
+      const module = importMatch[1];
+      const lineNum = content.slice(0, importMatch.index).split('\n').length;
+      imports.push({
+        module,
+        location: {
+          file: filePath,
+          startLine: lineNum,
+          endLine: lineNum,
+          startCol: 1,
+          endCol: importMatch[0].length,
+        },
+        bindings: [],
+      });
+    }
+
+    // Extract classes, interfaces, enums
+    const classRe = /(?:^|\n)\s*(?:@[\w.()]+\s+)*(?:(public|protected|private)\s+)?(?:(static|final|abstract)\s+)*(class|interface|enum)\s+(\w+)/g;
+    let classMatch: RegExpExecArray | null;
+    while ((classMatch = classRe.exec(content)) !== null) {
+      const name = classMatch[4];
+      const visibility = classMatch[1] || 'package-private';
+      const modifier = classMatch[2] || '';
+      const kind = classMatch[3];
+      const lineNum = content.slice(0, classMatch.index).split('\n').length;
+      
+      const isPublic = visibility === 'public';
+      
+      symbols.push({
+        name,
+        type: 'class',
+        location: {
+          file: filePath,
+          startLine: lineNum,
+          endLine: lineNum,
+          startCol: 1,
+          endCol: classMatch[0].length,
+        },
+        isExported: isPublic,
+        metadata: {
+          modifiers: [visibility, modifier].filter(Boolean),
+          packageName,
+          kind,
+        },
+      });
+
+      if (isPublic) {
+        exports.push({
+          name,
+          exportedName: name,
+          location: {
+            file: filePath,
+            startLine: lineNum,
+            endLine: lineNum,
+            startCol: 1,
+            endCol: classMatch[0].length,
+          },
+          kind: 'named',
+        });
+      }
+    }
+
+    // Extract methods (simplified - may have false positives)
+    const methodRe = /(?:^|\n)\s*(?:@[\w.()]+\s+)*(?:(public|protected|private)\s+)?(?:(static|final|abstract|synchronized)\s+)*(?:<[^>]+>\s+)?(\w+(?:<[^>]+>)?(?:\[\])*)\s+(\w+)\s*\(/g;
+    let methodMatch: RegExpExecArray | null;
+    while ((methodMatch = methodRe.exec(content)) !== null) {
+      const name = methodMatch[4];
+      const visibility = methodMatch[1] || 'package-private';
+      const modifier = methodMatch[2] || '';
+      const lineNum = content.slice(0, methodMatch.index).split('\n').length;
+      
+      // Check if this is a main method
+      const isMain = name === 'main' && modifier === 'static' && visibility === 'public';
+      if (isMain) {
+        entryPoints.push('main');
+      }
+
+      symbols.push({
+        name,
+        type: 'method',
+        location: {
+          file: filePath,
+          startLine: lineNum,
+          endLine: lineNum,
+          startCol: 1,
+          endCol: methodMatch[0].length,
+        },
+        isExported: false,
+        metadata: {
+          modifiers: [visibility, modifier].filter(Boolean),
+        },
+      });
+    }
+
+    return {
+      path: filePath,
+      language: 'java',
+      hash: crypto.createHash('sha256').update(content).digest('hex'),
+      symbols,
+      imports,
+      exports,
+      entryPoints,
+      isTestFile: this.isTestFile(filePath, content),
+      isConfigFile: false,
+    };
   }
 }
 

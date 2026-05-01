@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>code-brain graph</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 </head>
 <body>
   <div class="shell">
@@ -24,8 +25,61 @@
       </div>
 
       <div class="panel">
+        <h2>Filters</h2>
+        <div class="filter-group">
+          <label class="filter-label">
+            <input type="checkbox" id="filterFiles" checked> Files
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterClasses" checked> Classes
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterFunctions" checked> Functions
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterMethods" checked> Methods
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterRoutes" checked> Routes
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterTests" checked> Tests
+          </label>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Edge Types:</label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterImports" checked> Imports
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterCalls" checked> Calls
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" id="filterExtends" checked> Extends
+          </label>
+        </div>
+        <button id="applyFiltersBtn" type="button">Apply Filters</button>
+      </div>
+
+      <div class="panel">
+        <h2>Path Finder</h2>
+        <p style="font-size: 12px; margin-bottom: 8px;">Shift+click two nodes to find path</p>
+        <div id="pathInfo" style="font-size: 12px; margin-bottom: 8px; min-height: 40px;"></div>
+        <div class="button-row">
+          <button id="findPathBtn" type="button">Find Path</button>
+          <button id="clearPathBtn" type="button">Clear Path</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Minimap</h2>
+        <canvas id="minimapCanvas" style="width: 100%; border: 1px solid #ccc; border-radius: 4px;"></canvas>
+      </div>
+
+      <div class="panel">
         <div class="button-row">
           <button id="resetBtn" type="button">Reset</button>
+          <button id="resetLayoutBtn" type="button">Reset layout</button>
           <button id="zoomInBtn" type="button">Zoom +</button>
           <button id="zoomOutBtn" type="button">Zoom -</button>
         </div>

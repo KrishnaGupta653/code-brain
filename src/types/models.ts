@@ -43,6 +43,7 @@ export type EdgeType =
   | "EXPORTS"
   | "CALLS"
   | "CALLS_UNRESOLVED"
+  | "CALLS_CROSS_LANGUAGE"
   | "OWNS"
   | "DEFINES"
   | "USES"
@@ -55,6 +56,15 @@ export type EdgeType =
   | "REFERENCES"
   | "ENTRY_POINT";
 
+/**
+ * Graph node representing a code entity.
+ * 
+ * Optional git provenance fields in metadata:
+ * - gitAuthor: string — email of last committer
+ * - gitLastModified: string — ISO 8601 timestamp of last commit touching this file
+ * - gitCommit: string — short SHA of last commit
+ * - gitCreatedAt: string — ISO 8601 timestamp of first commit adding this file
+ */
 export interface GraphNode {
   id: string;
   type: NodeType;
@@ -236,6 +246,12 @@ export interface ParsedCall {
   location: SourceSpan;
 }
 
+export interface ParsedParam {
+  name: string;
+  type: string;  // 'unknown' if not annotated
+  optional: boolean;
+}
+
 export interface ParsedSymbol {
   name: string;
   type: NodeType;
@@ -249,6 +265,8 @@ export interface ParsedSymbol {
   isExported: boolean;
   summary?: string;
   metadata?: Record<string, unknown>;
+  params?: ParsedParam[];     // for function/method
+  returnType?: string;        // for function/method; 'unknown' if not annotated
 }
 
 export interface ParsedFile {

@@ -32,6 +32,34 @@ import {
 // @ts-ignore - CSS side-effect import is handled by the bundler
 import "./styles.css";
 
+// Define node and edge attribute types
+interface NodeAttributes {
+  x: number;
+  y: number;
+  size: number;
+  color: string;
+  label: string;
+  type: string;
+  baseX?: number;
+  baseY?: number;
+  baseZ?: number;
+  baseSize?: number;
+  baseColor?: string;
+  z?: number;
+  hidden?: boolean;
+  highlighted?: boolean;
+  forceLabel?: boolean;
+  zIndex?: number;
+}
+
+interface EdgeAttributes {
+  type: string;
+  color?: string;
+  baseColor?: string;
+  size?: number;
+  hidden?: boolean;
+}
+
 const NODE_COLORS: Record<string, string> = {
   project: "#f5c542",
   file: "#4cc9f0",
@@ -293,7 +321,7 @@ function GraphStage({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
-  const graphRef = useRef<Graph | null>(null);
+  const graphRef = useRef<any>(null);
   const rotationRef = useRef({ x: -0.18, y: 0.42 });
   const dragRef = useRef<{
     pointerId: number;
@@ -319,12 +347,12 @@ function GraphStage({
     const sinX = Math.sin(pitch);
     const maxDepth = Math.max(
       1,
-      ...graph.nodes().map((id) =>
+      ...graph.nodes().map((id: string) =>
         Math.abs(Number(graph.getNodeAttribute(id, "baseZ") ?? 0)),
       ),
     );
 
-    graph.forEachNode((id, attrs) => {
+    graph.forEachNode((id: string, attrs: NodeAttributes) => {
       const baseX = Number(attrs.baseX ?? attrs.x ?? 0);
       const baseY = Number(attrs.baseY ?? attrs.y ?? 0);
       const baseZ = Number(attrs.baseZ ?? 0);
@@ -349,7 +377,7 @@ function GraphStage({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const graph = new Graph({ multi: true, type: "directed" });
+    const graph: any = new Graph({ multi: true, type: "directed" });
     const radius = Math.max(8, Math.sqrt(payload.nodes.length) * 2.2);
 
     payload.nodes.forEach((node, index) => {
@@ -393,7 +421,7 @@ function GraphStage({
       console.info(`Large graph detected (${graph.order} nodes), using optimized layout`);
     }
 
-    graph.forEachNode((id, attrs) => {
+    graph.forEachNode((id: string, attrs: NodeAttributes) => {
       graph.setNodeAttribute(id, "baseX", attrs.x);
       graph.setNodeAttribute(id, "baseY", attrs.y);
       graph.setNodeAttribute(id, "baseZ", attrs.z ?? 0);
@@ -449,10 +477,10 @@ function GraphStage({
     const focusId = hoveredId || selectedId;
     if (focusId && graph.hasNode(focusId)) {
       selectedNeighbors.add(focusId);
-      graph.forEachNeighbor(focusId, (neighbor) => selectedNeighbors.add(neighbor));
+      graph.forEachNeighbor(focusId, (neighbor: string) => selectedNeighbors.add(neighbor));
     }
 
-    graph.forEachNode((id, attrs) => {
+    graph.forEachNode((id: string, attrs: NodeAttributes) => {
       const node = nodeLookup.get(id);
       const visibleByType = node ? activeTypes.has(node.type) : true;
       const related = !focusId || selectedNeighbors.has(id);
@@ -475,7 +503,7 @@ function GraphStage({
       );
     });
 
-    graph.forEachEdge((edgeId, attrs, source, target) => {
+    graph.forEachEdge((edgeId: string, attrs: EdgeAttributes, source: string, target: string) => {
       const sourceVisible = !graph.getNodeAttribute(source, "hidden");
       const targetVisible = !graph.getNodeAttribute(target, "hidden");
       const related =

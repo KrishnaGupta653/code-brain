@@ -191,7 +191,14 @@ code-brain export [options]
 code-brain graph [options]
   --path <path>              Repository path
   --port <port>              Server port (default: 3000)
+                             Use 0 for auto-assigned port
 ```
+
+**Port Conflict Resolution:**
+If you get an "address already in use" error:
+- Try a different port: `--port 4001`
+- Use auto-assigned port: `--port 0`
+- Kill the process using the port: `lsof -ti:3000 | xargs kill -9`
 
 ### `update` - Update graph
 

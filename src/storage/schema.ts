@@ -111,6 +111,22 @@ CREATE TABLE IF NOT EXISTS ranking_scores (
   FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 );
 
+-- LLM-generated summaries table
+CREATE TABLE IF NOT EXISTS summaries (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  purpose TEXT,
+  key_points TEXT,
+  usage TEXT,
+  tokens INTEGER,
+  generated_at INTEGER NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+  UNIQUE(project_id, node_id)
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
@@ -128,6 +144,19 @@ CREATE INDEX IF NOT EXISTS idx_provenance_node_id ON provenance(node_id);
 CREATE INDEX IF NOT EXISTS idx_prov_node ON provenance(project_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_scores_node_id ON ranking_scores(node_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_project ON ranking_scores(project_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_summaries_node_id ON summaries(node_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_project ON summaries(project_id);
+
+-- FTS5 virtual table for semantic search
+CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+  node_id UNINDEXED,
+  name,
+  full_name,
+  summary,
+  file_path,
+  content='nodes',
+  tokenize='porter unicode61'
+);
 `;
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 11;

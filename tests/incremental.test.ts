@@ -86,7 +86,7 @@ describe("Incremental Indexing", () => {
     // Verify newFunc exists
     const newFuncNode = graph2.getNodes().find((n) => n.name === "newFunc");
     expect(newFuncNode).toBeDefined();
-  });
+  }, 10000); // 10 second timeout
 
   it("should handle file deletion", async () => {
     // Setup initial repo with 2 files

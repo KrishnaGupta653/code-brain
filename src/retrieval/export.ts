@@ -1,5 +1,6 @@
 import { stringify as toYAML } from "yaml";
 import crypto from "crypto";
+import path from "path";
 import {
   AIExportBundle,
   AnalyticsResult,
@@ -13,6 +14,7 @@ import {
   SummaryRecord,
 } from "../types/models.js";
 import { GraphModel } from "../graph/index.js";
+import { logger } from "../utils/index.js";
 
 export interface ExportOptions {
   format: "json" | "yaml" | "ai";
@@ -56,14 +58,27 @@ const MODEL_CONTEXT_WINDOWS: Record<string, ModelConfig> = {
 };
 
 export class ExportEngine {
-  private static readonly TOKENS_PER_CHAR = 0.25; // More accurate for JSON/code
-  private static readonly TOKEN_SAFETY_MARGIN = 0.85; // Use only 85% of declared budget
-
   constructor(
     private graph: GraphModel,
     private projectMetadata: ProjectMetadata,
     private projectRoot?: string,
   ) {}
+
+  /**
+   * Estimate tokens for text based on content type.
+   */
+  private static estimateTextTokens(
+    text: string,
+    kind: 'identifier' | 'json' | 'prose' | 'code'
+  ): number {
+    const len = text.length;
+    switch (kind) {
+      case 'identifier': return Math.ceil(len / 3);   // camelCase/PascalCase: ~3 chars/token
+      case 'json':       return Math.ceil(len / 2);   // JSON structure overhead: ~2 chars/token
+      case 'prose':      return Math.ceil(len / 4);   // English text: ~4 chars/token
+      case 'code':       return Math.ceil(len / 3.5); // Mixed code: ~3.5 chars/token
+    }
+  }
 
   exportForAI(
     queryResult: QueryResult,
@@ -133,9 +148,7 @@ export class ExportEngine {
     const filesByDir = new Map<string, GraphNode[]>();
     for (const file of fileNodes) {
       const filePath = file.location?.file || file.fullName || '';
-      const dir = filePath.includes('/') 
-        ? filePath.substring(0, filePath.lastIndexOf('/'))
-        : '.';
+      const dir = path.dirname(filePath);
       
       if (!filesByDir.has(dir)) {
         filesByDir.set(dir, []);
@@ -150,7 +163,7 @@ export class ExportEngine {
       // Find all symbols in these files
       const symbols = queryResult.nodes.filter(n => {
         const filePath = n.metadata?.filePath as string || n.location?.file || '';
-        return filePath.startsWith(dir + '/') || filePath === dir;
+        return path.dirname(filePath) === dir;
       });
 
       const classCount = symbols.filter(s => s.type === 'class').length;
@@ -179,9 +192,7 @@ export class ExportEngine {
           const target = queryResult.nodes.find(n => n.id === edge.to);
           if (target && target.type === 'file') {
             const targetPath = target.location?.file || target.fullName || '';
-            const targetDir = targetPath.includes('/')
-              ? targetPath.substring(0, targetPath.lastIndexOf('/'))
-              : '.';
+            const targetDir = path.dirname(targetPath);
             if (targetDir !== dir) {
               imports.add(targetDir);
             }
@@ -199,9 +210,7 @@ export class ExportEngine {
           const source = queryResult.nodes.find(n => n.id === edge.from);
           if (source && source.type === 'file') {
             const sourcePath = source.location?.file || source.fullName || '';
-            const sourceDir = sourcePath.includes('/')
-              ? sourcePath.substring(0, sourcePath.lastIndexOf('/'))
-              : '.';
+            const sourceDir = path.dirname(sourcePath);
             if (sourceDir !== dir) {
               importedBy.add(sourceDir);
             }
@@ -239,6 +248,20 @@ export class ExportEngine {
     importance: Map<string, number>,
     focus?: string,
   ): AIExportBundle {
+    // Add snippets to top nodes BEFORE compression (which strips source text)
+    const sortedByImportance = [...queryResult.nodes]
+      .sort((a, b) => (importance.get(b.id) ?? 0) - (importance.get(a.id) ?? 0))
+      .slice(0, 20);
+    
+    for (const node of sortedByImportance) {
+      if (node.location?.text && node.metadata) {
+        const snippet = this.extractSignatureSnippet(node.location.text, node.type, node.metadata);
+        if (snippet) {
+          node.metadata = { ...node.metadata, snippet };
+        }
+      }
+    }
+
     // Level 1: Project overview
     const unresolvedCalls = queryResult.edges.filter(e => e.type === 'CALLS_UNRESOLVED').length;
     const totalCalls = queryResult.edges.filter(e => e.type === 'CALLS' || e.type === 'CALLS_UNRESOLVED').length;
@@ -352,6 +375,9 @@ export class ExportEngine {
       // Include only essential metadata
       if (node.metadata?.exported) compressed.exported = true;
       if (node.metadata?.testFile) compressed.testFile = true;
+      if (node.metadata?.snippet) compressed.snippet = node.metadata.snippet;
+      if (node.metadata?.params) compressed.params = node.metadata.params;
+      if (node.metadata?.returnType) compressed.returnType = node.metadata.returnType;
 
       return compressed;
     });
@@ -378,6 +404,66 @@ export class ExportEngine {
     return { compressedNodes, compressedEdges, pathMap };
   }
 
+  /**
+   * Extract a compact signature snippet from source text.
+   * Enhanced to use structured params and returnType metadata when available.
+   */
+  private extractSignatureSnippet(sourceText: string, nodeType: string, metadata?: Record<string, unknown>): string | null {
+    if (!sourceText || sourceText.length < 5) return null;
+    
+    const MAX_SNIPPET = 200;
+    const lines = sourceText.split('\n');
+    
+    if (nodeType === 'function' || nodeType === 'method') {
+      // Try to build signature from structured metadata first
+      if (metadata?.params && Array.isArray(metadata.params)) {
+        const params = metadata.params as Array<{ name: string; type: string; optional: boolean }>;
+        const returnType = metadata.returnType as string | undefined;
+        
+        // Extract function name from first line
+        const firstLine = lines[0]?.trim() ?? '';
+        const nameMatch = firstLine.match(/(?:function|def|func|public|private|protected)?\s*(\w+)\s*[(<]/);
+        const name = nameMatch?.[1] ?? 'unknown';
+        
+        // Build signature from structured data
+        const paramStr = params
+          .map(p => {
+            const optMarker = p.optional ? '?' : '';
+            return p.type !== 'unknown' ? `${p.name}${optMarker}: ${p.type}` : p.name;
+          })
+          .join(', ');
+        
+        const retStr = returnType && returnType !== 'unknown' ? `: ${returnType}` : '';
+        const sig = `${name}(${paramStr})${retStr}`;
+        
+        return sig.length > MAX_SNIPPET ? sig.slice(0, MAX_SNIPPET) + '…' : sig;
+      }
+      
+      // Fallback to text-based extraction
+      const sigLines: string[] = [];
+      for (const line of lines) {
+        sigLines.push(line.trim());
+        if (line.includes('{') || line.includes('=>')) break;
+        if (sigLines.length >= 5) break;
+      }
+      const sig = sigLines.join(' ').replace(/\s+/g, ' ').replace(/\{$/, '').trim();
+      return sig.length > MAX_SNIPPET ? sig.slice(0, MAX_SNIPPET) + '…' : sig;
+    }
+    
+    if (nodeType === 'class' || nodeType === 'interface') {
+      // First line only: class/interface declaration
+      const firstLine = lines[0]?.trim() ?? '';
+      return firstLine.length > MAX_SNIPPET ? firstLine.slice(0, MAX_SNIPPET) + '…' : firstLine;
+    }
+    
+    if (nodeType === 'type') {
+      const sig = sourceText.replace(/\s+/g, ' ').trim();
+      return sig.length > MAX_SNIPPET ? sig.slice(0, MAX_SNIPPET) + '…' : sig;
+    }
+    
+    return null;
+  }
+
   exportAsJSON(queryResult: QueryResult, focus?: string): string {
     return JSON.stringify(
       this.createBundle(queryResult, "json", focus),
@@ -397,7 +483,8 @@ export class ExportEngine {
     moduleSummaries?: Map<string, ModuleSummary>,
   ): QueryResult {
     // Reserve 20% for metadata and structure, apply safety margin
-    const contentBudget = Math.floor(maxTokens * ExportEngine.TOKEN_SAFETY_MARGIN * 0.8);
+    const SAFETY = 0.85;
+    const contentBudget = Math.floor(maxTokens * SAFETY * 0.8);
     const nodeContentBudget = Math.floor(contentBudget * 0.7);
     const edgeContentBudget = Math.floor(contentBudget * 0.3);
 
@@ -493,16 +580,15 @@ export class ExportEngine {
   private estimateNodeTokens(node: GraphNode): number {
     let tokens = 0;
 
-    tokens += node.name.length * ExportEngine.TOKENS_PER_CHAR;
-    tokens += (node.fullName || "").length * ExportEngine.TOKENS_PER_CHAR;
-    tokens += (node.summary || "").length * ExportEngine.TOKENS_PER_CHAR;
-    tokens +=
-      JSON.stringify(node.metadata || {}).length * ExportEngine.TOKENS_PER_CHAR;
+    tokens += ExportEngine.estimateTextTokens(node.name, 'identifier');
+    tokens += ExportEngine.estimateTextTokens(node.fullName || '', 'identifier');
+    tokens += ExportEngine.estimateTextTokens(node.summary || '', 'prose');
+    tokens += ExportEngine.estimateTextTokens(JSON.stringify(node.metadata || {}), 'json');
     tokens += node.provenance.source.reduce((sum, span) => {
       return (
         sum +
-        (span.file?.length ?? 0) +
-        (span.text?.length ?? 0) * ExportEngine.TOKENS_PER_CHAR
+        ExportEngine.estimateTextTokens(span.file || '', 'identifier') +
+        ExportEngine.estimateTextTokens(span.text || '', 'code')
       );
     }, 0);
 
@@ -513,13 +599,12 @@ export class ExportEngine {
     let tokens = 0;
 
     tokens += 50; // Edge type and structure
-    tokens +=
-      JSON.stringify(edge.metadata || {}).length * ExportEngine.TOKENS_PER_CHAR;
+    tokens += ExportEngine.estimateTextTokens(JSON.stringify(edge.metadata || {}), 'json');
     tokens += (edge.sourceLocation || []).reduce((sum, span) => {
       return (
         sum +
-        (span.file?.length ?? 0) +
-        (span.text?.length ?? 0) * ExportEngine.TOKENS_PER_CHAR
+        ExportEngine.estimateTextTokens(span.file || '', 'identifier') +
+        ExportEngine.estimateTextTokens(span.text || '', 'code')
       );
     }, 0);
 
@@ -891,63 +976,79 @@ export class ExportEngine {
   }
 
   private detectCycles(queryResult: QueryResult, limit: number): string[][] {
-    const nodeById = new Map(queryResult.nodes.map((node) => [node.id, node]));
-    const adjacency = new Map<string, string[]>();
-    const cycleEdgeTypes = new Set([
-      "IMPORTS",
-      "DEPENDS_ON",
-      "EXTENDS",
-      "IMPLEMENTS",
-    ]);
+    // Guard against stack overflow on large graphs
+    if (queryResult.nodes.length > 5000) {
+      logger.debug('Cycle detection skipped: graph too large');
+      return [];
+    }
+
+    const nodeById = new Map(queryResult.nodes.map((n) => [n.id, n]));
+    const cycleEdgeTypes = new Set(['IMPORTS', 'DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS']);
+    
+    // Build adjacency — only cycle-relevant edge types, only resolved
+    const adj = new Map<string, Set<string>>();
+    for (const node of queryResult.nodes) adj.set(node.id, new Set());
     for (const edge of queryResult.edges) {
       if (!cycleEdgeTypes.has(edge.type) || !edge.resolved) continue;
       if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
-      const targets = adjacency.get(edge.from) || [];
-      targets.push(edge.to);
-      adjacency.set(edge.from, targets);
+      adj.get(edge.from)?.add(edge.to);
     }
-
-    const cycles: string[][] = [];
-    const seenCycles = new Set<string>();
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
+    
+    // Tarjan SCC
+    let index = 0;
+    const indices = new Map<string, number>();
+    const lowlink = new Map<string, number>();
+    const onStack = new Set<string>();
     const stack: string[] = [];
-
-    const visit = (nodeId: string): void => {
-      if (cycles.length >= limit) return;
-      if (visiting.has(nodeId)) {
-        const start = stack.indexOf(nodeId);
-        if (start >= 0) {
-          const cycleIds = [...stack.slice(start), nodeId];
-          const names = cycleIds
-            .map((id) => nodeById.get(id))
-            .filter((node): node is GraphNode => Boolean(node))
-            .map((node) => this.getCanonicalName(node));
-          const key = [...new Set(names)].sort().join("|");
-          if (!seenCycles.has(key)) {
-            seenCycles.add(key);
-            cycles.push(names);
-          }
+    const sccs: string[][] = [];
+    
+    const strongconnect = (v: string): void => {
+      indices.set(v, index);
+      lowlink.set(v, index);
+      index++;
+      stack.push(v);
+      onStack.add(v);
+      
+      for (const w of adj.get(v) ?? []) {
+        if (!indices.has(w)) {
+          strongconnect(w);
+          lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
+        } else if (onStack.has(w)) {
+          lowlink.set(v, Math.min(lowlink.get(v)!, indices.get(w)!));
         }
-        return;
       }
-      if (visited.has(nodeId)) return;
-
-      visiting.add(nodeId);
-      stack.push(nodeId);
-      for (const target of adjacency.get(nodeId) || []) {
-        visit(target);
+      
+      if (lowlink.get(v) === indices.get(v)) {
+        const scc: string[] = [];
+        let w: string;
+        do {
+          w = stack.pop()!;
+          onStack.delete(w);
+          scc.push(w);
+        } while (w !== v);
+        if (scc.length > 1) sccs.push(scc); // Only multi-node SCCs are actual cycles
       }
-      stack.pop();
-      visiting.delete(nodeId);
-      visited.add(nodeId);
     };
-
+    
     for (const node of queryResult.nodes) {
-      visit(node.id);
-      if (cycles.length >= limit) break;
+      if (!indices.has(node.id)) strongconnect(node.id);
+      if (sccs.length >= limit) break;
     }
-
+    
+    // Convert to name arrays, deduplicate by sorted canonical names
+    const seenKeys = new Set<string>();
+    const cycles: string[][] = [];
+    for (const scc of sccs.slice(0, limit)) {
+      const names = scc
+        .map(id => nodeById.get(id))
+        .filter((n): n is GraphNode => Boolean(n))
+        .map(n => this.getCanonicalName(n));
+      const key = [...names].sort().join('|');
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        cycles.push(names);
+      }
+    }
     return cycles;
   }
 
@@ -1003,16 +1104,25 @@ export class ExportEngine {
 
   private getAIRules(): string[] {
     return [
-      "Use only nodes, edges, summaries, and provenance listed in this bundle.",
-      "Do not infer behavior that is not explicitly represented here.",
-      "Fields marked with semanticRoleInferred: true are heuristic guesses, not parser facts.",
-      "Do not treat semanticRole as ground truth. Treat it as a low-confidence hint only.",
-      "Treat missing relationships as unknown.",
-      "Treat unresolved relationships as unresolved.",
-      "Do not fabricate APIs, flows, or modules.",
-      "Use source spans as the ground truth for every fact.",
-      "If evidence is absent, answer with unknown or not found.",
-      "Do not widen scope beyond the declared query focus.",
+      // Source authority
+      "FACT SOURCE: Every fact in this bundle is derived from deterministic AST parsing, not inference. Treat it as ground truth.",
+      "SNIPPET AUTHORITY: When a node has a 'snippet' field, use it as the ground-truth signature. Do not infer types or parameters beyond what the snippet shows.",
+      "SUMMARY AUTHORITY: When a node has a 'summary' field, use it as the canonical description of that symbol.",
+      
+      // Handling unknowns
+      "UNRESOLVED EDGES: When an edge has resolved=false, describe the relationship as 'possibly calls' or 'may depend on', not 'calls' or 'depends on'.",
+      "MISSING RELATIONSHIPS: If a relationship is not listed in this bundle, it is unknown — not absent. Do not assert that two symbols are unrelated.",
+      "UNKNOWN FIELDS: If a field is missing or null, output 'unknown'. Never invent a value.",
+      
+      // Scope discipline
+      "SCOPE: Do not widen analysis beyond the nodes and edges in this bundle. Do not import knowledge from training data about how this codebase works.",
+      "NO FABRICATION: Do not fabricate API shapes, function signatures, module names, or import paths. Use only what is listed.",
+      "PATH MAP: File paths are compressed to F1, F2, etc. The 'pathMap' field at the top of this bundle maps short IDs back to full paths. Always resolve before citing a file.",
+      
+      // Confidence signals
+      "IMPORTANCE SCORE: The 'importance' field (0-1) indicates how central this node is to the codebase. Prioritize high-importance nodes in your analysis.",
+      "TRUNCATION: If query.truncated=true, this bundle is a subset. Relationships to nodes outside this subset are not represented.",
+      "INFERRED ROLES: The 'role' field on nodes is a heuristic label, not a parser fact. Treat it as a low-confidence hint.",
     ];
   }
 }

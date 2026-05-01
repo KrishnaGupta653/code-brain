@@ -8,6 +8,7 @@ import {
   ParsedFile,
   ParsedImport,
   ParsedImportBinding,
+  ParsedParam,
   ParsedSymbol,
   SourceSpan,
 } from "../types/models.js";
@@ -25,6 +26,41 @@ const ROUTE_METHODS = new Set([
 ]);
 
 const TEST_CALLS = new Set(["describe", "it", "test"]);
+
+// Framework decorator mappings
+const FRAMEWORK_DECORATORS = {
+  // NestJS
+  nestjs: {
+    controllers: ['Controller', 'Get', 'Post', 'Put', 'Delete', 'Patch', 'Options', 'Head', 'All'],
+    services: ['Injectable', 'Inject'],
+    modules: ['Module'],
+    guards: ['UseGuards', 'CanActivate'],
+    interceptors: ['UseInterceptors', 'NestInterceptor'],
+    pipes: ['UsePipes', 'PipeTransform'],
+    middleware: ['NestMiddleware'],
+  },
+  // Angular
+  angular: {
+    components: ['Component'],
+    services: ['Injectable'],
+    modules: ['NgModule'],
+    directives: ['Directive'],
+    pipes: ['Pipe'],
+    inputs: ['Input'],
+    outputs: ['Output'],
+  },
+  // TypeORM
+  typeorm: {
+    entities: ['Entity', 'Column', 'PrimaryGeneratedColumn', 'PrimaryColumn'],
+    relations: ['OneToOne', 'OneToMany', 'ManyToOne', 'ManyToMany'],
+  },
+  // Express decorators (routing-controllers)
+  express: {
+    controllers: ['Controller', 'JsonController'],
+    routes: ['Get', 'Post', 'Put', 'Delete', 'Patch'],
+    middleware: ['Middleware', 'UseBefore', 'UseAfter'],
+  },
+};
 
 export class TypeScriptParser {
   static parseFile(filePath: string): ParsedFile {
@@ -230,6 +266,8 @@ export class TypeScriptParser {
             ),
             isExported,
             summary: this.extractDocSummary(statement, content)?.text,
+            params: this.extractParameters(statement, sourceFile),
+            returnType: this.extractReturnType(statement, sourceFile),
           });
 
           if (isExported) {
@@ -263,6 +301,8 @@ export class TypeScriptParser {
             filePath,
             sourceFile,
           );
+          
+          const frameworkInfo = this.detectFramework(decorators);
 
           addSymbol({
             name,
@@ -278,6 +318,10 @@ export class TypeScriptParser {
             isExported,
             summary: this.extractDocSummary(statement, content)?.text,
             decorators,
+            metadata: frameworkInfo ? {
+              framework: frameworkInfo.framework,
+              frameworkRole: frameworkInfo.role,
+            } : undefined,
           });
 
           if (isExported) {
@@ -311,6 +355,12 @@ export class TypeScriptParser {
                 continue;
               }
 
+              // Extract decorators only for method declarations
+              const methodDecorators = ts.isMethodDeclaration(member) 
+                ? this.extractDecoratorsFromNode(member, filePath, sourceFile)
+                : [];
+              const methodFrameworkInfo = this.detectFramework(methodDecorators);
+
               addSymbol({
                 name: methodName,
                 type: "method",
@@ -328,6 +378,17 @@ export class TypeScriptParser {
                 ),
                 isExported: false,
                 summary: this.extractDocSummary(member, content)?.text,
+                params: ts.isMethodDeclaration(member) 
+                  ? this.extractParameters(member, sourceFile)
+                  : undefined,
+                returnType: ts.isMethodDeclaration(member)
+                  ? this.extractReturnType(member, sourceFile)
+                  : undefined,
+                decorators: methodDecorators.length > 0 ? methodDecorators : undefined,
+                metadata: methodFrameworkInfo ? {
+                  framework: methodFrameworkInfo.framework,
+                  frameworkRole: methodFrameworkInfo.role,
+                } : undefined,
               });
 
               recordDocForSymbol(`${name}.${methodName}`, member);
@@ -471,6 +532,8 @@ export class TypeScriptParser {
                 ),
                 isExported,
                 summary: this.extractDocSummary(statement, content)?.text,
+                params: this.extractParameters(initializer, sourceFile),
+                returnType: this.extractReturnType(initializer, sourceFile),
               });
 
               if (isExported) {
@@ -1083,5 +1146,68 @@ export class TypeScriptParser {
     return /(?:^|\/)(index|main|app|server|cli)\.[jt]sx?$/.test(
       filePath.replace(/\\/g, "/"),
     );
+  }
+
+  /**
+   * Detect framework from decorators
+   */
+  private static detectFramework(decorators: string[]): { framework: string; role: string } | null {
+    if (decorators.length === 0) return null;
+
+    for (const [framework, categories] of Object.entries(FRAMEWORK_DECORATORS)) {
+      for (const [role, decoratorList] of Object.entries(categories)) {
+        for (const decorator of decorators) {
+          // Match decorator name (strip @ and arguments)
+          const decoratorName = decorator.replace(/^@/, '').split('(')[0];
+          if (decoratorList.includes(decoratorName)) {
+            return { framework, role };
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract parameters from a function/method signature
+   */
+  private static extractParameters(
+    node: ts.FunctionDeclaration | ts.MethodDeclaration | ts.ArrowFunction | ts.FunctionExpression,
+    sourceFile: ts.SourceFile,
+  ): ParsedParam[] {
+    const params: ParsedParam[] = [];
+    
+    for (const param of node.parameters) {
+      if (!ts.isIdentifier(param.name)) {
+        // Skip destructured parameters for now
+        continue;
+      }
+
+      const name = param.name.text;
+      const optional = Boolean(param.questionToken);
+      let type = 'unknown';
+
+      if (param.type) {
+        type = param.type.getText(sourceFile);
+      }
+
+      params.push({ name, type, optional });
+    }
+
+    return params;
+  }
+
+  /**
+   * Extract return type from a function/method signature
+   */
+  private static extractReturnType(
+    node: ts.FunctionDeclaration | ts.MethodDeclaration | ts.ArrowFunction | ts.FunctionExpression,
+    sourceFile: ts.SourceFile,
+  ): string {
+    if (node.type) {
+      return node.type.getText(sourceFile);
+    }
+    return 'unknown';
   }
 }

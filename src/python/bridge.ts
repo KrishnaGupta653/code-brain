@@ -4,8 +4,21 @@ import { getPythonScript } from '../utils/index.js';
 import { AnalyticsResult } from '../types/models.js';
 import { logger } from '../utils/index.js';
 import { SQLiteStorage } from '../storage/index.js';
+import { daemonManager } from './daemon.js';
 
 export class PythonBridge {
+  private static useDaemon: boolean = true;
+
+  /**
+   * Enable or disable daemon mode.
+   */
+  static setDaemonMode(enabled: boolean): void {
+    this.useDaemon = enabled;
+  }
+
+  /**
+   * Run analytics using daemon or fallback to subprocess.
+   */
   static async runAnalytics(
     graphData: {
       nodes: unknown[];
@@ -40,6 +53,23 @@ export class PythonBridge {
 
     const safePayload = { nodes: filteredNodes, edges: filteredEdges, fingerprint };
 
+    // Try daemon mode first
+    if (this.useDaemon) {
+      try {
+        const result = await this.runWithDaemon(safePayload, pythonPath);
+        if (result) {
+          // Cache the results
+          if (storage && projectRoot) {
+            storage.saveAnalyticsCache(projectRoot, 'full_analytics', result.rawResult, fingerprint);
+          }
+          return result.analytics;
+        }
+      } catch (error) {
+        logger.debug('Daemon mode failed, falling back to subprocess:', error);
+      }
+    }
+
+    // Fallback to subprocess mode
     const candidates = [
       pythonPath,
       process.platform === 'win32' ? 'python' : undefined,
@@ -73,6 +103,39 @@ export class PythonBridge {
     
     const combined = JSON.stringify({ nodes: nodeIds, edges: edgeIds });
     return crypto.createHash('sha256').update(combined).digest('hex').substring(0, 16);
+  }
+
+  /**
+   * Run analytics using persistent daemon.
+   */
+  private static async runWithDaemon(
+    graphData: {
+      nodes: unknown[];
+      edges: unknown[];
+      fingerprint: string;
+    },
+    pythonPath?: string
+  ): Promise<{ analytics: AnalyticsResult; rawResult: unknown } | null> {
+    try {
+      const daemon = await daemonManager.getDaemon(pythonPath);
+      
+      const response = await daemon.sendRequest({
+        command: 'analyze',
+        data: graphData,
+        fast: false
+      });
+
+      if (response.error) {
+        logger.debug('Daemon analytics error:', response.error);
+        return null;
+      }
+
+      const analytics = this.parseAnalyticsResult(response);
+      return { analytics, rawResult: response };
+    } catch (error) {
+      logger.debug('Daemon request failed:', error);
+      return null;
+    }
   }
 
   private static parseAnalyticsResult(data: unknown): AnalyticsResult {
