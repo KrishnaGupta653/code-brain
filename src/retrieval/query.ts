@@ -521,4 +521,52 @@ export class QueryEngine {
 
     return { impactedNodes, impactedFiles, criticalDependencies, coveringTests };
   }
+
+  /**
+   * Semantic search using hybrid BM25 + vector similarity
+   * 
+   * Requires embeddings to be generated first.
+   * Falls back to BM25-only search if embeddings unavailable.
+   * 
+   * @param query Natural language or keyword query
+   * @param limit Maximum number of results
+   * @param hybridSearchEngine Optional hybrid search engine instance
+   * @returns Array of nodes sorted by relevance
+   */
+  async semanticSearch(
+    query: string,
+    limit: number = 20,
+    hybridSearchEngine?: any  // HybridSearchEngine - avoid circular dependency
+  ): Promise<GraphNode[]> {
+    if (!this.storage || !this.projectRoot) {
+      logger.warn('Semantic search requires storage and projectRoot');
+      return this.findByName(query, limit);
+    }
+
+    // If no hybrid search engine provided, fall back to BM25
+    if (!hybridSearchEngine) {
+      logger.debug('No hybrid search engine provided, using BM25 only');
+      return this.findByName(query, limit);
+    }
+
+    try {
+      // Perform hybrid search
+      const results = await hybridSearchEngine.search(query, {
+        limit,
+        includeNodes: false,
+      });
+
+      // Get nodes from graph
+      const nodes = results
+        .map((result: any) => this.graph.getNode(result.nodeId))
+        .filter((node: GraphNode | undefined): node is GraphNode => Boolean(node));
+
+      logger.debug(`Semantic search returned ${nodes.length} results`);
+
+      return nodes;
+    } catch (error) {
+      logger.warn('Semantic search failed, falling back to BM25', error);
+      return this.findByName(query, limit);
+    }
+  }
 }

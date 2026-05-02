@@ -16,6 +16,10 @@ export class PythonBridge {
     this.useDaemon = enabled;
   }
 
+  static async shutdown(): Promise<void> {
+    await daemonManager.stopDaemon();
+  }
+
   /**
    * Run analytics using daemon or fallback to subprocess.
    */

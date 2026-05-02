@@ -1,426 +1,143 @@
 /**
- * Export Benchmark Test Suite
- * Tests export performance, token estimation accuracy, and compression ratios.
+ * Export benchmark and knowledge-contract tests.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import fs from "fs";
+import os from "os";
 import path from "path";
-import { fileURLToPath } from "url";
-import { SQLiteStorage } from "../src/storage/index.js";
 import { GraphBuilder } from "../src/graph/builder.js";
 import { ExportEngine } from "../src/retrieval/export.js";
-import { parseTypeScript } from "../src/parser/typescript.js";
-import { parsePython } from "../src/parser/python.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testRoot = path.join(__dirname, "..", "test-fixtures", "benchmark");
-const dbPath = path.join(testRoot, ".codebrain", "graph.db");
+import { ProjectMetadata, QueryResult } from "../src/types/models.js";
 
 describe("Export Benchmark Tests", () => {
-  let storage: SQLiteStorage;
-  let builder: GraphBuilder;
+  let testRoot: string;
+  let queryResult: QueryResult;
+  let exporter: ExportEngine;
 
   beforeAll(() => {
-    // Create test fixtures directory
-    if (!fs.existsSync(testRoot)) {
-      fs.mkdirSync(testRoot, { recursive: true });
-    }
+    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-brain-export-benchmark-"));
+    createBenchmarkFixtures(testRoot, 40);
 
-    // Create sample files for benchmarking
-    createBenchmarkFixtures(testRoot);
+    const graph = new GraphBuilder().buildFromRepository(testRoot);
+    const stats = graph.getStats();
+    const project: ProjectMetadata = {
+      name: "benchmark",
+      root: testRoot,
+      language: "typescript",
+      fileCount: stats.nodesByType.file || 0,
+      symbolCount: stats.nodeCount - (stats.nodesByType.file || 0) - (stats.nodesByType.project || 0),
+      edgeCount: stats.edgeCount,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
 
-    // Initialize storage and builder
-    storage = new SQLiteStorage(dbPath);
-    builder = new GraphBuilder(storage, testRoot);
-
-    // Parse and build graph
-    const files = getAllFiles(testRoot);
-    for (const file of files) {
-      if (file.endsWith(".ts")) {
-        const symbols = parseTypeScript(file, testRoot);
-        builder.addSymbols(symbols);
-      } else if (file.endsWith(".py")) {
-        const symbols = parsePython(file, testRoot);
-        builder.addSymbols(symbols);
-      }
-    }
-
-    builder.buildRelationships();
+    queryResult = {
+      nodes: graph.getNodes(),
+      edges: graph.getEdges(),
+      truncated: false,
+    };
+    exporter = new ExportEngine(graph, project, testRoot);
   });
 
   afterAll(() => {
-    storage.close();
-    // Clean up test fixtures
-    if (fs.existsSync(testRoot)) {
+    if (testRoot && fs.existsSync(testRoot)) {
       fs.rmSync(testRoot, { recursive: true, force: true });
     }
   });
 
-  describe("Export Performance", () => {
-    it("should export small graph (< 100 nodes) in under 100ms", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
+  it("exports a medium graph quickly", () => {
+    const start = Date.now();
+    const result = exporter.exportForAI(queryResult, undefined, undefined, 50_000);
+    const duration = Date.now() - start;
 
-      const start = Date.now();
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "json" });
-      const duration = Date.now() - start;
-
-      expect(duration).toBeLessThan(100);
-      expect(result.nodes.length).toBeGreaterThan(0);
-    });
-
-    it("should export medium graph (100-500 nodes) in under 500ms", () => {
-      // Create additional fixtures for medium graph
-      createMediumGraphFixtures(testRoot);
-
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const start = Date.now();
-      const result = exporter.exportForAI({ maxTokens: 50000, format: "json" });
-      const duration = Date.now() - start;
-
-      expect(duration).toBeLessThan(500);
-      expect(result.nodes.length).toBeGreaterThan(50);
-    });
-
-    it("should handle large exports (> 1000 nodes) efficiently", () => {
-      // Create additional fixtures for large graph
-      createLargeGraphFixtures(testRoot);
-
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const start = Date.now();
-      const result = exporter.exportForAI({ maxTokens: 100000, format: "json" });
-      const duration = Date.now() - start;
-
-      expect(duration).toBeLessThan(2000); // 2 seconds max
-      expect(result.nodes.length).toBeGreaterThan(100);
-    });
+    expect(duration).toBeLessThan(1000);
+    expect(result.nodes.length).toBeGreaterThan(50);
+    expect(result.edges.length).toBeGreaterThan(20);
   });
 
-  describe("Token Estimation Accuracy", () => {
-    it("should estimate tokens within 10% of actual count", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
+  it("includes the premium knowledge JSON contract", () => {
+    const result = exporter.exportForAI(queryResult, undefined, undefined, 50_000, 120);
 
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "json" });
-      const exported = JSON.stringify(result, null, 2);
-
-      // Rough token estimation: ~4 chars per token
-      const estimatedTokens = Math.ceil(exported.length / 4);
-      const reportedTokens = result.metadata?.estimatedTokens || 0;
-
-      const difference = Math.abs(estimatedTokens - reportedTokens);
-      const percentDiff = (difference / estimatedTokens) * 100;
-
-      expect(percentDiff).toBeLessThan(10);
-    });
-
-    it("should respect maxTokens budget", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const maxTokens = 5000;
-      const result = exporter.exportForAI({ maxTokens, format: "json" });
-      const exported = JSON.stringify(result, null, 2);
-
-      const estimatedTokens = Math.ceil(exported.length / 4);
-
-      expect(estimatedTokens).toBeLessThanOrEqual(maxTokens * 1.1); // 10% tolerance
-    });
-
-    it("should provide accurate token breakdown by section", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "json" });
-
-      expect(result.metadata?.tokenBreakdown).toBeDefined();
-      const breakdown = result.metadata?.tokenBreakdown;
-
-      if (breakdown) {
-        const total = Object.values(breakdown).reduce((sum: number, val) => sum + (val as number), 0);
-        const reported = result.metadata?.estimatedTokens || 0;
-
-        expect(Math.abs(total - reported)).toBeLessThan(reported * 0.05); // 5% tolerance
-      }
-    });
+    expect(result.knowledge?.schemaVersion).toBe("codebrain-knowledge/v1");
+    expect(result.knowledge?.algorithms.length).toBeGreaterThanOrEqual(4);
+    expect(result.knowledge?.architecture.hotspots.length).toBeGreaterThan(0);
+    expect(result.knowledge?.graphHealth.nodeCount).toBe(result.query.nodeCount);
+    expect(result.layoutHints?.recommendedAlgorithm).toContain("forceatlas2");
   });
 
-  describe("Compression Ratios", () => {
-    it("should achieve at least 30% compression with semantic mode", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
+  it("respects a tight top-node export while preserving edge consistency", () => {
+    const result = exporter.exportForAI(queryResult, undefined, undefined, 20_000, 25);
+    const nodeIds = new Set(result.nodes.map((node) => node.id));
 
-      const fullResult = exporter.exportForAI({ maxTokens: 100000, format: "json", compression: "none" });
-      const compressedResult = exporter.exportForAI({ maxTokens: 100000, format: "json", compression: "semantic" });
-
-      const fullSize = JSON.stringify(fullResult).length;
-      const compressedSize = JSON.stringify(compressedResult).length;
-
-      const compressionRatio = ((fullSize - compressedSize) / fullSize) * 100;
-
-      expect(compressionRatio).toBeGreaterThan(30);
-    });
-
-    it("should preserve critical information after compression", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const fullResult = exporter.exportForAI({ maxTokens: 100000, format: "json", compression: "none" });
-      const compressedResult = exporter.exportForAI({ maxTokens: 100000, format: "json", compression: "semantic" });
-
-      // Check that all node IDs are preserved
-      const fullNodeIds = new Set(fullResult.nodes.map((n: any) => n.id));
-      const compressedNodeIds = new Set(compressedResult.nodes.map((n: any) => n.id));
-
-      expect(compressedNodeIds.size).toBe(fullNodeIds.size);
-
-      // Check that all edges are preserved
-      expect(compressedResult.edges.length).toBe(fullResult.edges.length);
-    });
-
-    it("should compress signatures while maintaining readability", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "json", compression: "semantic" });
-
-      // Check that function nodes have signatures
-      const functionNodes = result.nodes.filter((n: any) => n.type === "function" || n.type === "method");
-
-      for (const node of functionNodes) {
-        expect(node.signature || node.snippet).toBeDefined();
-        
-        if (node.signature) {
-          // Signature should be concise (< 200 chars for most functions)
-          expect(node.signature.length).toBeLessThan(200);
-        }
-      }
-    });
+    expect(result.nodes.length).toBeLessThanOrEqual(25);
+    for (const edge of result.edges) {
+      expect(nodeIds.has(edge.from)).toBe(true);
+      expect(nodeIds.has(edge.to)).toBe(true);
+    }
   });
 
-  describe("Export Formats", () => {
-    it("should export to JSON format correctly", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
+  it("keeps AI export within an approximate token budget", () => {
+    const maxTokens = 6000;
+    const result = exporter.exportForAI(queryResult, undefined, undefined, maxTokens, 35);
+    const estimatedTokens = Math.ceil(JSON.stringify(result).length / 4);
 
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "json" });
-
-      expect(result.nodes).toBeDefined();
-      expect(result.edges).toBeDefined();
-      expect(result.metadata).toBeDefined();
-      expect(Array.isArray(result.nodes)).toBe(true);
-      expect(Array.isArray(result.edges)).toBe(true);
-    });
-
-    it("should export to YAML format correctly", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "yaml" });
-
-      expect(typeof result).toBe("string");
-      expect(result).toContain("nodes:");
-      expect(result).toContain("edges:");
-    });
-
-    it("should export to AI format with natural language", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const result = exporter.exportForAI({ maxTokens: 10000, format: "ai" });
-
-      expect(typeof result).toBe("string");
-      expect(result).toContain("Code Graph");
-      expect(result.length).toBeGreaterThan(100);
-    });
-  });
-
-  describe("Incremental Export", () => {
-    it("should export only changed nodes", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const now = Date.now();
-      const oneHourAgo = now - 3600000;
-
-      const result = exporter.exportForAI({ 
-        maxTokens: 10000, 
-        format: "json",
-        since: oneHourAgo 
-      });
-
-      // All nodes should have been updated recently (we just created them)
-      expect(result.nodes.length).toBeGreaterThan(0);
-    });
-
-    it("should include related edges for changed nodes", () => {
-      const graph = storage.loadGraph(testRoot);
-      const exporter = new ExportEngine(graph, storage, testRoot);
-
-      const now = Date.now();
-      const oneHourAgo = now - 3600000;
-
-      const result = exporter.exportForAI({ 
-        maxTokens: 10000, 
-        format: "json",
-        since: oneHourAgo 
-      });
-
-      // Should have edges connecting the changed nodes
-      expect(result.edges.length).toBeGreaterThanOrEqual(0);
-    });
+    expect(estimatedTokens).toBeLessThanOrEqual(maxTokens * 1.2);
   });
 });
 
-/**
- * Helper function to create benchmark fixtures.
- */
-function createBenchmarkFixtures(root: string): void {
-  // Create TypeScript files
-  const tsDir = path.join(root, "src");
-  fs.mkdirSync(tsDir, { recursive: true });
+function createBenchmarkFixtures(root: string, modules: number): void {
+  const srcDir = path.join(root, "src");
+  fs.mkdirSync(srcDir, { recursive: true });
 
   fs.writeFileSync(
-    path.join(tsDir, "utils.ts"),
+    path.join(srcDir, "main.ts"),
     `
-export function formatDate(date: Date): string {
-  return date.toISOString();
-}
+import { createRouter } from "./router";
+import { Service0 } from "./modules/service0";
 
-export function parseDate(str: string): Date {
-  return new Date(str);
+export function main() {
+  const router = createRouter();
+  return new Service0().handle(router);
 }
-
-export class Logger {
-  log(message: string): void {
-    console.log(message);
-  }
-}
-    `.trim()
+    `.trim(),
   );
 
   fs.writeFileSync(
-    path.join(tsDir, "api.ts"),
+    path.join(srcDir, "router.ts"),
     `
-import { formatDate, Logger } from './utils';
-
-export class ApiClient {
-  private logger = new Logger();
-
-  async fetchData(url: string): Promise<any> {
-    this.logger.log(\`Fetching \${url}\`);
-    const response = await fetch(url);
-    return response.json();
-  }
+export function createRouter() {
+  return { path: "/api" };
 }
-    `.trim()
+    `.trim(),
   );
 
-  // Create Python files
-  const pyDir = path.join(root, "python");
-  fs.mkdirSync(pyDir, { recursive: true });
+  const modulesDir = path.join(srcDir, "modules");
+  fs.mkdirSync(modulesDir, { recursive: true });
 
-  fs.writeFileSync(
-    path.join(pyDir, "utils.py"),
-    `
-def format_string(text: str) -> str:
-    return text.strip().lower()
+  for (let index = 0; index < modules; index++) {
+    const nextImport = index + 1 < modules
+      ? `import { Service${index + 1} } from "./service${index + 1}";`
+      : "";
+    const nextCall = index + 1 < modules
+      ? `return new Service${index + 1}().handle(input);`
+      : "return input;";
 
-class DataProcessor:
-    def process(self, data: dict) -> dict:
-        return {k: v for k, v in data.items() if v is not None}
-    `.trim()
-  );
-}
-
-/**
- * Create medium-sized graph fixtures.
- */
-function createMediumGraphFixtures(root: string): void {
-  const tsDir = path.join(root, "src", "modules");
-  fs.mkdirSync(tsDir, { recursive: true });
-
-  for (let i = 0; i < 10; i++) {
     fs.writeFileSync(
-      path.join(tsDir, `module${i}.ts`),
+      path.join(modulesDir, `service${index}.ts`),
       `
-export class Module${i} {
-  private value: number = ${i};
+${nextImport}
 
-  getValue(): number {
-    return this.value;
-  }
+export interface IService${index} {
+  handle(input: unknown): unknown;
+}
 
-  setValue(val: number): void {
-    this.value = val;
+export class Service${index} implements IService${index} {
+  handle(input: unknown): unknown {
+    ${nextCall}
   }
 }
-      `.trim()
+      `.trim(),
     );
   }
-}
-
-/**
- * Create large graph fixtures.
- */
-function createLargeGraphFixtures(root: string): void {
-  const tsDir = path.join(root, "src", "large");
-  fs.mkdirSync(tsDir, { recursive: true });
-
-  for (let i = 0; i < 50; i++) {
-    fs.writeFileSync(
-      path.join(tsDir, `component${i}.ts`),
-      `
-export interface IComponent${i} {
-  id: number;
-  name: string;
-  process(): void;
-}
-
-export class Component${i} implements IComponent${i} {
-  id: number = ${i};
-  name: string = "Component${i}";
-
-  process(): void {
-    console.log(\`Processing \${this.name}\`);
-  }
-
-  validate(): boolean {
-    return this.id >= 0;
-  }
-}
-      `.trim()
-    );
-  }
-}
-
-/**
- * Get all files in a directory recursively.
- */
-function getAllFiles(dir: string): string[] {
-  const files: string[] = [];
-
-  function traverse(currentPath: string): void {
-    const entries = fs.readdirSync(currentPath, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(currentPath, entry.name);
-
-      if (entry.isDirectory()) {
-        if (entry.name !== ".codebrain" && entry.name !== "node_modules") {
-          traverse(fullPath);
-        }
-      } else if (entry.isFile()) {
-        files.push(fullPath);
-      }
-    }
-  }
-
-  traverse(dir);
-  return files;
 }

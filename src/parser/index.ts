@@ -3,6 +3,18 @@ import { JavaParser } from './java.js';
 import { PythonParser } from './python.js';
 import { GoParser } from './go.js';
 import { FallbackParser } from './fallback.js';
+import {
+  CParser,
+  CppParser,
+  CSharpParser,
+  ElixirParser,
+  HaskellParser,
+  KotlinParser,
+  PhpParser,
+  RubyParser,
+  RustParser,
+  ScalaParser,
+} from './extended.js';
 import { parseFileWithRegistry, registerParserForExtension, registerDefaultParser } from './registry.js';
 import { ParsedFile } from '../types/models.js';
 import { isSupportedSourceFile } from '../utils/index.js';
@@ -17,6 +29,26 @@ registerParserForExtension('.cjs', TypeScriptParser);
 registerParserForExtension('.java', JavaParser);
 registerParserForExtension('.py', PythonParser);
 registerParserForExtension('.go', GoParser);
+registerParserForExtension('.rs', RustParser);
+registerParserForExtension('.cs', CSharpParser);
+registerParserForExtension('.c', CParser);
+registerParserForExtension('.h', CParser);
+registerParserForExtension('.cpp', CppParser);
+registerParserForExtension('.cc', CppParser);
+registerParserForExtension('.cxx', CppParser);
+registerParserForExtension('.hpp', CppParser);
+registerParserForExtension('.hh', CppParser);
+registerParserForExtension('.hxx', CppParser);
+registerParserForExtension('.rb', RubyParser);
+registerParserForExtension('.php', PhpParser);
+registerParserForExtension('.kt', KotlinParser);
+registerParserForExtension('.kts', KotlinParser);
+registerParserForExtension('.scala', ScalaParser);
+registerParserForExtension('.sc', ScalaParser);
+registerParserForExtension('.ex', ElixirParser);
+registerParserForExtension('.exs', ElixirParser);
+registerParserForExtension('.hs', HaskellParser);
+registerParserForExtension('.lhs', HaskellParser);
 
 // fallback parser for other textual files
 registerDefaultParser(FallbackParser);
@@ -34,4 +66,20 @@ export class Parser {
   }
 }
 
-export { TypeScriptParser, JavaParser, PythonParser, GoParser, FallbackParser };
+export {
+  TypeScriptParser,
+  JavaParser,
+  PythonParser,
+  GoParser,
+  RustParser,
+  CSharpParser,
+  CParser,
+  CppParser,
+  RubyParser,
+  PhpParser,
+  KotlinParser,
+  ScalaParser,
+  ElixirParser,
+  HaskellParser,
+  FallbackParser,
+};

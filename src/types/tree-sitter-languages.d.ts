@@ -1,0 +1,10 @@
+declare module 'tree-sitter-rust';
+declare module 'tree-sitter-c-sharp';
+declare module 'tree-sitter-cpp';
+declare module 'tree-sitter-c';
+declare module 'tree-sitter-ruby';
+declare module 'tree-sitter-php';
+declare module 'tree-sitter-kotlin';
+declare module 'tree-sitter-scala';
+declare module 'tree-sitter-elixir';
+declare module 'tree-sitter-haskell';

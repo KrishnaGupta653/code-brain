@@ -7,10 +7,13 @@ import { SQLiteStorage } from '../../storage/index.js';
 import { logger, getDbPath, scanSourceFiles } from '../../utils/index.js';
 import { Parser } from '../../parser/index.js';
 import { GraphEdge, GraphNode, SourceSpan } from '../../types/models.js';
+import { PythonBridge } from '../../python/bridge.js';
 
 export interface IndexCommandOptions {
   filesToIndex?: string[];
   gitBlame?: boolean;
+  includeDocs?: boolean;
+  includeAPI?: boolean;
 }
 
 export async function indexCommand(
@@ -18,6 +21,8 @@ export async function indexCommand(
   options: IndexCommandOptions = {}
 ): Promise<void> {
   logger.info(`Indexing repository: ${projectRoot}`);
+
+  let storage: SQLiteStorage | null = null;
 
   try {
     const configManager = new ConfigManager(projectRoot);
@@ -41,7 +46,7 @@ export async function indexCommand(
       : allFiles;
 
     const builder = new GraphBuilder();
-    const partialGraph = builder.buildFromRepository(projectRoot, include, exclude, filesToIndex);
+    const partialGraph = await builder.buildFromRepository(projectRoot, include, exclude, filesToIndex);
 
     // Optionally enrich with git metadata
     if (options.gitBlame) {
@@ -49,8 +54,18 @@ export async function indexCommand(
       await builder.enrichWithGitMetadata();
     }
 
+    // Optionally add documentation
+    if (options.includeDocs !== false) {
+      await builder.addDocumentation();
+    }
+
+    // Optionally add API schemas
+    if (options.includeAPI !== false) {
+      await builder.addAPISchemas();
+    }
+
     const dbPath = getDbPath(projectRoot);
-    const storage = new SQLiteStorage(dbPath);
+    storage = new SQLiteStorage(dbPath);
 
     const now = Date.now();
     let project = storage.getProject(projectRoot);
@@ -100,9 +115,9 @@ export async function indexCommand(
     }
 
     // Compute communities and assign community IDs to nodes
-    logger.info('Computing graph communities...');
-    try {
-      const { PythonBridge } = await import('../../python/bridge.js');
+    if (config.enableAnalytics !== false) {
+      logger.info('Computing graph communities...');
+      try {
       const analyticsResult = await PythonBridge.runAnalytics(
         {
           nodes: graphToPersist.getNodes(),
@@ -127,8 +142,13 @@ export async function indexCommand(
         });
         logger.success(`Assigned ${analyticsResult.communities.length} communities to nodes`);
       }
-    } catch (error) {
-      logger.warn('Community detection failed, continuing without clusters', error);
+      } catch (error) {
+        logger.warn('Community detection failed, continuing without clusters', error);
+      } finally {
+        await PythonBridge.shutdown().catch(() => undefined);
+      }
+    } else {
+      logger.info('Analytics disabled; using deterministic graph only');
     }
 
     storage.replaceGraph(projectRoot, graphToPersist);
@@ -169,11 +189,11 @@ export async function indexCommand(
       status: 'idle'
     });
 
-    storage.close();
-
     logger.success(`Indexing complete. ${stats.nodeCount} nodes, ${stats.edgeCount} edges`);
   } catch (error) {
     logger.error('Indexing failed', error);
     throw error;
+  } finally {
+    storage?.close();
   }
 }

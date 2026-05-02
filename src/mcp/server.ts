@@ -5,6 +5,7 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import { SQLiteStorage } from '../storage/sqlite.js';
 import { ExportEngine } from '../retrieval/export.js';
 import { QueryEngine } from '../retrieval/query.js';
@@ -12,9 +13,62 @@ import { QueryResult } from '../types/models.js';
 import { logger } from '../utils/index.js';
 import path from 'path';
 
+// Zod schemas for tool inputs
+const GetGraphExportSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  focus: z.string().optional(),
+  max_tokens: z.number().int().positive().optional().default(100000),
+  model: z.string().optional().default('gpt-4'),
+});
+
+const SearchSymbolsSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  query: z.string().min(1, 'Query is required'),
+  limit: z.number().int().positive().optional().default(20),
+});
+
+const FindCallersSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  symbol: z.string().min(1, 'Symbol name is required'),
+});
+
+const FindCalleesSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  symbol: z.string().min(1, 'Symbol name is required'),
+});
+
+const DetectCyclesSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+});
+
+const FindDeadExportsSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+});
+
+const AnalyzeImpactSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  symbol: z.string().min(1, 'Symbol name is required'),
+});
+
+const SemanticSearchSchema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  query: z.string().min(1, 'Query is required'),
+  limit: z.number().int().positive().optional().default(20),
+  hybrid: z.boolean().optional().default(true),
+});
+
+type GetGraphExportInput = z.infer<typeof GetGraphExportSchema>;
+type SearchSymbolsInput = z.infer<typeof SearchSymbolsSchema>;
+type FindCallersInput = z.infer<typeof FindCallersSchema>;
+type FindCalleesInput = z.infer<typeof FindCalleesSchema>;
+type DetectCyclesInput = z.infer<typeof DetectCyclesSchema>;
+type FindDeadExportsInput = z.infer<typeof FindDeadExportsSchema>;
+type AnalyzeImpactInput = z.infer<typeof AnalyzeImpactSchema>;
+type SemanticSearchInput = z.infer<typeof SemanticSearchSchema>;
+
 export class CodeBrainMCPServer {
   private server: Server;
-  private storage: SQLiteStorage | null = null;
+  private storageCache: Map<string, SQLiteStorage> = new Map();
   private projectRoot: string = '';
 
   constructor() {
@@ -167,6 +221,34 @@ export class CodeBrainMCPServer {
             required: ['project_path', 'symbol'],
           },
         },
+        {
+          name: 'semantic_search',
+          description: 'Search codebase using natural language with hybrid BM25 + vector similarity (requires embeddings)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              project_path: {
+                type: 'string',
+                description: 'Path to the project root directory',
+              },
+              query: {
+                type: 'string',
+                description: 'Natural language or keyword search query',
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of results to return',
+                default: 20,
+              },
+              hybrid: {
+                type: 'boolean',
+                description: 'Use hybrid search (BM25 + vector). Falls back to BM25 if embeddings unavailable.',
+                default: true,
+              },
+            },
+            required: ['project_path', 'query'],
+          },
+        },
       ];
 
       return { tools };
@@ -192,6 +274,8 @@ export class CodeBrainMCPServer {
             return await this.handleFindDeadExports(args);
           case 'analyze_impact':
             return await this.handleAnalyzeImpact(args);
+          case 'semantic_search':
+            return await this.handleSemanticSearch(args);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -209,34 +293,47 @@ export class CodeBrainMCPServer {
     });
   }
 
-  private async initStorage(projectPath: string): Promise<void> {
-    if (this.storage && this.projectRoot === projectPath) {
-      return;
+  private async initStorage(projectPath: string): Promise<SQLiteStorage> {
+    // Check cache first
+    const cached = this.storageCache.get(projectPath);
+    if (cached) {
+      return cached;
     }
 
+    // Create new storage instance
     this.projectRoot = projectPath;
     const dbPath = path.join(projectPath, '.codebrain', 'graph.db');
-    this.storage = new SQLiteStorage(dbPath);
+    const storage = new SQLiteStorage(dbPath);
+    
+    // Cache it
+    this.storageCache.set(projectPath, storage);
+    
+    return storage;
   }
 
-  private async handleGetGraphExport(args: any) {
-    const { project_path, focus, max_tokens, model } = args;
-    await this.initStorage(project_path);
+  // Invalidate cache when graph is updated
+  private invalidateCache(projectPath: string): void {
+    this.storageCache.delete(projectPath);
+  }
 
-    const graph = this.storage!.loadGraph(project_path);
-    const project = this.storage!.getProject(project_path);
+  private async handleGetGraphExport(args: unknown) {
+    const input = GetGraphExportSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
+
+    const graph = storage.loadGraph(input.project_path);
+    const project = storage.getProject(input.project_path);
     
     if (!project) {
       throw new Error('Project not found. Run "code-brain index" first.');
     }
 
-    const exporter = new ExportEngine(graph, project, project_path);
-    const queryEngine = new QueryEngine(graph, this.storage!, project_path);
+    const exporter = new ExportEngine(graph, project, input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
     
     // Get all nodes or focus on specific path
     let queryResult: QueryResult;
-    if (focus) {
-      const focusNodes = queryEngine.findByName(focus);
+    if (input.focus) {
+      const focusNodes = queryEngine.findByName(input.focus);
       if (focusNodes.length > 0) {
         queryResult = queryEngine.findRelated(focusNodes[0].id, 2, 1000);
       } else {
@@ -253,11 +350,11 @@ export class CodeBrainMCPServer {
 
     const result = exporter.exportForAI(
       queryResult,
-      focus || undefined,
+      input.focus,
       undefined,
-      max_tokens || 100000,
+      input.max_tokens,
       undefined,
-      model || 'gpt-4',
+      input.model,
     );
 
     return {
@@ -270,11 +367,11 @@ export class CodeBrainMCPServer {
     };
   }
 
-  private async handleSearchSymbols(args: any) {
-    const { project_path, query, limit } = args;
-    await this.initStorage(project_path);
+  private async handleSearchSymbols(args: unknown) {
+    const input = SearchSymbolsSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
 
-    const nodes = this.storage!.searchNodes(query, limit || 20);
+    const nodes = storage.searchNodes(input.project_path, input.query, input.limit);
 
     return {
       content: [
@@ -286,13 +383,13 @@ export class CodeBrainMCPServer {
     };
   }
 
-  private async handleFindCallers(args: any) {
-    const { project_path, symbol } = args;
-    await this.initStorage(project_path);
+  private async handleFindCallers(args: unknown) {
+    const input = FindCallersSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
 
-    const graph = this.storage!.loadGraph(project_path);
-    const queryEngine = new QueryEngine(graph, this.storage!, project_path);
-    const callers = queryEngine.findCallers(symbol);
+    const graph = storage.loadGraph(input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
+    const callers = queryEngine.findCallers(input.symbol);
 
     return {
       content: [
@@ -304,13 +401,13 @@ export class CodeBrainMCPServer {
     };
   }
 
-  private async handleFindCallees(args: any) {
-    const { project_path, symbol } = args;
-    await this.initStorage(project_path);
+  private async handleFindCallees(args: unknown) {
+    const input = FindCalleesSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
 
-    const graph = this.storage!.loadGraph(project_path);
-    const queryEngine = new QueryEngine(graph, this.storage!, project_path);
-    const callees = queryEngine.findCallees(symbol);
+    const graph = storage.loadGraph(input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
+    const callees = queryEngine.findCallees(input.symbol);
 
     return {
       content: [
@@ -322,12 +419,12 @@ export class CodeBrainMCPServer {
     };
   }
 
-  private async handleDetectCycles(args: any) {
-    const { project_path } = args;
-    await this.initStorage(project_path);
+  private async handleDetectCycles(args: unknown) {
+    const input = DetectCyclesSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
 
-    const graph = this.storage!.loadGraph(project_path);
-    const queryEngine = new QueryEngine(graph, this.storage!, project_path);
+    const graph = storage.loadGraph(input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
     const cycles = queryEngine.findCycles();
 
     return {
@@ -340,12 +437,12 @@ export class CodeBrainMCPServer {
     };
   }
 
-  private async handleFindDeadExports(args: any) {
-    const { project_path } = args;
-    await this.initStorage(project_path);
+  private async handleFindDeadExports(args: unknown) {
+    const input = FindDeadExportsSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
 
-    const graph = this.storage!.loadGraph(project_path);
-    const queryEngine = new QueryEngine(graph, this.storage!, project_path);
+    const graph = storage.loadGraph(input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
     const deadExports = queryEngine.findDeadExports();
 
     return {
@@ -358,17 +455,17 @@ export class CodeBrainMCPServer {
     };
   }
 
-  private async handleAnalyzeImpact(args: any) {
-    const { project_path, symbol } = args;
-    await this.initStorage(project_path);
+  private async handleAnalyzeImpact(args: unknown) {
+    const input = AnalyzeImpactSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
 
-    const graph = this.storage!.loadGraph(project_path);
-    const queryEngine = new QueryEngine(graph, this.storage!, project_path);
+    const graph = storage.loadGraph(input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
     
     // Find the symbol and analyze its impact
-    const symbolNodes = queryEngine.findByName(symbol);
+    const symbolNodes = queryEngine.findByName(input.symbol);
     if (symbolNodes.length === 0) {
-      throw new Error(`Symbol not found: ${symbol}`);
+      throw new Error(`Symbol not found: ${input.symbol}`);
     }
 
     const impact = queryEngine.findRelated(symbolNodes[0].id, 3, 100);
@@ -378,6 +475,77 @@ export class CodeBrainMCPServer {
         {
           type: 'text',
           text: JSON.stringify(impact, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async handleSemanticSearch(args: unknown) {
+    const input = SemanticSearchSchema.parse(args);
+    const storage = await this.initStorage(input.project_path);
+
+    const graph = storage.loadGraph(input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
+
+    let results;
+
+    if (input.hybrid) {
+      // Try hybrid search
+      try {
+        const { ConfigManager } = await import('../config/index.js');
+        const { createEmbeddingProvider, resolveApiKey } = await import('../embeddings/index.js');
+        const { HybridSearchEngine } = await import('../retrieval/hybrid-search.js');
+
+        const configManager = new ConfigManager(input.project_path);
+        const config = configManager.getConfig();
+        const embeddingsConfig = config.embeddings;
+
+        if (embeddingsConfig?.enabled) {
+          // Resolve API key
+          if (embeddingsConfig.apiKey) {
+            embeddingsConfig.apiKey = resolveApiKey(embeddingsConfig.apiKey);
+          }
+
+          // Create provider
+          const provider = createEmbeddingProvider(embeddingsConfig as any);
+
+          if (provider) {
+            // Create hybrid search engine
+            const hybridSearch = new HybridSearchEngine(
+              storage,
+              input.project_path,
+              provider,
+              embeddingsConfig.hybridSearch
+            );
+
+            // Perform semantic search
+            results = await queryEngine.semanticSearch(
+              input.query,
+              input.limit,
+              hybridSearch
+            );
+          } else {
+            // Fall back to BM25
+            results = queryEngine.findByName(input.query, input.limit);
+          }
+        } else {
+          // Embeddings disabled, use BM25
+          results = queryEngine.findByName(input.query, input.limit);
+        }
+      } catch (error) {
+        logger.warn('Hybrid search failed, falling back to BM25', error);
+        results = queryEngine.findByName(input.query, input.limit);
+      }
+    } else {
+      // BM25 only
+      results = queryEngine.findByName(input.query, input.limit);
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(results, null, 2),
         },
       ],
     };

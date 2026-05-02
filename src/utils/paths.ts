@@ -1,6 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import os from 'os';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -8,12 +9,47 @@ export function getProjectRoot(): string {
   return path.resolve(__dirname, '../../');
 }
 
-export function getCodeBrainDir(projectRoot: string): string {
+export function getCodeBrainDir(projectRoot: string, customDbPath?: string): string {
+  if (customDbPath) {
+    return path.dirname(customDbPath);
+  }
   return path.join(projectRoot, '.codebrain');
 }
 
-export function getDbPath(projectRoot: string): string {
-  return path.join(getCodeBrainDir(projectRoot), 'graph.db');
+export function getDbPath(projectRoot: string, customDbPath?: string): string {
+  if (customDbPath) {
+    // If custom path is provided, use it
+    return customDbPath;
+  }
+  
+  // Check if .codebrainrc.json exists in project directory and has a dbPath
+  const configPath = path.join(projectRoot, '.codebrainrc.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.dbPath) {
+        return config.dbPath;
+      }
+    } catch (error) {
+      // If config is invalid, continue to check fallback
+    }
+  }
+  
+  // Check fallback config location (next to default db location)
+  const defaultDbPath = path.join(projectRoot, '.codebrain', 'graph.db');
+  const fallbackConfigPath = path.join(path.dirname(defaultDbPath), 'config.json');
+  if (fs.existsSync(fallbackConfigPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(fallbackConfigPath, 'utf-8'));
+      if (config.dbPath) {
+        return config.dbPath;
+      }
+    } catch (error) {
+      // If config is invalid, fall back to default
+    }
+  }
+  
+  return defaultDbPath;
 }
 
 export function getPythonDir(): string {
@@ -58,7 +94,7 @@ export function isGoFile(filePath: string): boolean {
 export function isSupportedSourceFile(filePath: string): boolean {
   // Consider most textual source files supported. Exclude common binary/document extensions.
   const blacklist = new Set([
-    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.exe', '.dll', '.so', '.dylib', '.class', '.jar', '.zip', '.tar', '.gz', '.pdf', '.woff', '.woff2', '.ttf'
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.exe', '.dll', '.so', '.dylib', '.class', '.jar', '.zip', '.tar', '.gz', '.pdf', '.woff', '.woff2', '.ttf', '.pyc', '.pyo'
   ]);
   const ext = path.extname(filePath).toLowerCase();
   if (!ext) return true; // files without extension may still be source

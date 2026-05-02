@@ -19,9 +19,10 @@ export function setupCLI(): Command {
     .command("init")
     .description("Initialize code-brain for a repository")
     .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--db-path <dbPath>", "Custom database location (useful for network drives or permission issues)")
     .action(async (options) => {
       try {
-        await initCommand(options.path);
+        await initCommand(options.path, options.dbPath);
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
@@ -33,9 +34,15 @@ export function setupCLI(): Command {
     .description("Index the repository and build the knowledge graph")
     .option("-p, --path <path>", "Project root path", process.cwd())
     .option("--git-blame", "Enrich file nodes with git metadata (author, last modified, commit SHA)")
+    .option("--no-docs", "Skip documentation ingestion")
+    .option("--no-api", "Skip API schema ingestion")
     .action(async (options) => {
       try {
-        await indexCommand(options.path, { gitBlame: options.gitBlame });
+        await indexCommand(options.path, { 
+          gitBlame: options.gitBlame,
+          includeDocs: options.docs !== false,
+          includeAPI: options.api !== false,
+        });
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
@@ -241,6 +248,31 @@ export function setupCLI(): Command {
         await summarizeCommand(program);
         // Re-parse to execute the command
         await program.parseAsync(process.argv);
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("embeddings")
+    .description("Generate vector embeddings for semantic search")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--force", "Regenerate all embeddings")
+    .option("--model <model>", "Embedding model to use")
+    .option("--provider <provider>", "Embedding provider (openai, anthropic, local)")
+    .option("--stats", "Show embedding statistics")
+    .option("--clear", "Clear all embeddings")
+    .action(async (options) => {
+      try {
+        const { embeddingsCommand } = await import("./commands/embeddings.js");
+        await embeddingsCommand(options.path, {
+          force: options.force,
+          model: options.model,
+          provider: options.provider,
+          stats: options.stats,
+          clear: options.clear,
+        });
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);

@@ -36,7 +36,12 @@ export type NodeType =
   | "route"
   | "config"
   | "test"
-  | "doc";
+  | "doc"
+  | "example"
+  | "api-schema"
+  | "api-endpoint"
+  | "api-operation"
+  | "api-type";
 
 export type EdgeType =
   | "IMPORTS"
@@ -48,13 +53,16 @@ export type EdgeType =
   | "DEFINES"
   | "USES"
   | "DEPENDS_ON"
-  | "TESTS"
   | "DOCUMENTS"
+  | "EXAMPLE_OF"
+  | "TESTS"
   | "IMPLEMENTS"
   | "EXTENDS"
   | "DECORATES"
   | "REFERENCES"
-  | "ENTRY_POINT";
+  | "ENTRY_POINT"
+  | "DEFINES_API"
+  | "RESOLVES";
 
 /**
  * Graph node representing a code entity.
@@ -184,6 +192,66 @@ export interface AIExportBundle extends ExportBundle {
   rules: string[];
   modules?: any[]; // Module summaries for hierarchical export
   pathMap?: Record<string, string>; // File path compression map
+  knowledge?: KnowledgeIndex;
+  layoutHints?: GraphLayoutHints;
+}
+
+export interface KnowledgeIndex {
+  schemaVersion: string;
+  algorithms: Array<{
+    name: string;
+    purpose: string;
+    implementation: string;
+  }>;
+  graphHealth: {
+    nodeCount: number;
+    edgeCount: number;
+    resolvedEdgeCount: number;
+    unresolvedEdgeCount: number;
+    isolatedNodeCount: number;
+    cycleCount: number;
+  };
+  languageSummary: Record<string, number>;
+  architecture: {
+    modules: Array<{
+      id: string;
+      path: string;
+      label: string;
+      role: string;
+      fileCount: number;
+      symbolCount: number;
+      importance: number;
+      topSymbols: Array<{ id: string; name: string; type: string; importance: number }>;
+    }>;
+    entryPoints: string[];
+    hotspots: Array<{
+      id: string;
+      name: string;
+      type: string;
+      score: number;
+      incoming: number;
+      outgoing: number;
+      reason: string;
+    }>;
+    dependencyCycles: string[][];
+    unresolved: Array<{
+      from: string;
+      to: string;
+      type: string;
+      name?: string;
+    }>;
+  };
+  recommendations: string[];
+}
+
+export interface GraphLayoutHints {
+  recommendedAlgorithm: string;
+  algorithms: string[];
+  nodeCount: number;
+  edgeCount: number;
+  partitionBy: string;
+  rankBy: string;
+  edgeWeightBy: string;
 }
 
 export interface RankingScore {
@@ -217,6 +285,20 @@ export interface CodeBrainConfig {
   enableAnalytics?: boolean;
   maxTokensExport?: number;
   parserPlugins?: string[];
+  embeddings?: {
+    enabled?: boolean;
+    provider?: 'openai' | 'anthropic' | 'local' | 'none';
+    model?: string;
+    dimensions?: number;
+    batchSize?: number;
+    apiKey?: string;
+    hybridSearch?: {
+      enabled?: boolean;
+      bm25Weight?: number;
+      vectorWeight?: number;
+      fusionMethod?: 'rrf' | 'linear';
+    };
+  };
 }
 
 export interface ParsedImportBinding {

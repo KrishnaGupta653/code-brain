@@ -92,16 +92,20 @@ function computeAnalytics(graph: ReturnType<SQLiteStorage["loadGraph"]>) {
   }
 
   const maxDegree = Math.max(1, ...Array.from(degree.values()));
+  const pageRank = computePageRank(nodes, edges);
+  const maxPageRank = Math.max(1e-9, ...Array.from(pageRank.values()));
   const centrality = Object.fromEntries(
     nodes.map((node) => [node.id, Number(((degree.get(node.id) || 0) / maxDegree).toFixed(6))]),
   );
   const importance = Object.fromEntries(
     nodes.map((node) => {
+      const normalizedPageRank = (pageRank.get(node.id) || 0) / maxPageRank;
       const score =
-        (incoming.get(node.id) || 0) * 1.4 +
-        (outgoing.get(node.id) || 0) +
-        (node.type === "project" ? 2 : 0);
-      return [node.id, Number((score / Math.max(1, maxDegree * 1.4)).toFixed(6))];
+        normalizedPageRank * 0.55 +
+        ((incoming.get(node.id) || 0) / maxDegree) * 0.25 +
+        ((outgoing.get(node.id) || 0) / maxDegree) * 0.12 +
+        (node.type === "project" ? 0.08 : 0);
+      return [node.id, Number(Math.min(1, score).toFixed(6))];
     }),
   );
 
@@ -132,6 +136,13 @@ function computeAnalytics(graph: ReturnType<SQLiteStorage["loadGraph"]>) {
   return {
     status: "ok",
     derivedFrom: "deterministic-graph",
+    algorithms: {
+      centrality: "degree_centrality",
+      importance: "pagerank_blended_with_degree",
+      cycles: "bounded_dfs_cycle_scan",
+      communities: "directory_partition",
+      layout: "community_seeded_forceatlas2",
+    },
     centrality,
     importance,
     hubs,
@@ -147,6 +158,49 @@ function computeAnalytics(graph: ReturnType<SQLiteStorage["loadGraph"]>) {
       isolatedNodes: nodes.filter((node) => (degree.get(node.id) || 0) === 0).length,
     },
   };
+}
+
+function computePageRank(nodes: GraphNode[], edges: GraphEdge[]): Map<string, number> {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    outgoing.set(node.id, []);
+    incoming.set(node.id, []);
+  }
+
+  for (const edge of edges) {
+    if (!edge.resolved || !nodeIds.has(edge.from) || !nodeIds.has(edge.to)) continue;
+    if (!["IMPORTS", "DEPENDS_ON", "CALLS", "DEFINES", "EXTENDS", "IMPLEMENTS", "ENTRY_POINT"].includes(edge.type)) continue;
+    outgoing.get(edge.from)?.push(edge.to);
+    incoming.get(edge.to)?.push(edge.from);
+  }
+
+  const count = Math.max(1, nodes.length);
+  const damping = 0.85;
+  let ranks = new Map(nodes.map((node) => [node.id, 1 / count]));
+
+  for (let iteration = 0; iteration < 40; iteration++) {
+    const next = new Map<string, number>();
+    const danglingMass = nodes.reduce((sum, node) => {
+      return sum + ((outgoing.get(node.id)?.length || 0) === 0 ? ranks.get(node.id) || 0 : 0);
+    }, 0);
+
+    for (const node of nodes) {
+      let score = (1 - damping) / count;
+      score += damping * danglingMass / count;
+      for (const source of incoming.get(node.id) || []) {
+        const outDegree = outgoing.get(source)?.length || 1;
+        score += damping * (ranks.get(source) || 0) / outDegree;
+      }
+      next.set(node.id, score);
+    }
+
+    ranks = next;
+  }
+
+  return ranks;
 }
 
 function findCycles(

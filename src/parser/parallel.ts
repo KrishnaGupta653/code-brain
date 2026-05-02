@@ -14,6 +14,10 @@ interface WorkerResult {
   error?: string;
 }
 
+interface ProgressCallback {
+  (current: number, total: number): void;
+}
+
 export class ParallelParser {
   private maxWorkers: number;
 
@@ -21,20 +25,28 @@ export class ParallelParser {
     this.maxWorkers = maxWorkers || Math.max(1, os.cpus().length - 1);
   }
 
-  async parseFiles(filePaths: string[]): Promise<Map<string, ParsedFile>> {
+  async parseFiles(
+    filePaths: string[],
+    onProgress?: ProgressCallback
+  ): Promise<Map<string, ParsedFile>> {
     if (filePaths.length === 0) {
       return new Map();
     }
 
     // For small batches, don't use workers (overhead not worth it)
     if (filePaths.length < 10) {
-      return this.parseSequential(filePaths);
+      return this.parseSequential(filePaths, onProgress);
     }
 
     logger.debug(`Parsing ${filePaths.length} files with ${this.maxWorkers} workers`);
 
     const results = new Map<string, ParsedFile>();
     const errors: string[] = [];
+    
+    // Create shared buffer for progress tracking (thread-safe counter)
+    const progressBuffer = new SharedArrayBuffer(4); // 4 bytes for Int32
+    const progressCounter = new Int32Array(progressBuffer);
+    progressCounter[0] = 0; // Initialize to 0
     
     // Process files in batches
     const batchSize = Math.ceil(filePaths.length / this.maxWorkers);
@@ -44,8 +56,28 @@ export class ParallelParser {
       batches.push(filePaths.slice(i, i + batchSize));
     }
 
-    const workerPromises = batches.map(batch => this.processBatch(batch));
+    // Start progress monitoring if callback provided
+    let progressInterval: NodeJS.Timeout | undefined;
+    if (onProgress) {
+      progressInterval = setInterval(() => {
+        const current = Atomics.load(progressCounter, 0);
+        onProgress(current, filePaths.length);
+      }, 100); // Update every 100ms
+    }
+
+    const workerPromises = batches.map(batch => 
+      this.processBatch(batch, progressBuffer)
+    );
     const batchResults = await Promise.all(workerPromises);
+
+    // Stop progress monitoring
+    if (progressInterval) {
+      clearInterval(progressInterval);
+      // Final progress update
+      if (onProgress) {
+        onProgress(filePaths.length, filePaths.length);
+      }
+    }
 
     for (const batchResult of batchResults) {
       for (const [filePath, result] of batchResult.results) {
@@ -62,7 +94,10 @@ export class ParallelParser {
     return results;
   }
 
-  private async processBatch(filePaths: string[]): Promise<{
+  private async processBatch(
+    filePaths: string[],
+    progressBuffer: SharedArrayBuffer
+  ): Promise<{
     results: Map<string, ParsedFile>;
     errors: string[];
   }> {
@@ -71,23 +106,34 @@ export class ParallelParser {
 
     for (const filePath of filePaths) {
       try {
-        const result = await this.parseFileInWorker(filePath);
+        const result = await this.parseFileInWorker(filePath, progressBuffer);
         results.set(filePath, result);
       } catch (error) {
         const errorMsg = `Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
         errors.push(errorMsg);
+        logger.debug(errorMsg); // Add debug logging
+        // Still increment progress counter on error
+        const progressCounter = new Int32Array(progressBuffer);
+        Atomics.add(progressCounter, 0, 1);
       }
     }
 
     return { results, errors };
   }
 
-  private parseFileInWorker(filePath: string): Promise<ParsedFile> {
+  private parseFileInWorker(
+    filePath: string,
+    progressBuffer: SharedArrayBuffer
+  ): Promise<ParsedFile> {
     return new Promise((resolve, reject) => {
       const workerPath = path.join(__dirname, 'worker.js');
       
       const worker = new Worker(workerPath, {
-        workerData: { type: 'parse', filePath },
+        workerData: { 
+          type: 'parse', 
+          filePath,
+          progressBuffer 
+        },
       });
 
       const timeout = setTimeout(() => {
@@ -118,16 +164,28 @@ export class ParallelParser {
     });
   }
 
-  private async parseSequential(filePaths: string[]): Promise<Map<string, ParsedFile>> {
+  private async parseSequential(
+    filePaths: string[],
+    onProgress?: ProgressCallback
+  ): Promise<Map<string, ParsedFile>> {
     const { Parser } = await import('./index.js');
     const results = new Map<string, ParsedFile>();
 
+    let processed = 0;
     for (const filePath of filePaths) {
       try {
         const result = Parser.parseFile(filePath);
         results.set(filePath, result);
+        processed++;
+        if (onProgress) {
+          onProgress(processed, filePaths.length);
+        }
       } catch (error) {
         logger.debug(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        processed++;
+        if (onProgress) {
+          onProgress(processed, filePaths.length);
+        }
       }
     }
 

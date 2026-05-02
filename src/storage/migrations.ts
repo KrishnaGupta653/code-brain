@@ -254,6 +254,31 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    description: 'Create embeddings table for vector search',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS embeddings (
+          node_id TEXT PRIMARY KEY,
+          embedding BLOB NOT NULL,
+          embedding_model TEXT NOT NULL,
+          embedding_version INTEGER NOT NULL DEFAULT 1,
+          dimensions INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_embeddings_model 
+          ON embeddings(embedding_model);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_updated 
+          ON embeddings(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_version
+          ON embeddings(embedding_version);
+      `);
+    },
+  },
 ];
 export function runMigrations(db: Database.Database): void {
   // Check if schema_version table exists

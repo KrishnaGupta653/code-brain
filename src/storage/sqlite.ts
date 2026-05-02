@@ -23,7 +23,7 @@ interface StoredFileHash {
 }
 
 export class SQLiteStorage {
-  private db: Database.Database;
+  private db!: Database.Database;
 
   constructor(private dbPath: string) {
     const dir = path.dirname(dbPath);
@@ -31,12 +31,87 @@ export class SQLiteStorage {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    this.db = new Database(dbPath);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("foreign_keys = ON");
-    this.initialize();
-    runMigrations(this.db);
+    // Check if directory is writable
+    try {
+      fs.accessSync(dir, fs.constants.W_OK);
+    } catch (error) {
+      throw new StorageError(
+        `Database directory is not writable: ${dir}. Check permissions.`,
+        error
+      );
+    }
+
+    // Test write capability with a temporary file
+    const testFile = path.join(dir, '.write-test');
+    try {
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+    } catch (error) {
+      const driveInfo = path.parse(dbPath).root;
+      throw new StorageError(
+        `Cannot write to directory: ${dir}. ` +
+        `Drive ${driveInfo} may be: ` +
+        `1) A network drive with restrictions, ` +
+        `2) Protected by antivirus/security software, ` +
+        `3) Experiencing hardware issues, ` +
+        `4) Full or corrupted. ` +
+        `Try using a local drive (C:) instead.`,
+        error
+      );
+    }
+
+    try {
+      this.db = new Database(dbPath);
+      
+      // Set pragmas with error handling
+      try {
+        this.db.pragma("journal_mode = WAL");
+      } catch (walError) {
+        logger.warn("Failed to set WAL mode, falling back to DELETE mode", walError);
+        try {
+          this.db.pragma("journal_mode = DELETE");
+        } catch (deleteError) {
+          // If even DELETE mode fails, the drive has serious I/O issues
+          const driveInfo = path.parse(dbPath).root;
+          this.db.close();
+          throw new StorageError(
+            `SQLite cannot operate on drive ${driveInfo}. ` +
+            `This typically indicates: ` +
+            `1) Network drive or external drive with I/O restrictions, ` +
+            `2) Antivirus blocking database operations, ` +
+            `3) Drive corruption or hardware failure. ` +
+            `SOLUTION: Move your project to a local drive (C:) or use --path to specify a different location for the .codebrain directory.`,
+            deleteError
+          );
+        }
+      }
+      
+      this.db.pragma("synchronous = NORMAL");
+      this.db.pragma("foreign_keys = ON");
+      
+      this.initialize();
+      runMigrations(this.db);
+    } catch (error) {
+      // If database is already created, try to close it
+      if (this.db) {
+        try {
+          this.db.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
+      
+      throw new StorageError(
+        `Failed to initialize database at ${dbPath}. ` +
+        `This may be due to: ` +
+        `1) Insufficient permissions, ` +
+        `2) Disk full, ` +
+        `3) Database locked by another process, ` +
+        `4) Corrupted database file. ` +
+        `Try removing the .codebrain directory and reinitializing.`,
+        error
+      );
+    }
   }
 
   private initialize(): void {
@@ -509,6 +584,276 @@ export class SQLiteStorage {
       totalEdgeCount: row.edge_count,
       status: row.status,
       error: row.error || undefined,
+    };
+  }
+
+  // ============================================================================
+  // Embedding Storage Methods
+  // ============================================================================
+
+  /**
+   * Save an embedding for a node
+   */
+  saveEmbedding(
+    nodeId: string,
+    embedding: Float32Array,
+    model: string,
+    version: number = 1
+  ): void {
+    const buffer = Buffer.from(embedding.buffer);
+    const now = Date.now();
+
+    this.db
+      .prepare(
+        `
+        INSERT INTO embeddings (node_id, embedding, embedding_model, embedding_version, dimensions, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(node_id) DO UPDATE SET
+          embedding = excluded.embedding,
+          embedding_model = excluded.embedding_model,
+          embedding_version = excluded.embedding_version,
+          dimensions = excluded.dimensions,
+          updated_at = excluded.updated_at
+      `
+      )
+      .run(nodeId, buffer, model, version, embedding.length, now, now);
+  }
+
+  /**
+   * Save multiple embeddings in a transaction
+   */
+  saveEmbeddings(
+    embeddings: Array<{
+      nodeId: string;
+      embedding: Float32Array;
+      model: string;
+      version?: number;
+    }>
+  ): void {
+    const tx = this.db.transaction(() => {
+      for (const item of embeddings) {
+        this.saveEmbedding(
+          item.nodeId,
+          item.embedding,
+          item.model,
+          item.version || 1
+        );
+      }
+    });
+    tx();
+  }
+
+  /**
+   * Get embedding for a node
+   */
+  getEmbedding(nodeId: string): {
+    embedding: Float32Array;
+    model: string;
+    version: number;
+    dimensions: number;
+    createdAt: number;
+    updatedAt: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        `
+        SELECT embedding, embedding_model, embedding_version, dimensions, created_at, updated_at
+        FROM embeddings
+        WHERE node_id = ?
+      `
+      )
+      .get(nodeId) as
+      | {
+          embedding: Buffer;
+          embedding_model: string;
+          embedding_version: number;
+          dimensions: number;
+          created_at: number;
+          updated_at: number;
+        }
+      | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      embedding: new Float32Array(
+        row.embedding.buffer,
+        row.embedding.byteOffset,
+        row.embedding.length / 4
+      ),
+      model: row.embedding_model,
+      version: row.embedding_version,
+      dimensions: row.dimensions,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  /**
+   * Get all embeddings for a project
+   */
+  getAllEmbeddings(projectRoot: string): Array<{
+    nodeId: string;
+    embedding: Float32Array;
+    model: string;
+    version: number;
+  }> {
+    const projectId = this.getProjectId(projectRoot);
+
+    const rows = this.db
+      .prepare(
+        `
+        SELECT e.node_id, e.embedding, e.embedding_model, e.embedding_version
+        FROM embeddings e
+        INNER JOIN nodes n ON e.node_id = n.id
+        WHERE n.project_id = ?
+      `
+      )
+      .all(projectId) as Array<{
+      node_id: string;
+      embedding: Buffer;
+      embedding_model: string;
+      embedding_version: number;
+    }>;
+
+    return rows.map((row) => ({
+      nodeId: row.node_id,
+      embedding: new Float32Array(
+        row.embedding.buffer,
+        row.embedding.byteOffset,
+        row.embedding.length / 4
+      ),
+      model: row.embedding_model,
+      version: row.embedding_version,
+    }));
+  }
+
+  /**
+   * Get nodes without embeddings
+   */
+  getNodesWithoutEmbeddings(
+    projectRoot: string,
+    model?: string,
+    version?: number
+  ): string[] {
+    const projectId = this.getProjectId(projectRoot);
+
+    let query = `
+      SELECT n.id
+      FROM nodes n
+      LEFT JOIN embeddings e ON n.id = e.node_id
+      WHERE n.project_id = ?
+        AND (e.node_id IS NULL
+    `;
+
+    const params: (string | number)[] = [projectId];
+
+    if (model) {
+      query += ` OR e.embedding_model != ?`;
+      params.push(model);
+    }
+
+    if (version !== undefined) {
+      query += ` OR e.embedding_version != ?`;
+      params.push(version);
+    }
+
+    query += `)`;
+
+    const rows = this.db.prepare(query).all(...params) as Array<{ id: string }>;
+
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Delete embedding for a node
+   */
+  deleteEmbedding(nodeId: string): void {
+    this.db.prepare(`DELETE FROM embeddings WHERE node_id = ?`).run(nodeId);
+  }
+
+  /**
+   * Delete all embeddings for a project
+   */
+  deleteAllEmbeddings(projectRoot: string): void {
+    const projectId = this.getProjectId(projectRoot);
+
+    this.db
+      .prepare(
+        `
+        DELETE FROM embeddings
+        WHERE node_id IN (
+          SELECT id FROM nodes WHERE project_id = ?
+        )
+      `
+      )
+      .run(projectId);
+  }
+
+  /**
+   * Get embedding statistics for a project
+   */
+  getEmbeddingStats(projectRoot: string): {
+    totalNodes: number;
+    nodesWithEmbeddings: number;
+    nodesWithoutEmbeddings: number;
+    models: Array<{ model: string; count: number }>;
+    totalSize: number;
+  } {
+    const projectId = this.getProjectId(projectRoot);
+
+    const totalNodes = (
+      this.db
+        .prepare(`SELECT COUNT(*) as count FROM nodes WHERE project_id = ?`)
+        .get(projectId) as { count: number }
+    ).count;
+
+    const nodesWithEmbeddings = (
+      this.db
+        .prepare(
+          `
+        SELECT COUNT(DISTINCT e.node_id) as count
+        FROM embeddings e
+        INNER JOIN nodes n ON e.node_id = n.id
+        WHERE n.project_id = ?
+      `
+        )
+        .get(projectId) as { count: number }
+    ).count;
+
+    const models = this.db
+      .prepare(
+        `
+        SELECT e.embedding_model as model, COUNT(*) as count
+        FROM embeddings e
+        INNER JOIN nodes n ON e.node_id = n.id
+        WHERE n.project_id = ?
+        GROUP BY e.embedding_model
+      `
+      )
+      .all(projectId) as Array<{ model: string; count: number }>;
+
+    const totalSize = (
+      this.db
+        .prepare(
+          `
+        SELECT SUM(LENGTH(e.embedding)) as size
+        FROM embeddings e
+        INNER JOIN nodes n ON e.node_id = n.id
+        WHERE n.project_id = ?
+      `
+        )
+        .get(projectId) as { size: number | null }
+    ).size || 0;
+
+    return {
+      totalNodes,
+      nodesWithEmbeddings,
+      nodesWithoutEmbeddings: totalNodes - nodesWithEmbeddings,
+      models,
+      totalSize,
     };
   }
 

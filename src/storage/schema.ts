@@ -154,7 +154,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
   full_name,
   summary,
   file_path,
-  content='nodes',
   tokenize='porter unicode61'
 );
 `;

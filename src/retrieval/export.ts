@@ -7,6 +7,8 @@ import {
   ExportBundle,
   GraphEdge,
   GraphNode,
+  GraphLayoutHints,
+  KnowledgeIndex,
   ProjectMetadata,
   QueryResult,
   RankingScore,
@@ -122,16 +124,139 @@ export class ExportEngine {
       focus,
     );
 
-    return {
+    const bundle: AIExportBundle = {
       ...hierarchicalBundle,
       summary: this.buildAISummary(optimizedResult, importance),
       callChains: this.extractCallChains(optimizedResult, 5, 20),
       ranking: analyticsResult
         ? this.buildRankingFromAnalytics(analyticsResult)
         : this.buildRankingFromImportance(importance),
+      knowledge: this.buildKnowledgeIndex(optimizedResult, importance, moduleSummaries),
+      layoutHints: this.buildLayoutHints(optimizedResult),
       focus,
       rules: this.getAIRules(),
     };
+
+    return effectiveMaxTokens
+      ? this.fitAIExportToBudget(bundle, effectiveMaxTokens)
+      : bundle;
+  }
+
+  private fitAIExportToBudget(bundle: AIExportBundle, maxTokens: number): AIExportBundle {
+    const estimateTokens = (value: unknown): number =>
+      Math.ceil(JSON.stringify(value).length / 4);
+
+    if (estimateTokens(bundle) <= maxTokens) {
+      return bundle;
+    }
+
+    const compact: AIExportBundle = {
+      ...bundle,
+      nodes: [...bundle.nodes],
+      edges: [...bundle.edges],
+      summaries: bundle.summaries ? [...bundle.summaries] : [],
+      evidence: bundle.evidence ? [...bundle.evidence] : undefined,
+      ranking: bundle.ranking ? [...bundle.ranking] : undefined,
+      callChains: bundle.callChains ? [...bundle.callChains] : undefined,
+      modules: bundle.modules ? [...bundle.modules] : undefined,
+      summary: bundle.summary
+        ? {
+            ...bundle.summary,
+            entryPoints: [...bundle.summary.entryPoints],
+            coreModules: [...bundle.summary.coreModules],
+            keySymbols: [...bundle.summary.keySymbols],
+            cycles: [...bundle.summary.cycles],
+          }
+        : undefined,
+      knowledge: bundle.knowledge
+        ? {
+            ...bundle.knowledge,
+            algorithms: [...bundle.knowledge.algorithms],
+            architecture: {
+              modules: [...bundle.knowledge.architecture.modules],
+              entryPoints: [...bundle.knowledge.architecture.entryPoints],
+              hotspots: [...bundle.knowledge.architecture.hotspots],
+              dependencyCycles: [...bundle.knowledge.architecture.dependencyCycles],
+              unresolved: [...bundle.knowledge.architecture.unresolved],
+            },
+            recommendations: [...bundle.knowledge.recommendations],
+          }
+        : undefined,
+    };
+
+    compact.ranking = compact.ranking?.slice(0, 25);
+    compact.evidence = compact.evidence?.slice(0, 40);
+    compact.summaries = compact.summaries.slice(0, 24);
+    compact.callChains = compact.callChains?.slice(0, 10);
+    compact.modules = compact.modules?.slice(0, 12);
+
+    if (compact.summary) {
+      compact.summary.entryPoints = compact.summary.entryPoints.slice(0, 12);
+      compact.summary.coreModules = compact.summary.coreModules.slice(0, 10);
+      compact.summary.keySymbols = compact.summary.keySymbols.slice(0, 12);
+      compact.summary.cycles = compact.summary.cycles.slice(0, 8);
+    }
+
+    if (compact.knowledge) {
+      compact.knowledge.architecture.modules = compact.knowledge.architecture.modules.slice(0, 12);
+      compact.knowledge.architecture.hotspots = compact.knowledge.architecture.hotspots.slice(0, 15);
+      compact.knowledge.architecture.dependencyCycles = compact.knowledge.architecture.dependencyCycles.slice(0, 8);
+      compact.knowledge.architecture.unresolved = compact.knowledge.architecture.unresolved.slice(0, 20);
+      compact.knowledge.architecture.entryPoints = compact.knowledge.architecture.entryPoints.slice(0, 12);
+    }
+
+    if (estimateTokens(compact) <= maxTokens) {
+      return compact;
+    }
+
+    const orderedNodes = [...compact.nodes].sort((a: any, b: any) => {
+      const aImportance = typeof a.importance === "number" ? a.importance : 0;
+      const bImportance = typeof b.importance === "number" ? b.importance : 0;
+      return bImportance - aImportance;
+    });
+    const targetNodeCount = Math.max(12, Math.floor(orderedNodes.length * 0.75));
+    const selectedIds = new Set(orderedNodes.slice(0, targetNodeCount).map((node) => node.id));
+    compact.nodes = compact.nodes.filter((node) => selectedIds.has(node.id));
+    compact.edges = compact.edges.filter((edge) => selectedIds.has(edge.from) && selectedIds.has(edge.to));
+    compact.query = {
+      ...compact.query,
+      truncated: true,
+      truncationReason: "Result was compacted to fit the token budget.",
+      nodeCount: compact.nodes.length,
+      edgeCount: compact.edges.length,
+    };
+    compact.ranking = compact.ranking?.filter((rank) => selectedIds.has(rank.nodeId)).slice(0, 20);
+    compact.summaries = compact.summaries.filter((summary) => selectedIds.has(summary.id)).slice(0, 16);
+    compact.evidence = compact.evidence?.slice(0, 24);
+
+    if (compact.summary) {
+      compact.summary.keySymbols = compact.summary.keySymbols
+        .filter((symbol) => selectedIds.has(symbol.id))
+        .slice(0, 10);
+    }
+    if (compact.knowledge) {
+      compact.knowledge.architecture.hotspots = compact.knowledge.architecture.hotspots
+        .filter((hotspot) => selectedIds.has(hotspot.id))
+        .slice(0, 10);
+    }
+    compact.pathMap = this.compactPathMap(compact.pathMap, compact.nodes as any[]);
+
+    return compact;
+  }
+
+  private compactPathMap(
+    pathMap: Record<string, string> | undefined,
+    nodes: Array<{ file?: unknown }>,
+  ): Record<string, string> | undefined {
+    if (!pathMap) return undefined;
+    const used = new Set(
+      nodes
+        .map((node) => node.file)
+        .filter((file): file is string => typeof file === "string" && /^F\d+$/.test(file)),
+    );
+    return Object.fromEntries(
+      Object.entries(pathMap).filter(([id]) => used.has(id)),
+    );
   }
 
   /**
@@ -914,6 +1039,188 @@ export class ExportEngine {
       cycles: this.detectCycles(queryResult, 25),
       unresolvedCount,
     };
+  }
+
+  private buildKnowledgeIndex(
+    queryResult: QueryResult,
+    importance: Map<string, number>,
+    moduleSummaries: Map<string, ModuleSummary>,
+  ): KnowledgeIndex {
+    const nodeById = new Map(queryResult.nodes.map((node) => [node.id, node]));
+    const incoming = new Map<string, number>();
+    const outgoing = new Map<string, number>();
+    const languageSummary: Record<string, number> = {};
+
+    for (const node of queryResult.nodes) {
+      const language = String(node.metadata?.language || node.metadata?.parserLanguage || node.metadata?.fileLanguage || "unknown");
+      if (node.type === "file") {
+        languageSummary[language] = (languageSummary[language] || 0) + 1;
+      }
+      incoming.set(node.id, 0);
+      outgoing.set(node.id, 0);
+    }
+
+    for (const edge of queryResult.edges) {
+      outgoing.set(edge.from, (outgoing.get(edge.from) || 0) + 1);
+      incoming.set(edge.to, (incoming.get(edge.to) || 0) + 1);
+    }
+
+    const cycles = this.detectCycles(queryResult, 50);
+    const unresolved = queryResult.edges
+      .filter((edge) => !edge.resolved || edge.type === "CALLS_UNRESOLVED")
+      .slice(0, 100)
+      .map((edge) => ({
+        from: this.getCanonicalName(nodeById.get(edge.from) || { id: edge.from, name: edge.from } as GraphNode),
+        to: this.getCanonicalName(nodeById.get(edge.to) || { id: edge.to, name: edge.to } as GraphNode),
+        type: edge.type,
+        name: String(edge.metadata?.unresolvedName || edge.metadata?.symbol || "") || undefined,
+      }));
+
+    const hotspots = queryResult.nodes
+      .filter((node) => !["project", "module"].includes(node.type))
+      .map((node) => {
+        const inc = incoming.get(node.id) || 0;
+        const out = outgoing.get(node.id) || 0;
+        const score = Number(((importance.get(node.id) || 0) + Math.log1p(inc + out) / 10).toFixed(4));
+        return {
+          id: node.id,
+          name: this.getCanonicalName(node),
+          type: node.type,
+          score,
+          incoming: inc,
+          outgoing: out,
+          reason: inc > out * 2 ? "many dependents" : out > inc * 2 ? "orchestrates many dependencies" : "central graph position",
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 30);
+
+    const entryPoints = queryResult.edges
+      .filter((edge) => edge.type === "ENTRY_POINT")
+      .map((edge) => nodeById.get(edge.to))
+      .filter((node): node is GraphNode => Boolean(node))
+      .map((node) => this.getCanonicalName(node))
+      .sort();
+
+    const modules = Array.from(moduleSummaries.values())
+      .sort((a, b) => b.importance - a.importance)
+      .slice(0, 50)
+      .map((module, index) => ({
+        id: `M${index + 1}`,
+        path: module.path,
+        label: module.label,
+        role: this.inferModuleRole(module),
+        fileCount: module.fileCount,
+        symbolCount: module.symbolCount,
+        importance: Number(module.importance.toFixed(4)),
+        topSymbols: module.topSymbols,
+      }));
+
+    const isolatedNodeCount = queryResult.nodes.filter((node) => {
+      return (incoming.get(node.id) || 0) + (outgoing.get(node.id) || 0) === 0;
+    }).length;
+    const unresolvedEdgeCount = queryResult.edges.filter((edge) => !edge.resolved).length;
+
+    return {
+      schemaVersion: "codebrain-knowledge/v1",
+      algorithms: [
+        {
+          name: "Tree-sitter AST extraction",
+          purpose: "Language-aware symbol and import extraction",
+          implementation: "Per-language parsers plus generic tree-sitter parser for extended languages",
+        },
+        {
+          name: "Degree/PageRank-style importance",
+          purpose: "Prioritize central symbols and files for agents",
+          implementation: "Incoming/outgoing edge weighted importance with entry-point boosts",
+        },
+        {
+          name: "Tarjan strongly connected components",
+          purpose: "Detect dependency cycles without false path sampling",
+          implementation: "SCC over resolved import/dependency/inheritance edges",
+        },
+        {
+          name: "Community/module grouping",
+          purpose: "Summarize architecture by directory and graph neighborhood",
+          implementation: "Directory modules plus server-side graph communities",
+        },
+      ],
+      graphHealth: {
+        nodeCount: queryResult.nodes.length,
+        edgeCount: queryResult.edges.length,
+        resolvedEdgeCount: queryResult.edges.length - unresolvedEdgeCount,
+        unresolvedEdgeCount,
+        isolatedNodeCount,
+        cycleCount: cycles.length,
+      },
+      languageSummary,
+      architecture: {
+        modules,
+        entryPoints,
+        hotspots,
+        dependencyCycles: cycles,
+        unresolved,
+      },
+      recommendations: this.buildRecommendations(queryResult, unresolved.length, cycles.length, isolatedNodeCount),
+    };
+  }
+
+  private buildLayoutHints(queryResult: QueryResult): GraphLayoutHints {
+    const nodeCount = queryResult.nodes.length;
+    return {
+      recommendedAlgorithm: nodeCount > 2000 ? "clustered-lod-forceatlas2" : "community-seeded-forceatlas2",
+      algorithms: [
+        "community-seeded circular initialization",
+        "ForceAtlas2 force-directed refinement",
+        "rank-scaled node sizing",
+        "edge-type weighted styling",
+        "Tarjan SCC highlighting",
+      ],
+      nodeCount,
+      edgeCount: queryResult.edges.length,
+      partitionBy: "communityId/moduleContext/directory",
+      rankBy: "importance + degree + entry-point boost",
+      edgeWeightBy: "relationship type and resolved confidence",
+    };
+  }
+
+  private inferModuleRole(module: ModuleSummary): string {
+    const text = `${module.path}/${module.label}`.toLowerCase();
+    if (text.includes("parser")) return "language_parsing";
+    if (text.includes("graph")) return "graph_modeling";
+    if (text.includes("retrieval") || text.includes("export")) return "knowledge_export";
+    if (text.includes("server") || text.includes("api")) return "serving_api";
+    if (text.includes("storage") || text.includes("db")) return "persistence";
+    if (text.includes("ui")) return "visualization";
+    if (text.includes("test")) return "testing";
+    if (module.importedBy.length > module.imports.length * 2) return "core_shared_module";
+    if (module.imports.length > module.importedBy.length * 2) return "orchestration_module";
+    return "application_module";
+  }
+
+  private buildRecommendations(
+    queryResult: QueryResult,
+    unresolvedCount: number,
+    cycleCount: number,
+    isolatedNodeCount: number,
+  ): string[] {
+    const recommendations: string[] = [];
+    if (unresolvedCount > 0) {
+      recommendations.push(`Resolve or classify ${unresolvedCount} unresolved relationships to improve agent confidence.`);
+    }
+    if (cycleCount > 0) {
+      recommendations.push(`Review ${cycleCount} dependency cycle(s); cycles make architecture harder to reason about and refactor.`);
+    }
+    if (isolatedNodeCount > Math.max(10, queryResult.nodes.length * 0.15)) {
+      recommendations.push("Investigate isolated nodes; they may be generated files, dead code, or missing parser relationships.");
+    }
+    if (queryResult.truncated) {
+      recommendations.push("Export is truncated; use a larger token budget or focused export before making broad architectural claims.");
+    }
+    if (recommendations.length === 0) {
+      recommendations.push("Graph health is strong for this export scope; prioritize high-score hotspots for review.");
+    }
+    return recommendations;
   }
 
   private extractCallChains(

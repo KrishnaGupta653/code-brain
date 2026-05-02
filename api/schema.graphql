@@ -1,0 +1,67 @@
+# User type
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  posts: [Post!]!
+  createdAt: String!
+}
+
+# Post type
+type Post {
+  id: ID!
+  title: String!
+  content: String!
+  author: User!
+  published: Boolean!
+  createdAt: String!
+}
+
+# Input for creating a user
+input CreateUserInput {
+  name: String!
+  email: String!
+}
+
+# Input for creating a post
+input CreatePostInput {
+  title: String!
+  content: String!
+  authorId: ID!
+}
+
+# Query operations
+type Query {
+  # Get all users
+  users(limit: Int = 10): [User!]!
+  
+  # Get user by ID
+  user(id: ID!): User
+  
+  # Get all posts
+  posts(limit: Int = 10): [Post!]!
+  
+  # Get post by ID
+  post(id: ID!): Post
+}
+
+# Mutation operations
+type Mutation {
+  # Create a new user
+  createUser(input: CreateUserInput!): User!
+  
+  # Create a new post
+  createPost(input: CreatePostInput!): Post!
+  
+  # Delete a user
+  deleteUser(id: ID!): Boolean!
+}
+
+# Subscription operations
+type Subscription {
+  # Subscribe to new posts
+  postCreated: Post!
+  
+  # Subscribe to user updates
+  userUpdated(id: ID!): User!
+}

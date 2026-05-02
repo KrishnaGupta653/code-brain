@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Filter,
   GitBranch,
+  Keyboard,
   LocateFixed,
   Maximize2,
   Network,
@@ -50,6 +51,8 @@ interface NodeAttributes {
   highlighted?: boolean;
   forceLabel?: boolean;
   zIndex?: number;
+  community?: number;
+  rankScore?: number;
 }
 
 interface EdgeAttributes {
@@ -176,6 +179,39 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function stableNumber(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function buildCommunityLookup(payload: GraphPayload): Map<string, number> {
+  const lookup = new Map<string, number>();
+  payload.analytics?.communities?.forEach((community, index) => {
+    community.nodeIds.forEach((nodeId) => lookup.set(nodeId, index));
+  });
+  return lookup;
+}
+
+function edgeWeight(type: string, resolved: boolean): number {
+  const base: Record<string, number> = {
+    ENTRY_POINT: 5,
+    DEFINES: 4,
+    CALLS: 3.5,
+    IMPORTS: 3,
+    DEPENDS_ON: 3,
+    EXTENDS: 2.8,
+    IMPLEMENTS: 2.5,
+    TESTS: 1.8,
+    REFERENCES: 1.4,
+    CALLS_UNRESOLVED: 0.8,
+  };
+  return (base[type] || 1.2) * (resolved ? 1 : 0.55);
+}
+
 function useGraphData() {
   const [payload, setPayload] = useState<GraphPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -205,26 +241,26 @@ function useGraphData() {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
-    
+
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    
+
     const connect = () => {
       try {
         ws = new WebSocket(wsUrl);
-        
+
         ws.onopen = () => {
           console.info('WebSocket connected');
         };
-        
+
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
-            
+
             if (message.type === 'graph-updated') {
               console.info('Graph updated:', message.message);
               setLastUpdate(message.message);
-              
+
               // Reload graph data
               fetch("/api/graph?level=0")
                 .then((response) => response.json() as Promise<GraphPayload>)
@@ -241,11 +277,11 @@ function useGraphData() {
             console.error('Failed to parse WebSocket message:', err);
           }
         };
-        
+
         ws.onerror = (error) => {
           console.error('WebSocket error:', error);
         };
-        
+
         ws.onclose = () => {
           console.info('WebSocket disconnected, reconnecting in 3s...');
           reconnectTimer = setTimeout(connect, 3000);
@@ -255,9 +291,9 @@ function useGraphData() {
         reconnectTimer = setTimeout(connect, 3000);
       }
     };
-    
+
     connect();
-    
+
     return () => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) {
@@ -268,31 +304,31 @@ function useGraphData() {
 
   const expandCommunity = async (communityId: number) => {
     if (expandedCommunities.has(communityId)) return;
-    
+
     try {
       const response = await fetch(`/api/graph?community=${communityId}`);
       const communityData = await response.json() as GraphPayload;
-      
+
       setPayload((prev) => {
         if (!prev) return communityData;
-        
+
         // Merge community nodes into existing graph
         const existingNodeIds = new Set(prev.nodes.map(n => n.id));
         const newNodes = communityData.nodes.filter(n => !existingNodeIds.has(n.id));
-        const newEdges = communityData.edges.filter(e => 
+        const newEdges = communityData.edges.filter(e =>
           !prev.edges.some(existing => existing.id === e.id)
         );
-        
+
         // Remove the cluster node
         const filteredNodes = prev.nodes.filter(n => n.id !== `cluster_${communityId}`);
-        
+
         return {
           ...prev,
           nodes: [...filteredNodes, ...newNodes],
           edges: [...prev.edges, ...newEdges],
         };
       });
-      
+
       setExpandedCommunities(prev => new Set([...prev, communityId]));
     } catch (err) {
       console.error('Failed to expand community', err);
@@ -334,6 +370,7 @@ function GraphStage({
     () => new Map(payload.nodes.map((node) => [node.id, node])),
     [payload.nodes],
   );
+  const communityLookup = useMemo(() => buildCommunityLookup(payload), [payload]);
 
   const projectSphere = useCallback(() => {
     const graph = graphRef.current;
@@ -379,22 +416,31 @@ function GraphStage({
 
     const graph: any = new Graph({ multi: true, type: "directed" });
     const radius = Math.max(8, Math.sqrt(payload.nodes.length) * 2.2);
+    const communityCount = Math.max(1, payload.analytics?.communities?.length || 1);
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
     payload.nodes.forEach((node, index) => {
-      const angle = (index / Math.max(1, payload.nodes.length)) * Math.PI * 2;
-      const communityOffset = node.type.charCodeAt(0) % 9;
-      const depthAngle = angle * 1.7 + communityOffset;
+      const community = communityLookup.get(node.id) ?? Number(node.metadata?.communityId ?? stableNumber(String(node.file || node.type)) % communityCount);
+      const communityAngle = community * goldenAngle;
+      const communityRadius = Math.sqrt(community + 1) * radius * 1.7;
+      const localSeed = stableNumber(`${node.id}:${index}`);
+      const localAngle = (localSeed % 3600) / 3600 * Math.PI * 2;
+      const localRadius = Math.sqrt((localSeed % 1000) / 1000) * Math.max(5, radius * 0.72);
+      const rankScore = node.rank?.score ?? 0;
+      const depthAngle = localAngle * 1.7 + communityAngle;
       const baseSize = nodeSize(node);
       graph.addNode(node.id, {
         label: node.name,
-        x: Math.cos(angle) * radius + communityOffset * 3,
-        y: Math.sin(angle) * radius + communityOffset * 3,
-        z: Math.sin(depthAngle) * radius * 0.72,
+        x: Math.cos(communityAngle) * communityRadius + Math.cos(localAngle) * localRadius,
+        y: Math.sin(communityAngle) * communityRadius + Math.sin(localAngle) * localRadius,
+        z: Math.sin(depthAngle) * radius * (0.45 + rankScore),
         size: baseSize,
         color: NODE_COLORS[node.type] || "#e2e8f0",
         baseColor: NODE_COLORS[node.type] || "#e2e8f0",
         baseSize,
         semanticType: node.type,
+        community,
+        rankScore,
       });
     });
 
@@ -405,19 +451,30 @@ function GraphStage({
           size: edge.resolved ? 1.2 : 0.8,
           color: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
           baseColor: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
+          weight: edgeWeight(edge.type, edge.resolved),
           type: "arrow",
         });
       }
     });
 
-    // Only run ForceAtlas2 for small to medium graphs
-    // For large graphs (>1000 nodes), use the initial circular layout
-    if (graph.order > 2 && graph.order < 1000) {
+    // Community-seeded ForceAtlas2: fast, stable, and readable for architecture maps.
+    // For very large graphs we keep the seeded LOD layout and let cluster expansion refine locally.
+    if (graph.order > 2 && graph.order < 1800) {
+      const inferred = forceAtlas2.inferSettings(graph);
       forceAtlas2.assign(graph, {
-        iterations: Math.min(140, Math.max(45, graph.order * 2)),
-        settings: forceAtlas2.inferSettings(graph),
+        iterations: Math.min(260, Math.max(70, graph.order * 2.4)),
+        settings: {
+          ...inferred,
+          gravity: 0.08,
+          scalingRatio: graph.order > 600 ? 18 : 11,
+          strongGravityMode: false,
+          adjustSizes: true,
+          barnesHutOptimize: graph.order > 250,
+          edgeWeightInfluence: 0.72,
+          slowDown: 2.4,
+        },
       });
-    } else if (graph.order >= 1000) {
+    } else if (graph.order >= 1800) {
       console.info(`Large graph detected (${graph.order} nodes), using optimized layout`);
     }
 
@@ -466,7 +523,7 @@ function GraphStage({
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [payload, onSelect, onHover, projectSphere]);
+  }, [payload, onSelect, onHover, projectSphere, communityLookup]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -484,6 +541,8 @@ function GraphStage({
       const node = nodeLookup.get(id);
       const visibleByType = node ? activeTypes.has(node.type) : true;
       const related = !focusId || selectedNeighbors.has(id);
+      const baseSize = Number(attrs.baseSize ?? attrs.size ?? (node ? nodeSize(node) : 4));
+
       graph.setNodeAttribute(id, "hidden", !visibleByType);
       graph.setNodeAttribute(
         id,
@@ -498,8 +557,7 @@ function GraphStage({
       graph.setNodeAttribute(
         id,
         "size",
-        Number(attrs.size ?? (node ? nodeSize(node) : 4)) *
-          (id === selectedId ? 1.25 : related ? 1 : 0.9),
+        baseSize * (id === selectedId ? 1.15 : related ? 1 : 0.95),
       );
     });
 
@@ -526,7 +584,7 @@ function GraphStage({
       const position = sigma.getNodeDisplayData(selectedId);
       if (position) {
         sigma.getCamera().animate(
-          { x: position.x, y: position.y, ratio: 0.55 },
+          { x: position.x, y: position.y, ratio: 0.15 },
           { duration: 420 },
         );
       }
@@ -615,7 +673,9 @@ function App() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [details, setDetails] = useState<NodeDetails | null>(null);
   const [source, setSource] = useState<SourcePayload | null>(null);
+  const [showFullFile, setShowFullFile] = useState(false);
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set());
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [leftWidth, setLeftWidth] = useState(() =>
     Number(localStorage.getItem("codebrain:leftWidth") || 320),
   );
@@ -623,6 +683,7 @@ function App() {
     Number(localStorage.getItem("codebrain:rightWidth") || 390),
   );
   const shellRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (payload) {
@@ -638,18 +699,49 @@ function App() {
     localStorage.setItem("codebrain:rightWidth", String(rightWidth));
   }, [rightWidth]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Cmd/Ctrl + K: Focus search
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      // Cmd/Ctrl + /: Toggle shortcuts panel
+      if ((event.metaKey || event.ctrlKey) && event.key === '/') {
+        event.preventDefault();
+        setShowShortcuts(prev => !prev);
+      }
+      // Escape: Clear selection or close shortcuts
+      if (event.key === 'Escape') {
+        if (showShortcuts) {
+          setShowShortcuts(false);
+        } else if (selectedId) {
+          setSelectedId(null);
+          setDetails(null);
+          setSource(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, showShortcuts]);
+
   const selectNode = useCallback((id: string) => {
     setSelectedId(id);
+    setShowFullFile(false); // Reset when selecting new node
     fetch(`/api/node/${encodeURIComponent(id)}`)
       .then((response) => response.json() as Promise<NodeDetails>)
       .then((node) => {
         setDetails(node);
         if (node.sourcePreview) {
+          // Request more context to show the full node code
           const params = new URLSearchParams({
             file: node.sourcePreview.file,
             startLine: String(node.sourcePreview.startLine),
             endLine: String(node.sourcePreview.endLine),
-            context: "8",
+            context: "20", // Increased from 8 to 20 for more context
           });
           return fetch(`/api/source?${params}`).then(
             (response) => response.json() as Promise<SourcePayload>,
@@ -666,6 +758,26 @@ function App() {
         setSource(null);
       });
   }, []);
+
+  const loadFullFile = useCallback(() => {
+    if (!details?.sourcePreview) return;
+
+    // Load entire file by requesting from line 1 to a very large number
+    const params = new URLSearchParams({
+      file: details.sourcePreview.file,
+      startLine: "1",
+      endLine: "999999", // Large number to get entire file
+      context: "0",
+    });
+
+    fetch(`/api/source?${params}`)
+      .then((response) => response.json() as Promise<SourcePayload>)
+      .then((sourcePayload) => {
+        setSource(sourcePayload);
+        setShowFullFile(true);
+      })
+      .catch((err) => console.error('Failed to load full file:', err));
+  }, [details]);
 
   const search = useCallback(() => {
     const trimmed = query.trim();
@@ -749,15 +861,22 @@ function App() {
 
         {lastUpdate && (
           <div style={{
-            padding: '8px 12px',
-            margin: '8px 12px',
-            background: 'rgba(74, 222, 128, 0.1)',
-            border: '1px solid rgba(74, 222, 128, 0.3)',
-            borderRadius: '6px',
+            padding: '10px 14px',
+            margin: '0 0 8px',
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(6, 182, 212, 0.1))',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+            borderRadius: '10px',
             fontSize: '12px',
-            color: '#4ade80'
+            fontWeight: '600',
+            color: '#10b981',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)',
+            animation: 'fadeIn 400ms ease'
           }}>
-            ✓ {lastUpdate}
+            <Activity size={14} style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+            {lastUpdate}
           </div>
         )}
 
@@ -768,6 +887,7 @@ function App() {
           </label>
           <div className="search-box">
             <input
+              ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && search()}
@@ -937,9 +1057,83 @@ function App() {
               <section className="source-panel">
                 <header>
                   <span><Code2 size={15} /> {source.relativeFile}</span>
-                  {source.vscodeUri && <a href={source.vscodeUri}>Open</a>}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {!showFullFile && (
+                      <button
+                        type="button"
+                        onClick={loadFullFile}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          border: '1px solid rgba(148, 163, 184, 0.25)',
+                          borderRadius: '8px',
+                          background: 'rgba(6, 182, 212, 0.15)',
+                          color: '#22d3ee',
+                          cursor: 'pointer',
+                          transition: 'all 200ms ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(6, 182, 212, 0.25)';
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(6, 182, 212, 0.15)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                        }}
+                      >
+                        <Maximize2 size={12} />
+                        Full File
+                      </button>
+                    )}
+                    {source.vscodeUri && (
+                      <a href={source.vscodeUri}>
+                        <ExternalLink size={12} />
+                        Open
+                      </a>
+                    )}
+                  </div>
                 </header>
-                <pre>
+                <div style={{
+                  padding: '8px 12px',
+                  background: 'rgba(6, 182, 212, 0.08)',
+                  borderBottom: '1px solid var(--line-bright)',
+                  fontSize: '0.75rem',
+                  color: 'var(--muted)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>
+                    {showFullFile
+                      ? `Full file (${source.lines.length} lines)`
+                      : `Lines ${source.requestedStartLine}-${source.requestedEndLine} with context`
+                    }
+                  </span>
+                  {showFullFile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowFullFile(false);
+                        selectNode(selectedId!);
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.7rem',
+                        border: '1px solid rgba(148, 163, 184, 0.2)',
+                        borderRadius: '6px',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'var(--muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Show Less
+                    </button>
+                  )}
+                </div>
+                <pre style={{ maxHeight: showFullFile ? '600px' : '380px' }}>
                   {source.lines.map((line) => (
                     <div key={line.line} className={line.highlighted ? "hot-line" : ""}>
                       <span>{line.line}</span>
@@ -958,6 +1152,88 @@ function App() {
           </section>
         )}
       </aside>
+
+      {/* Keyboard Shortcuts Panel */}
+      {showShortcuts && (
+        <div
+          className="shortcuts-overlay"
+          onClick={() => setShowShortcuts(false)}
+        >
+          <div
+            className="shortcuts-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Keyboard size={20} />
+                <h2>Keyboard Shortcuts</h2>
+              </div>
+              <button type="button" onClick={() => setShowShortcuts(false)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="shortcuts-list">
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Ctrl</kbd> + <kbd>K</kbd>
+                </div>
+                <span>Focus search</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Ctrl</kbd> + <kbd>/</kbd>
+                </div>
+                <span>Toggle shortcuts</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Esc</kbd>
+                </div>
+                <span>Clear selection / Close panel</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Enter</kbd>
+                </div>
+                <span>Execute search</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Shift</kbd> + <kbd>Drag</kbd>
+                </div>
+                <span>Rotate 3D sphere</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Alt</kbd> + <kbd>Drag</kbd>
+                </div>
+                <span>Rotate 3D sphere</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Click</kbd>
+                </div>
+                <span>Select node</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>Hover</kbd>
+                </div>
+                <span>Preview node connections</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Shortcuts Button */}
+      <button
+        className="shortcuts-fab"
+        onClick={() => setShowShortcuts(true)}
+        title="Keyboard shortcuts (Ctrl+/)"
+      >
+        <Keyboard size={20} />
+      </button>
     </main>
   );
 }

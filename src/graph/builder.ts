@@ -37,13 +37,13 @@ export class GraphBuilder {
   private projectRoot = "";
   private pathAliases: PathAlias[] = [];
 
-  buildFromRepository(
+  async buildFromRepository(
     root: string,
     include: string[] = ["**"],
     exclude: string[] = ["node_modules", "dist"],
     explicitFiles?: string[],
     useParallel: boolean = true,
-  ): GraphModel {
+  ): Promise<GraphModel> {
     this.graph = new GraphModel();
     this.parsedFiles.clear();
     this.fileIdMap.clear();
@@ -79,12 +79,12 @@ export class GraphBuilder {
 
     // Parse files (parallel or sequential)
     if (useParallel && files.length >= 10) {
-      this.parseFilesParallel(files);
+      await this.parseFilesParallel(files);
     } else {
-      this.parseFilesSequential(files);
+      await this.parseFilesSequential(files);
     }
 
-    this.buildRelationshipEdges();
+    await this.buildRelationshipEdges();
 
     // Apply semantic analysis for world-class exports
     logger.info("Analyzing semantic structure...");
@@ -340,9 +340,16 @@ export class GraphBuilder {
     }
   }
 
-  private buildRelationshipEdges(): void {
+  private async buildRelationshipEdges(): Promise<void> {
+    const ora = (await import('ora')).default;
+    const spinner = ora('Building import relationships...').start();
+    
     // First pass: build import resolver maps for all files
     const importResolverMaps = new Map<string, Map<string, { resolvedFilePath: string; exportName: string }>>();
+    
+    let processed = 0;
+    const total = this.parsedFiles.size;
+    const startTime = Date.now();
     
     for (const [filePath, parsed] of this.parsedFiles) {
       const importAliasMap = new Map<string, { resolvedFilePath: string; exportName: string }>();
@@ -381,7 +388,22 @@ export class GraphBuilder {
       }
       
       importResolverMaps.set(filePath, importAliasMap);
+      
+      processed++;
+      if (processed % 10 === 0) {
+        const percentage = Math.round((processed / total) * 100);
+        const elapsed = Date.now() - startTime;
+        const avgTimePerFile = elapsed / processed;
+        const remaining = (total - processed) * avgTimePerFile;
+        const remainingSeconds = Math.round(remaining / 1000);
+        spinner.text = `Building import relationships: ${processed}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
+      }
     }
+
+    const phase1Time = Math.round((Date.now() - startTime) / 1000);
+    spinner.text = `Building dependency edges... (Phase 1: ${phase1Time}s)`;
+    processed = 0;
+    const phase2Start = Date.now();
 
     // Second pass: build edges using import resolver maps
     for (const [filePath, parsed] of this.parsedFiles) {
@@ -498,6 +520,28 @@ export class GraphBuilder {
         }
       }
 
+      processed++;
+      if (processed % 10 === 0) {
+        const percentage = Math.round((processed / total) * 100);
+        const elapsed = Date.now() - phase2Start;
+        const avgTimePerFile = elapsed / processed;
+        const remaining = (total - processed) * avgTimePerFile;
+        const remainingSeconds = Math.round(remaining / 1000);
+        spinner.text = `Building dependency edges: ${processed}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
+      }
+    }
+
+    const phase2Time = Math.round((Date.now() - phase2Start) / 1000);
+    spinner.succeed(`Built relationships for ${total} files (${phase1Time + phase2Time}s total)`);
+    
+    // Third pass: connect symbol relationships
+    processed = 0;
+    const phase3Start = Date.now();
+    const spinnerSymbols = ora('Connecting symbol relationships...').start();
+    
+    for (const [filePath, parsed] of this.parsedFiles) {
+      const importResolverMap = importResolverMaps.get(filePath) || new Map();
+      
       for (const symbol of parsed.symbols) {
         this.connectSymbolRelationships(
           filePath,
@@ -506,7 +550,20 @@ export class GraphBuilder {
           parsed.isTestFile,
         );
       }
+      
+      processed++;
+      if (processed % 10 === 0) {
+        const percentage = Math.round((processed / total) * 100);
+        const elapsed = Date.now() - phase3Start;
+        const avgTimePerFile = elapsed / processed;
+        const remaining = (total - processed) * avgTimePerFile;
+        const remainingSeconds = Math.round(remaining / 1000);
+        spinnerSymbols.text = `Connecting symbol relationships: ${processed}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
+      }
     }
+    
+    const phase3Time = Math.round((Date.now() - phase3Start) / 1000);
+    spinnerSymbols.succeed(`Connected symbol relationships for ${total} files (${phase3Time}s)`);
   }
 
   private connectSymbolRelationships(
@@ -969,9 +1026,30 @@ export class GraphBuilder {
     return candidates.find((candidate) => fs.existsSync(candidate));
   }
 
-  private parseFilesSequential(files: string[]): void {
+  private async parseFilesSequential(files: string[], showProgress: boolean = true): Promise<void> {
+    let spinner: any = null;
+    let processed = 0;
+    const total = files.length;
+    const startTime = Date.now();
+    const slowFiles: string[] = [];
+    
+    if (showProgress) {
+      const ora = (await import('ora')).default;
+      spinner = ora({
+        text: `Parsing files: 0/${total} (0%) - Starting...`,
+        spinner: 'dots'
+      }).start();
+    }
+    
     for (const file of files) {
+      const fileStartTime = Date.now();
       try {
+        // Show which file we're parsing
+        if (spinner) {
+          const shortPath = file.length > 50 ? '...' + file.slice(-47) : file;
+          spinner.text = `Parsing: ${shortPath}`;
+        }
+        
         const parsed = Parser.parseFile(file);
         this.parsedFiles.set(file, parsed);
         this.addFileAndSymbols(file, parsed);
@@ -980,20 +1058,81 @@ export class GraphBuilder {
           language: parsed.language,
           size: fs.statSync(file).size
         });
+        
+        const fileTime = Date.now() - fileStartTime;
+        if (fileTime > 5000) { // Track files that take more than 5 seconds
+          slowFiles.push(`${file} (${Math.round(fileTime / 1000)}s)`);
+        }
+        
+        processed++;
+        if (spinner) {
+          const percentage = Math.round((processed / total) * 100);
+          const elapsed = Date.now() - startTime;
+          const avgTimePerFile = elapsed / processed;
+          const remaining = (total - processed) * avgTimePerFile;
+          const remainingSeconds = Math.round(remaining / 1000);
+          
+          spinner.text = `Parsing files: ${processed}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
+        }
       } catch (error) {
-        logger.warn(`Failed to parse: ${file}`, error);
+        if (spinner) {
+          spinner.warn(`Failed to parse: ${file}`);
+          const ora = (await import('ora')).default;
+          spinner = ora({
+            text: `Continuing... ${processed + 1}/${total}`,
+            spinner: 'dots'
+          }).start();
+        } else {
+          logger.warn(`Failed to parse: ${file}`, error);
+        }
+        processed++;
+      }
+    }
+    
+    if (spinner) {
+      const totalTime = Math.round((Date.now() - startTime) / 1000);
+      spinner.succeed(`Parsed ${processed}/${total} files in ${totalTime}s`);
+      
+      if (slowFiles.length > 0) {
+        logger.warn(`Slow files detected (>5s): ${slowFiles.slice(0, 5).join(', ')}${slowFiles.length > 5 ? ` and ${slowFiles.length - 5} more` : ''}`);
       }
     }
   }
 
-  private parseFilesParallel(files: string[]): void {
-    logger.info(`Using parallel parsing with ${Math.max(1, os.cpus().length - 1)} workers`);
+  private async parseFilesParallel(files: string[]): Promise<void> {
+    const ora = (await import('ora')).default;
+    const spinner = ora({
+      text: `Parsing files: 0/${files.length} (0%) - Starting parallel parsing...`,
+      spinner: 'dots'
+    }).start();
+    
+    const startTime = Date.now();
     const parallelParser = new ParallelParser();
     
-    // Note: We need to make this synchronous for now since buildFromRepository is sync
-    // In a real implementation, we'd make buildFromRepository async
-    // For now, fall back to sequential
-    this.parseFilesSequential(files);
+    // Parse files with progress callback
+    const results = await parallelParser.parseFiles(files, (current, total) => {
+      const percentage = Math.round((current / total) * 100);
+      const elapsed = Date.now() - startTime;
+      const avgTimePerFile = elapsed / Math.max(current, 1);
+      const remaining = (total - current) * avgTimePerFile;
+      const remainingSeconds = Math.round(remaining / 1000);
+      
+      spinner.text = `Parsing files: ${current}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
+    });
+    
+    // Process results
+    for (const [filePath, parsed] of results) {
+      this.parsedFiles.set(filePath, parsed);
+      this.addFileAndSymbols(filePath, parsed);
+      this.fileHashMap.set(filePath, {
+        hash: parsed.hash,
+        language: parsed.language,
+        size: fs.statSync(filePath).size
+      });
+    }
+    
+    const totalTime = Math.round((Date.now() - startTime) / 1000);
+    spinner.succeed(`Parsed ${results.size}/${files.length} files in ${totalTime}s (parallel)`);
   }
 
   private isExternalModule(moduleName: string): boolean {
@@ -1030,5 +1169,234 @@ export class GraphBuilder {
       logger.debug("Failed to load tsconfig path aliases", error);
       return [];
     }
+  }
+
+  /**
+   * Add documentation files to the graph
+   */
+  async addDocumentation(includePatterns?: string[]): Promise<void> {
+    const { DocumentationBuilder } = await import('./documentation-builder.js');
+    const { MarkdownParser } = await import('../parser/markdown.js');
+    
+    // Default patterns for documentation files
+    const patterns = includePatterns || [
+      'README.md',
+      'CHANGELOG.md',
+      'CONTRIBUTING.md',
+      'docs/**/*.md',
+      'documentation/**/*.md',
+      '*.md',
+    ];
+    
+    // Find documentation files by walking the directory
+    const docFiles: string[] = [];
+    
+    const walk = (dir: string): void => {
+      if (!fs.existsSync(dir)) {
+        return;
+      }
+      
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = path.relative(this.projectRoot, fullPath);
+        
+        // Skip excluded directories
+        if (
+          relativePath.includes('node_modules') ||
+          relativePath.includes('dist') ||
+          relativePath.includes('build') ||
+          relativePath.includes('.git')
+        ) {
+          continue;
+        }
+        
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        
+        // Check if it's a markdown file
+        if (MarkdownParser.isMarkdownFile(fullPath)) {
+          // Check if it matches any of the patterns
+          const shouldInclude = patterns.some(pattern => {
+            if (pattern === '*.md') {
+              return path.dirname(fullPath) === this.projectRoot;
+            }
+            if (pattern.includes('**')) {
+              const regex = new RegExp(
+                pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*')
+              );
+              return regex.test(relativePath);
+            }
+            return relativePath === pattern || relativePath.endsWith('/' + pattern);
+          });
+          
+          if (shouldInclude) {
+            docFiles.push(fullPath);
+          }
+        }
+      }
+    };
+    
+    walk(this.projectRoot);
+    
+    // Remove duplicates
+    const uniqueDocFiles = Array.from(new Set(docFiles)).sort();
+    
+    if (uniqueDocFiles.length === 0) {
+      logger.info('No documentation files found');
+      return;
+    }
+    
+    logger.info(`Found ${uniqueDocFiles.length} documentation files`);
+    
+    // Create documentation builder
+    const docBuilder = new DocumentationBuilder(this.graph, this.projectRoot);
+    
+    // Add documentation with progress tracking
+    const ora = (await import('ora')).default;
+    const spinner = ora({
+      text: `Processing documentation: 0/${uniqueDocFiles.length}`,
+      spinner: 'dots',
+    }).start();
+    
+    docBuilder.addDocumentation(uniqueDocFiles, (current, total) => {
+      const percentage = Math.round((current / total) * 100);
+      spinner.text = `Processing documentation: ${current}/${total} (${percentage}%)`;
+    });
+    
+    const stats = docBuilder.getStats();
+    spinner.succeed(
+      `Processed ${stats.totalDocs} documentation sections, ` +
+      `${stats.totalExamples} examples, ` +
+      `linked to ${stats.linkedSymbols} symbols (${stats.coverage.toFixed(1)}% coverage)`
+    );
+  }
+
+  /**
+   * Add API schemas to the graph
+   */
+  async addAPISchemas(includePatterns?: string[]): Promise<void> {
+    const { APIBuilder } = await import('./api-builder.js');
+    const { OpenAPIParser } = await import('../parser/openapi.js');
+    const { GraphQLSchemaParser } = await import('../parser/graphql-schema.js');
+    
+    // Default patterns for API schema files
+    const patterns = includePatterns || [
+      '**/openapi.yaml',
+      '**/openapi.yml',
+      '**/openapi.json',
+      '**/swagger.yaml',
+      '**/swagger.yml',
+      '**/swagger.json',
+      '**/api-spec.yaml',
+      '**/api-spec.yml',
+      '**/schema.graphql',
+      '**/schema.gql',
+      '**/*.graphql',
+      '**/*.gql',
+    ];
+    
+    // Find API schema files by walking the directory
+    const schemaFiles: string[] = [];
+    
+    const walk = (dir: string): void => {
+      if (!fs.existsSync(dir)) {
+        return;
+      }
+      
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = path.relative(this.projectRoot, fullPath);
+        
+        // Skip excluded directories
+        if (
+          relativePath.includes('node_modules') ||
+          relativePath.includes('dist') ||
+          relativePath.includes('build') ||
+          relativePath.includes('.git') ||
+          relativePath.includes('test') ||
+          relativePath.includes('tests')
+        ) {
+          continue;
+        }
+        
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        
+        // Check if it's an API schema file
+        if (OpenAPIParser.isOpenAPIFile(fullPath) || GraphQLSchemaParser.isGraphQLFile(fullPath)) {
+          // Check if it matches any of the patterns
+          const shouldInclude = patterns.some(pattern => {
+            // Simple filename match
+            if (!pattern.includes('/') && !pattern.includes('*')) {
+              return entry.name === pattern;
+            }
+            
+            // Escape dots first, then handle wildcards
+            let regexPattern = pattern.replace(/\./g, '\\.');
+            
+            // Pattern with **
+            if (pattern.includes('**')) {
+              regexPattern = regexPattern
+                .replace(/\*\*/g, '.*')  // ** matches any path
+                .replace(/\*/g, '[^/]*'); // * matches any filename part
+            } else if (pattern.includes('*')) {
+              regexPattern = regexPattern.replace(/\*/g, '[^/]*');
+            }
+            
+            const regex = new RegExp('^' + regexPattern + '$');
+            const normalizedPath = relativePath.replace(/\\/g, '/');
+            return regex.test(normalizedPath);
+          });
+          
+          if (shouldInclude) {
+            schemaFiles.push(fullPath);
+          }
+        }
+      }
+    };
+    
+    walk(this.projectRoot);
+    
+    // Remove duplicates
+    const uniqueSchemaFiles = Array.from(new Set(schemaFiles)).sort();
+    
+    if (uniqueSchemaFiles.length === 0) {
+      logger.info('No API schema files found');
+      return;
+    }
+    
+    logger.info(`Found ${uniqueSchemaFiles.length} API schema files`);
+    
+    // Create API builder
+    const apiBuilder = new APIBuilder(this.graph, this.projectRoot);
+    
+    // Add API schemas with progress tracking
+    const ora = (await import('ora')).default;
+    const spinner = ora({
+      text: `Processing API schemas: 0/${uniqueSchemaFiles.length}`,
+      spinner: 'dots',
+    }).start();
+    
+    apiBuilder.addAPISchemas(uniqueSchemaFiles, (current, total) => {
+      const percentage = Math.round((current / total) * 100);
+      spinner.text = `Processing API schemas: ${current}/${total} (${percentage}%)`;
+    });
+    
+    const stats = apiBuilder.getStats();
+    spinner.succeed(
+      `Processed ${stats.totalSchemas} API schemas, ` +
+      `${stats.totalEndpoints} REST endpoints, ` +
+      `${stats.totalOperations} GraphQL operations, ` +
+      `${stats.totalTypes} types, ` +
+      `linked ${stats.linkedHandlers} handlers (${stats.coverage.toFixed(1)}% coverage)`
+    );
   }
 }

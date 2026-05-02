@@ -123,4 +123,103 @@ describe('Parser', () => {
 
     fs.unlinkSync(testFile);
   });
+
+  it('should label fallback languages by extension', () => {
+    const cases = [
+      { name: 'sample.rs', language: 'rust', content: 'use std::fmt;\nfn main() {}' },
+      { name: 'sample.cs', language: 'csharp', content: 'using System;\npublic class Sample { public void Run() {} }' },
+      { name: 'sample.rb', language: 'ruby', content: 'require "json"\ndef run\nend' },
+      { name: 'sample.php', language: 'php', content: '<?php\nfunction run() {}\n' },
+      { name: 'Dockerfile', language: 'dockerfile', content: 'FROM node:20\nRUN npm ci' },
+    ];
+
+    for (const testCase of cases) {
+      const testFile = path.join(os.tmpdir(), testCase.name);
+      fs.writeFileSync(testFile, testCase.content);
+
+      const parsed = Parser.parseFile(testFile);
+
+      expect(parsed.language).toBe(testCase.language);
+      fs.unlinkSync(testFile);
+    }
+  });
+
+  it('should parse additional tree-sitter backed languages', () => {
+    const cases = [
+      {
+        name: 'sample.rs',
+        language: 'rust',
+        content: 'use std::fmt;\npub struct Thing;\npub fn main() {}',
+        symbols: ['Thing', 'main'],
+      },
+      {
+        name: 'sample.cs',
+        language: 'csharp',
+        content: 'using System;\npublic class Thing { public void Run() {} }',
+        symbols: ['Thing', 'Run'],
+      },
+      {
+        name: 'sample.c',
+        language: 'c',
+        content: '#include <stdio.h>\ntypedef struct Thing { int x; } Thing;\nint main() { return 0; }',
+        symbols: ['Thing', 'main'],
+      },
+      {
+        name: 'sample.cpp',
+        language: 'cpp',
+        content: '#include <vector>\nclass Thing { public: void run(); };\nint main() { return 0; }',
+        symbols: ['Thing', 'main'],
+      },
+      {
+        name: 'sample.rb',
+        language: 'ruby',
+        content: 'require "json"\nclass Thing\n  def run\n  end\nend\ndef helper\nend',
+        symbols: ['Thing', 'run', 'helper'],
+      },
+      {
+        name: 'sample.php',
+        language: 'php',
+        content: '<?php\nuse Foo\\Bar;\nclass Thing { public function run() {} }\nfunction helper() {}',
+        symbols: ['Thing', 'run', 'helper'],
+      },
+      {
+        name: 'sample.kt',
+        language: 'kotlin',
+        content: 'package demo\nimport kotlin.collections.List\nclass Thing {\n  fun run() { }\n}\nfun main() { }',
+        symbols: ['Thing', 'run', 'main'],
+      },
+      {
+        name: 'sample.scala',
+        language: 'scala',
+        content: 'package demo\nimport scala.collection.mutable\nclass Thing { def run(): Unit = {} }\nobject Main { def main(args: Array[String]): Unit = {} }',
+        symbols: ['Thing', 'run', 'Main', 'main'],
+      },
+      {
+        name: 'sample.ex',
+        language: 'elixir',
+        content: 'defmodule Demo.Thing do\n  import Enum\n  def run do\n    :ok\n  end\nend',
+        symbols: ['Demo.Thing', 'run'],
+      },
+      {
+        name: 'sample.hs',
+        language: 'haskell',
+        content: 'module Main where\nimport Data.List\ndata Thing = Thing\nmain = putStrLn "hi"\nhelper x = x',
+        symbols: ['Thing', 'main', 'helper'],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const testFile = path.join(os.tmpdir(), testCase.name);
+      fs.writeFileSync(testFile, testCase.content);
+
+      const parsed = Parser.parseFile(testFile);
+
+      expect(parsed.language).toBe(testCase.language);
+      for (const symbol of testCase.symbols) {
+        expect(parsed.symbols.some(s => s.name === symbol)).toBe(true);
+      }
+      expect(parsed.imports.length).toBeGreaterThanOrEqual(1);
+      fs.unlinkSync(testFile);
+    }
+  });
 });

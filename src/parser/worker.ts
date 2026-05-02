@@ -5,6 +5,7 @@ import { ParsedFile } from '../types/models.js';
 interface WorkerMessage {
   type: 'parse';
   filePath: string;
+  progressBuffer?: SharedArrayBuffer;
 }
 
 interface WorkerResult {
@@ -15,10 +16,17 @@ interface WorkerResult {
 }
 
 if (parentPort) {
-  const { filePath } = workerData as WorkerMessage;
+  const { filePath, progressBuffer } = workerData as WorkerMessage;
   
   try {
     const result = Parser.parseFile(filePath);
+    
+    // Increment progress counter atomically if buffer provided
+    if (progressBuffer) {
+      const progressCounter = new Int32Array(progressBuffer);
+      Atomics.add(progressCounter, 0, 1);
+    }
+    
     const response: WorkerResult = {
       success: true,
       filePath,
@@ -26,6 +34,12 @@ if (parentPort) {
     };
     parentPort.postMessage(response);
   } catch (error) {
+    // Increment progress counter even on error
+    if (progressBuffer) {
+      const progressCounter = new Int32Array(progressBuffer);
+      Atomics.add(progressCounter, 0, 1);
+    }
+    
     const response: WorkerResult = {
       success: false,
       filePath,

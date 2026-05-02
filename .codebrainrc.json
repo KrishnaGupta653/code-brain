@@ -14,8 +14,21 @@
   ],
   "languages": [
     "typescript",
-    "javascript"
+    "javascript",
+    "java",
+    "python",
+    "go",
+    "rust",
+    "csharp",
+    "c",
+    "cpp",
+    "ruby",
+    "php",
+    "kotlin",
+    "scala",
+    "elixir",
+    "haskell"
   ],
-  "enableAnalytics": true,
+  "enableAnalytics": false,
   "maxTokensExport": 8000
 }
