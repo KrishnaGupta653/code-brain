@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import ora from 'ora';
 import { ConfigManager } from '../../config/index.js';
 import { GraphBuilder } from '../../graph/index.js';
 import { GraphModel } from '../../graph/index.js';
@@ -8,6 +9,9 @@ import { logger, getDbPath, scanSourceFiles } from '../../utils/index.js';
 import { Parser } from '../../parser/index.js';
 import { GraphEdge, GraphNode, SourceSpan } from '../../types/models.js';
 import { PythonBridge } from '../../python/bridge.js';
+import { createEmbeddingProvider, resolveApiKey } from '../../embeddings/index.js';
+import { EmbeddingGenerator } from '../../embeddings/generator.js';
+import { EmbeddingConfig } from '../../embeddings/provider.js';
 
 export interface IndexCommandOptions {
   filesToIndex?: string[];
@@ -190,6 +194,48 @@ export async function indexCommand(
     });
 
     logger.success(`Indexing complete. ${stats.nodeCount} nodes, ${stats.edgeCount} edges`);
+
+    // Auto-generate embeddings if configured
+    const embeddingsConfig = config.embeddings;
+    if (embeddingsConfig?.enabled && embeddingsConfig.provider !== 'none') {
+      const apiKey = resolveApiKey(embeddingsConfig.apiKey);
+      const providerType = embeddingsConfig.provider || 'openai';
+      const fullConfig: EmbeddingConfig = {
+        enabled: embeddingsConfig.enabled,
+        provider: providerType as 'openai' | 'anthropic' | 'local' | 'none',
+        model: embeddingsConfig.model || 'text-embedding-3-small',
+        dimensions: embeddingsConfig.dimensions || 1536,
+        batchSize: embeddingsConfig.batchSize || 100,
+        apiKey,
+      };
+      const provider = createEmbeddingProvider(fullConfig);
+
+      if (provider) {
+        const spinner = ora('Generating embeddings...').start();
+        try {
+          const generator = new EmbeddingGenerator({
+            provider,
+            storage,
+            projectRoot,
+            batchSize: embeddingsConfig.batchSize || 100,
+          });
+
+          const progress = await generator.generateMissingEmbeddings((p) => {
+            spinner.text = `Generating embeddings: ${p.completed}/${p.total} (${Math.round((p.completed / p.total) * 100)}%)`;
+          });
+
+          spinner.succeed(
+            `Embeddings generated: ${progress.completed} nodes embedded` +
+            (progress.failed > 0 ? `, ${progress.failed} failed` : '')
+          );
+        } catch (error) {
+          spinner.fail('Embedding generation failed');
+          logger.warn('Failed to generate embeddings', error);
+        }
+      } else {
+        logger.info('Embeddings configured but provider not available');
+      }
+    }
   } catch (error) {
     logger.error('Indexing failed', error);
     throw error;

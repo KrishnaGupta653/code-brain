@@ -69,6 +69,8 @@ type SemanticSearchInput = z.infer<typeof SemanticSearchSchema>;
 export class CodeBrainMCPServer {
   private server: Server;
   private storageCache: Map<string, SQLiteStorage> = new Map();
+  private graphCache: Map<string, { graph: any; loadedAt: number }> = new Map();
+  private readonly GRAPH_CACHE_TTL = 30_000; // 30 seconds
   private projectRoot: string = '';
 
   constructor() {
@@ -311,16 +313,32 @@ export class CodeBrainMCPServer {
     return storage;
   }
 
+  // Get cached graph or load from storage
+  private getCachedGraph(projectPath: string, storage: SQLiteStorage): any {
+    const cached = this.graphCache.get(projectPath);
+    if (cached && Date.now() - cached.loadedAt < this.GRAPH_CACHE_TTL) {
+      logger.debug(`Using cached graph for ${projectPath}`);
+      return cached.graph;
+    }
+
+    logger.debug(`Loading graph from storage for ${projectPath}`);
+    const graph = storage.loadGraph(projectPath);
+    this.graphCache.set(projectPath, { graph, loadedAt: Date.now() });
+    return graph;
+  }
+
   // Invalidate cache when graph is updated
   private invalidateCache(projectPath: string): void {
     this.storageCache.delete(projectPath);
+    this.graphCache.delete(projectPath);
+    logger.debug(`Invalidated cache for ${projectPath}`);
   }
 
   private async handleGetGraphExport(args: unknown) {
     const input = GetGraphExportSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const project = storage.getProject(input.project_path);
     
     if (!project) {
@@ -387,7 +405,7 @@ export class CodeBrainMCPServer {
     const input = FindCallersSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const queryEngine = new QueryEngine(graph, storage, input.project_path);
     const callers = queryEngine.findCallers(input.symbol);
 
@@ -405,7 +423,7 @@ export class CodeBrainMCPServer {
     const input = FindCalleesSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const queryEngine = new QueryEngine(graph, storage, input.project_path);
     const callees = queryEngine.findCallees(input.symbol);
 
@@ -423,7 +441,7 @@ export class CodeBrainMCPServer {
     const input = DetectCyclesSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const queryEngine = new QueryEngine(graph, storage, input.project_path);
     const cycles = queryEngine.findCycles();
 
@@ -441,7 +459,7 @@ export class CodeBrainMCPServer {
     const input = FindDeadExportsSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const queryEngine = new QueryEngine(graph, storage, input.project_path);
     const deadExports = queryEngine.findDeadExports();
 
@@ -459,7 +477,7 @@ export class CodeBrainMCPServer {
     const input = AnalyzeImpactSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const queryEngine = new QueryEngine(graph, storage, input.project_path);
     
     // Find the symbol and analyze its impact
@@ -484,7 +502,7 @@ export class CodeBrainMCPServer {
     const input = SemanticSearchSchema.parse(args);
     const storage = await this.initStorage(input.project_path);
 
-    const graph = storage.loadGraph(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
     const queryEngine = new QueryEngine(graph, storage, input.project_path);
 
     let results;

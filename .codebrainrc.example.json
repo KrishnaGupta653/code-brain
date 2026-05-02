@@ -1,0 +1,61 @@
+{
+    "include": [
+        "**"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "build",
+        ".git",
+        ".codebrain",
+        ".vscode",
+        ".idea",
+        "coverage"
+    ],
+    "languages": [
+        "typescript",
+        "javascript",
+        "java",
+        "python",
+        "go",
+        "rust",
+        "csharp",
+        "c",
+        "cpp",
+        "ruby",
+        "php",
+        "kotlin",
+        "scala",
+        "elixir",
+        "haskell"
+    ],
+    "enableAnalytics": true,
+    "maxTokensExport": 8000,
+    "embeddings": {
+        "enabled": true,
+        "provider": "local",
+        "model": "nomic-embed-text",
+        "dimensions": 768,
+        "batchSize": 100,
+        "apiKey": "${VOYAGE_API_KEY}",
+        "hybridSearch": {
+            "enabled": true,
+            "bm25Weight": 0.5,
+            "vectorWeight": 0.5,
+            "fusionMethod": "rrf"
+        }
+    },
+    "chat": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "apiKeys": {
+            "anthropic": "${ANTHROPIC_API_KEY}",
+            "openai": "${OPENAI_API_KEY}",
+            "voyage": "${VOYAGE_API_KEY}"
+        }
+    },
+    "server": {
+        "port": 3000,
+        "apiKey": "${CODE_BRAIN_API_KEY}"
+    }
+}

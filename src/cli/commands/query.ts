@@ -1,5 +1,9 @@
 import { QueryEngine } from '../../retrieval/query.js';
 import { SQLiteStorage } from '../../storage/index.js';
+import { HybridSearchEngine } from '../../retrieval/hybrid-search.js';
+import { createEmbeddingProvider, resolveApiKey } from '../../embeddings/index.js';
+import { EmbeddingConfig } from '../../embeddings/provider.js';
+import { ConfigManager } from '../../config/index.js';
 import { logger, getDbPath } from '../../utils/index.js';
 
 export interface QueryCommandOptions {
@@ -9,6 +13,7 @@ export interface QueryCommandOptions {
   to?: string;
   text?: string;
   limit?: number;
+  hybrid?: boolean;
 }
 
 export async function queryCommand(
@@ -29,6 +34,59 @@ export async function queryCommand(
           logger.error('--text is required for search query');
           return;
         }
+
+        // Check if hybrid search is requested and available
+        if (options.hybrid) {
+          const configManager = new ConfigManager(projectRoot);
+          const config = configManager.getConfig();
+          
+          if (config.embeddings?.enabled && config.embeddings.provider !== 'none') {
+            const apiKey = resolveApiKey(config.embeddings.apiKey);
+            const providerType = config.embeddings.provider || 'openai';
+            const embeddingConfig: EmbeddingConfig = {
+              enabled: config.embeddings.enabled,
+              provider: providerType as 'openai' | 'anthropic' | 'local' | 'none',
+              model: config.embeddings.model || 'text-embedding-3-small',
+              dimensions: config.embeddings.dimensions || 1536,
+              batchSize: config.embeddings.batchSize || 100,
+              apiKey,
+            };
+            const provider = createEmbeddingProvider(embeddingConfig);
+
+            if (provider) {
+              logger.info('Using hybrid search (BM25 + vector similarity)...');
+              const hybridEngine = new HybridSearchEngine(storage, projectRoot, provider);
+              const results = await hybridEngine.search(options.text, { 
+                limit, 
+                includeNodes: true 
+              });
+
+              logger.info(`Found ${results.length} results for "${options.text}":`);
+              results.forEach((result, index) => {
+                const node = result.node;
+                console.log(`\n${index + 1}. ${node?.name || result.nodeId} (${node?.type || 'unknown'}) [score: ${result.score.toFixed(3)}]`);
+                if (result.bm25Score !== undefined) {
+                  console.log(`   BM25: ${result.bm25Score.toFixed(3)} (rank ${result.bm25Rank})`);
+                }
+                if (result.vectorScore !== undefined) {
+                  console.log(`   Vector: ${result.vectorScore.toFixed(3)} (rank ${result.vectorRank})`);
+                }
+                if (node?.fullName) console.log(`   Full name: ${node.fullName}`);
+                if (node?.location?.file) console.log(`   File: ${node.location.file}:${node.location.startLine}`);
+                if (node?.summary) {
+                  console.log(`   Summary: ${node.summary.slice(0, 100)}${node.summary.length > 100 ? '...' : ''}`);
+                }
+              });
+              break;
+            } else {
+              logger.warn('Hybrid search requested but provider not available, falling back to BM25');
+            }
+          } else {
+            logger.warn('Hybrid search requested but embeddings not configured, falling back to BM25');
+          }
+        }
+
+        // Fall back to BM25-only search
         const results = storage.searchNodesDetailed(projectRoot, options.text, limit);
         logger.info(`Found ${results.length} results for "${options.text}":`);
         results.forEach((result, index) => {

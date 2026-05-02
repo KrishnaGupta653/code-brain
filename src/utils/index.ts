@@ -25,3 +25,11 @@ export {
 export { detectLanguage } from './languages.js';
 export { stableHash, stableId } from './hash.js';
 export { scanSourceFiles } from './repository.js';
+export {
+  loadEnv,
+  getApiKey,
+  getChatProvider,
+  getChatModel,
+  hasApiKey,
+  getAvailableProviders
+} from './env.js';

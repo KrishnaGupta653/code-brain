@@ -444,6 +444,16 @@ The graph server exposes several endpoints:
 - System is fault-tolerant: continues on parse errors with automatic fallback.
 - Scales to 100K+ nodes with LOD rendering and analytics caching.
 
+## Documentation
+
+- **[QUICK_SETUP.md](QUICK_SETUP.md)** - Get started in 2 minutes (API keys, first chat)
+- **[QUICKSTART.md](QUICKSTART.md)** - Complete quickstart guide
+- **[USER_GUIDE.md](USER_GUIDE.md)** - Full user guide with all features
+- **[COMMANDS.md](COMMANDS.md)** - CLI command reference
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture
+- **[docs/API.md](docs/API.md)** - HTTP API reference
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Deployment guide
+
 ## License
 
 MIT

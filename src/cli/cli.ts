@@ -161,6 +161,7 @@ export function setupCLI(): Command {
     .option("-p, --path <path>", "Project root path", process.cwd())
     .option("--type <type>", "Query type: search, callers, callees, cycles, dead-exports, orphans, impact, path")
     .option("--text <text>", "Search query text (for search type)")
+    .option("--hybrid", "Use hybrid search (BM25 + vector similarity) for search queries")
     .option("--symbol <symbol>", "Symbol name for callers/callees/impact queries")
     .option("--from <from>", "Source node for path query")
     .option("--to <to>", "Target node for path query")
@@ -175,6 +176,7 @@ export function setupCLI(): Command {
           from: options.from,
           to: options.to,
           limit: parseInt(options.limit, 10),
+          hybrid: options.hybrid,
         });
       } catch (error) {
         logger.error("Command failed", error);
@@ -272,6 +274,27 @@ export function setupCLI(): Command {
           provider: options.provider,
           stats: options.stats,
           clear: options.clear,
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("chat <question>")
+    .description("Ask a natural language question about the codebase")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--json", "Output structured JSON instead of streaming text")
+    .option("--provider <provider>", "AI provider: anthropic, openai, ollama (default: anthropic)")
+    .option("--model <model>", "AI model to use (default: claude-sonnet-4-20250514 for anthropic, gpt-4-turbo-preview for openai, llama3 for ollama)")
+    .action(async (question, options) => {
+      try {
+        const { chatCommand } = await import("./commands/chat.js");
+        await chatCommand(options.path, question, { 
+          json: options.json,
+          provider: options.provider,
+          model: options.model,
         });
       } catch (error) {
         logger.error("Command failed", error);

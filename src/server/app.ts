@@ -251,6 +251,21 @@ export async function createGraphServer(
 ): Promise<{ server: Server; wss: WebSocketServer; broadcast: (message: unknown) => void }> {
   const app = express();
   app.use(express.json());
+  
+  // API Key Authentication (optional)
+  const apiKey = process.env.CODE_BRAIN_API_KEY;
+  if (apiKey) {
+    logger.info('API key authentication enabled');
+    app.use('/api', (req, res, next) => {
+      const provided = (req.headers['x-api-key'] as string | undefined) || (req.query['key'] as string | undefined);
+      if (provided !== apiKey) {
+        res.status(401).json({ error: 'Unauthorized: invalid API key' });
+        return;
+      }
+      next();
+    });
+  }
+  
   const uiDist = path.resolve(__dirname, "../../ui/dist");
   const uiPublic = path.resolve(__dirname, "../../ui/public");
   const staticDir = fs.existsSync(uiDist) ? uiDist : uiPublic;

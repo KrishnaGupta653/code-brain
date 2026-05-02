@@ -6,6 +6,8 @@
 
 import { EmbeddingProvider, EmbeddingConfig } from './provider.js';
 import { OpenAIEmbeddingProvider } from './providers/openai.js';
+import { AnthropicEmbeddingProvider } from './providers/anthropic.js';
+import { LocalEmbeddingProvider } from './providers/local.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -30,12 +32,19 @@ export function createEmbeddingProvider(config: EmbeddingConfig): EmbeddingProvi
       });
 
     case 'anthropic':
-      logger.warn('Anthropic provider not yet implemented');
-      return null;
+      if (!config.apiKey) {
+        logger.warn('Anthropic/Voyage provider selected but no API key provided');
+        return null;
+      }
+      return new AnthropicEmbeddingProvider({
+        apiKey: config.apiKey,
+        model: config.model || 'voyage-code-2',
+      });
 
     case 'local':
-      logger.warn('Local embedding provider not yet implemented');
-      return null;
+      return new LocalEmbeddingProvider({
+        model: config.model || 'nomic-embed-text',
+      });
 
     default:
       logger.warn(`Unknown embedding provider: ${config.provider}`);

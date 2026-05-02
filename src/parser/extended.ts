@@ -12,45 +12,21 @@ import Parser from 'tree-sitter';
 import { ParsedFile } from '../types/models.js';
 import { GenericTreeSitterParser } from './generic-tree-sitter.js';
 
+// Import dedicated parsers
+import { RustParser as RustParserImpl } from './rust.js';
+import { CSharpParser as CSharpParserImpl } from './csharp.js';
+
+// Use dedicated Rust parser
 export class RustParser {
   static parseFile(filePath: string): ParsedFile {
-    return GenericTreeSitterParser.parseFile(filePath, {
-      language: 'rust',
-      treeSitterLanguage: Rust,
-      declarationTypes: {
-        function_item: 'function',
-        struct_item: 'class',
-        enum_item: 'enum',
-        trait_item: 'interface',
-        impl_item: 'type',
-        const_item: 'constant',
-        static_item: 'variable',
-      },
-      importTypes: ['use_declaration'],
-      testFilePattern: /(_test|test_|tests[\\/])/,
-    });
+    return RustParserImpl.parseFile(filePath);
   }
 }
 
+// Use dedicated C# parser
 export class CSharpParser {
   static parseFile(filePath: string): ParsedFile {
-    return GenericTreeSitterParser.parseFile(filePath, {
-      language: 'csharp',
-      treeSitterLanguage: CSharp,
-      declarationTypes: {
-        class_declaration: 'class',
-        interface_declaration: 'interface',
-        enum_declaration: 'enum',
-        struct_declaration: 'class',
-        record_declaration: 'class',
-        method_declaration: 'function',
-        constructor_declaration: 'method',
-        property_declaration: 'variable',
-        field_declaration: 'variable',
-      },
-      importTypes: ['using_directive'],
-      testFilePattern: /(Test|Tests|Spec|Specs)\.cs$/,
-    });
+    return CSharpParserImpl.parseFile(filePath);
   }
 }
 
