@@ -7,6 +7,7 @@
 
 import { EmbeddingProvider } from '../provider.js';
 import { logger } from '../../utils/logger.js';
+import { assertNotPrivateIP } from '../../utils/env.js';
 
 export interface AnthropicEmbeddingConfig {
   apiKey: string;
@@ -38,6 +39,9 @@ export class AnthropicEmbeddingProvider implements EmbeddingProvider {
     if (texts.length === 0) {
       return [];
     }
+
+    // SSRF Protection: Validate base URL
+    assertNotPrivateIP(this.baseUrl);
 
     try {
       const response = await fetch(`${this.baseUrl}/embeddings`, {
@@ -72,6 +76,9 @@ export class AnthropicEmbeddingProvider implements EmbeddingProvider {
   }
 
   async isAvailable(): Promise<boolean> {
+    // SSRF Protection: Validate base URL
+    assertNotPrivateIP(this.baseUrl);
+    
     try {
       // Test with a minimal request
       const response = await fetch(`${this.baseUrl}/embeddings`, {

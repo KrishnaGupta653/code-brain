@@ -4,12 +4,25 @@ import { Server } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { QueryEngine } from "../retrieval/query.js";
 import { logger, getDbPath } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
 import { GraphEdge, GraphNode, RankingScore, SourceSpan } from "../types/models.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Sanitize user input to prevent XSS
+ */
+function sanitizeInput(input: string, maxLength: number = 500): string {
+  return input
+    .slice(0, maxLength)
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .trim();
+}
 
 function stripSourceText<T extends { text?: string }>(span: T): T {
   const cleaned = { ...span };
@@ -250,7 +263,33 @@ export async function createGraphServer(
   port: number = 3000,
 ): Promise<{ server: Server; wss: WebSocketServer; broadcast: (message: unknown) => void }> {
   const app = express();
+  
+  // Security: Helmet middleware for security headers
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],  // needed for graph UI
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        connectSrc: ["'self'", "ws://localhost:*", "wss://localhost:*"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        fontSrc: ["'self'", "data:"],
+      }
+    },
+    crossOriginEmbedderPolicy: false,  // Allow embedding for development
+  }));
+  
   app.use(express.json());
+  
+  // Security: Rate limiting for API endpoints
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,  // 1 minute
+    max: 300,              // 300 requests per minute (generous for local use)
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' },
+  });
+  app.use('/api', apiLimiter);
   
   // API Key Authentication (optional)
   const apiKey = process.env.CODE_BRAIN_API_KEY;
@@ -638,7 +677,7 @@ export async function createGraphServer(
   });
 
   app.get("/api/search", (req, res) => {
-    const pattern = String(req.query.q || "").trim();
+    const pattern = sanitizeInput(String(req.query.q || "").trim(), 500);
     if (!pattern) {
       res.status(400).json({ error: "Query parameter q is required" });
       return;
@@ -791,7 +830,7 @@ export async function createGraphServer(
   });
 
   app.get("/api/query/callers", (req, res) => {
-    const symbol = String(req.query.symbol || "");
+    const symbol = sanitizeInput(String(req.query.symbol || ""), 200);
     if (!symbol) {
       res.status(400).json({ error: "Query parameter symbol is required" });
       return;
@@ -810,7 +849,7 @@ export async function createGraphServer(
   });
 
   app.get("/api/query/callees", (req, res) => {
-    const symbol = String(req.query.symbol || "");
+    const symbol = sanitizeInput(String(req.query.symbol || ""), 200);
     if (!symbol) {
       res.status(400).json({ error: "Query parameter symbol is required" });
       return;
@@ -829,7 +868,7 @@ export async function createGraphServer(
   });
 
   app.get("/api/query/impact", (req, res) => {
-    const target = String(req.query.target || "");
+    const target = sanitizeInput(String(req.query.target || ""), 200);
     if (!target) {
       res.status(400).json({ error: "Query parameter target is required" });
       return;

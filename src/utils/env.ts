@@ -11,6 +11,41 @@ import { logger } from './logger.js';
 let envLoaded = false;
 
 /**
+ * SSRF Protection: Validate URL is not a private IP
+ */
+export function assertNotPrivateIP(url: string): void {
+  try {
+    const { hostname } = new URL(url);
+    const privateRanges = [
+      /^127\./,           // localhost
+      /^10\./,            // 10.0.0.0/8
+      /^192\.168\./,      // 192.168.0.0/16
+      /^172\.(1[6-9]|2\d|3[01])\./, // 172.16.0.0/12
+      /^169\.254\./,      // 169.254.0.0/16 (link-local)
+      /^::1$/,            // IPv6 localhost
+      /^fe80:/,           // IPv6 link-local
+      /^fc00:/,           // IPv6 unique local
+      /^fd00:/,           // IPv6 unique local
+    ];
+    
+    if (privateRanges.some(r => r.test(hostname))) {
+      throw new Error(`SSRF blocked: ${hostname} is a private IP or localhost`);
+    }
+    
+    // Also block common internal hostnames
+    const blockedHostnames = ['localhost', 'metadata.google.internal', '169.254.169.254'];
+    if (blockedHostnames.includes(hostname.toLowerCase())) {
+      throw new Error(`SSRF blocked: ${hostname} is a blocked hostname`);
+    }
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`Invalid URL: ${url}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * Load .env file from project root or user home
  */
 export function loadEnv(projectRoot?: string): void {

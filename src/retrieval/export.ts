@@ -17,6 +17,7 @@ import {
 } from "../types/models.js";
 import { GraphModel } from "../graph/index.js";
 import { logger } from "../utils/index.js";
+import { applySemanticCompression } from "./semantic-compression.js";
 
 export interface ExportOptions {
   format: "json" | "yaml" | "ai";
@@ -97,9 +98,34 @@ export class ExportEngine {
       effectiveMaxTokens = Math.floor(modelConfig.tokens * modelConfig.safeUse);
     }
 
-    const importance = this.computeImportance(queryResult);
+    // Apply semantic compression for better compression ratio
+    logger.info('Applying semantic compression...');
+    const compressed = applySemanticCompression(
+      queryResult.nodes,
+      queryResult.edges,
+      {
+        deduplication: true,
+        metadataStripping: true,
+        referenceCompression: true,
+        similarityThreshold: 0.75, // Higher threshold = more aggressive
+      }
+    );
+
+    // Update query result with compressed data
+    const compressedResult: QueryResult = {
+      ...queryResult,
+      nodes: compressed.nodes,
+      edges: compressed.edges,
+    };
+
+    logger.info(
+      `Compression: ${queryResult.nodes.length} → ${compressed.nodes.length} nodes ` +
+      `(${compressed.stats.compressionRatio.toFixed(2)}×)`
+    );
+
+    const importance = this.computeImportance(compressedResult);
     let optimizedResult = this.prepareAIQueryResult(
-      queryResult,
+      compressedResult,
       importance,
       top,
     );

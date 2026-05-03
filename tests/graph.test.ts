@@ -4,6 +4,18 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+// Mock ora to prevent dynamic import issues during test teardown
+jest.mock('ora', () => ({
+  default: jest.fn(() => ({
+    start: jest.fn().mockReturnThis(),
+    succeed: jest.fn().mockReturnThis(),
+    fail: jest.fn().mockReturnThis(),
+    warn: jest.fn().mockReturnThis(),
+    stop: jest.fn().mockReturnThis(),
+    text: '',
+  }))
+}));
+
 describe('GraphModel', () => {
   let graph: GraphModel;
 

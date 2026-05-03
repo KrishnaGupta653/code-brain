@@ -3,6 +3,7 @@ import { JavaParser } from './java.js';
 import { PythonParser } from './python.js';
 import { GoParser } from './go.js';
 import { FallbackParser } from './fallback.js';
+import { PdfParser } from './pdf.js';
 import {
   CParser,
   CppParser,
@@ -50,6 +51,9 @@ registerParserForExtension('.exs', ElixirParser);
 registerParserForExtension('.hs', HaskellParser);
 registerParserForExtension('.lhs', HaskellParser);
 
+// Multi-modal parsers
+registerParserForExtension('.pdf', PdfParser);
+
 // fallback parser for other textual files
 registerDefaultParser(FallbackParser);
 
@@ -82,4 +86,5 @@ export {
   ElixirParser,
   HaskellParser,
   FallbackParser,
+  PdfParser,
 };

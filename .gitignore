@@ -1,15 +1,46 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Database and cache
 .codebrain/
 *.db
-.DS_Store
+*.db-shm
+*.db-wal
+
+# Environment variables
 .env
 .env.local
+.env.*.local
+
+# IDE and editor
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing
 coverage/
+.nyc_output/
 .pytest_cache/
 __pycache__/
 *.pyc
+*.pyo
+
+# Kiro settings
 .kiro/settings/mcp.json
+
+# OS
+Thumbs.db
+Desktop.ini

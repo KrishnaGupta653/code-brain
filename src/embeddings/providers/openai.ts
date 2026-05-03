@@ -6,6 +6,7 @@
 
 import { EmbeddingProvider } from '../provider.js';
 import { logger } from '../../utils/logger.js';
+import { assertNotPrivateIP } from '../../utils/env.js';
 
 interface OpenAIEmbeddingResponse {
   object: 'list';
@@ -71,6 +72,9 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 
   private async generateEmbeddingsBatch(texts: string[]): Promise<Float32Array[]> {
     let lastError: Error | null = null;
+
+    // SSRF Protection: Validate base URL
+    assertNotPrivateIP(this.baseUrl);
 
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {

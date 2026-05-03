@@ -169,12 +169,20 @@ export class ParallelParser {
     onProgress?: ProgressCallback
   ): Promise<Map<string, ParsedFile>> {
     const { Parser } = await import('./index.js');
+    const { PdfParser } = await import('./pdf.js');
     const results = new Map<string, ParsedFile>();
 
     let processed = 0;
     for (const filePath of filePaths) {
       try {
-        const result = Parser.parseFile(filePath);
+        // Use async PDF parser for PDF files
+        let result: ParsedFile;
+        if (filePath.toLowerCase().endsWith('.pdf')) {
+          result = await PdfParser.parseFileAsync(filePath);
+        } else {
+          result = Parser.parseFile(filePath);
+        }
+        
         results.set(filePath, result);
         processed++;
         if (onProgress) {

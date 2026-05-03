@@ -94,12 +94,12 @@ export function isGoFile(filePath: string): boolean {
 export function isSupportedSourceFile(filePath: string): boolean {
   // Consider most textual source files supported. Exclude common binary/document extensions.
   const blacklist = new Set([
-    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.exe', '.dll', '.so', '.dylib', '.class', '.jar', '.zip', '.tar', '.gz', '.pdf', '.woff', '.woff2', '.ttf', '.pyc', '.pyo'
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.exe', '.dll', '.so', '.dylib', '.class', '.jar', '.zip', '.tar', '.gz', '.woff', '.woff2', '.ttf', '.pyc', '.pyo'
   ]);
   const ext = path.extname(filePath).toLowerCase();
   if (!ext) return true; // files without extension may still be source
   if (blacklist.has(ext)) return false;
-  // allow common source code extensions
+  // allow common source code extensions and multi-modal formats (pdf)
   return true;
 }
 

@@ -83,6 +83,8 @@ const extensionLanguageMap = new Map<string, string>([
   ['.proto', 'protobuf'],
   ['.graphql', 'graphql'],
   ['.gql', 'graphql'],
+  // Multi-modal formats
+  ['.pdf', 'pdf'],
 ]);
 
 const basenameLanguageMap = new Map<string, string>([

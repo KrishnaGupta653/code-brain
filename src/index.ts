@@ -7,7 +7,12 @@ async function main() {
 
   try {
     await program.parseAsync(process.argv);
-  } catch {
+  } catch (error) {
+    // Log fatal errors before exiting
+    console.error('Fatal error:', error instanceof Error ? error.message : String(error));
+    if (error instanceof Error && error.stack) {
+      console.error(error.stack);
+    }
     process.exit(1);
   }
 }
