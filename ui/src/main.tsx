@@ -5,20 +5,26 @@ import Sigma from "sigma";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import {
   Activity,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   BoxSelect,
   Braces,
+  CheckCircle2,
   CircleDot,
   Code2,
   ExternalLink,
+  FileSearch,
   Filter,
   GitBranch,
+  GitCompare,
   Keyboard,
   LocateFixed,
   Maximize2,
   Network,
+  Pin,
   Route,
   Search,
-  Sparkles,
   X,
   ZoomIn,
   ZoomOut,
@@ -117,6 +123,25 @@ function typeIcon(type: string) {
 function relativeLabel(value?: string): string {
   if (!value) return "unknown";
   return value.replace(/\\/g, "/").split("/").slice(-4).join("/");
+}
+
+function relationshipKind(type: string): "method" | "event" | "dependency" {
+  if (type.includes("CALL") || type.includes("USES") || type.includes("REFERENCES")) return "method";
+  if (type.includes("ENTRY") || type.includes("DECORATES") || type.includes("TESTS")) return "event";
+  return "dependency";
+}
+
+function renderCodeTokens(text: string) {
+  const parts = text.split(/(\b(?:async|await|const|let|var|function|return|class|interface|type|import|export|from|if|else|for|while|try|catch|new|private|public|protected|static)\b|["'`][^"'`]*["'`]|\/\/.*|\b\d+(?:\.\d+)?\b)/g);
+  return parts.map((part, index) => {
+    if (!part) return null;
+    let className = "tok-plain";
+    if (/^["'`]/.test(part)) className = "tok-string";
+    else if (/^\/\//.test(part)) className = "tok-comment";
+    else if (/^\d/.test(part)) className = "tok-number";
+    else if (/^\b(?:async|await|const|let|var|function|return|class|interface|type|import|export|from|if|else|for|while|try|catch|new|private|public|protected|static)\b$/.test(part)) className = "tok-keyword";
+    return <span key={`${part}-${index}`} className={className}>{part}</span>;
+  });
 }
 
 type LabelData = {
@@ -678,6 +703,10 @@ function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showRelationships, setShowRelationships] = useState(true);
   const [showSourceCode, setShowSourceCode] = useState(true);
+  const [relationshipSearch, setRelationshipSearch] = useState("");
+  const [expandedRelationships, setExpandedRelationships] = useState<Set<string>>(new Set());
+  const [isInspectorPinned, setIsInspectorPinned] = useState(false);
+  const [compareNode, setCompareNode] = useState<GraphNode | null>(null);
   const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
     Number(localStorage.getItem("codebrain:relationshipsHeight") || 300),
   );
@@ -692,8 +721,10 @@ function App() {
   );
   const shellRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const relationshipSearchInputRef = useRef<HTMLInputElement | null>(null);
   const relationshipsRef = useRef<HTMLElement | null>(null);
   const sourceCodeRef = useRef<HTMLElement | null>(null);
+  const comparePanelRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (payload) {
@@ -753,8 +784,16 @@ function App() {
     setShowSourceCode(true);
 
     fetch(`/api/node/${encodeURIComponent(id)}`)
-      .then((response) => response.json() as Promise<NodeDetails>)
+      .then((response) => {
+        if (!response.ok) {
+          setDetails(null);
+          setSource(null);
+          return null;
+        }
+        return response.json() as Promise<NodeDetails>;
+      })
       .then((node) => {
+        if (!node) return null;
         setDetails(node);
         if (node.sourcePreview) {
           const params = new URLSearchParams({
@@ -763,9 +802,10 @@ function App() {
             endLine: String(node.sourcePreview.endLine),
             context: "20",
           });
-          return fetch(`/api/source?${params}`).then(
-            (response) => response.json() as Promise<SourcePayload>,
-          );
+          return fetch(`/api/source?${params}`).then((response) => {
+            if (!response.ok) return null;
+            return response.json() as Promise<SourcePayload>;
+          });
         }
         setSource(null);
         return null;
@@ -791,7 +831,10 @@ function App() {
     });
 
     fetch(`/api/source?${params}`)
-      .then((response) => response.json() as Promise<SourcePayload>)
+      .then((response) => {
+        if (!response.ok) throw new Error("Unable to load full source file");
+        return response.json() as Promise<SourcePayload>;
+      })
       .then((sourcePayload) => {
         setSource(sourcePayload);
         setShowFullFile(true);
@@ -918,6 +961,85 @@ function App() {
 
   const selectedNode = details || payload.nodes.find((node) => node.id === selectedId) || null;
   const topHubs = payload.analytics?.hubs.slice(0, 5) || [];
+  const searchSuggestions = (() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return [];
+    const scoreNode = (node: GraphNode) => {
+      const name = node.name.toLowerCase();
+      const fullName = String(node.fullName || "").toLowerCase();
+      const file = String(node.file || "").toLowerCase();
+      const type = node.type.toLowerCase();
+      let score = 0;
+      if (name === term) score += 120;
+      if (name.startsWith(term)) score += 80;
+      if (name.includes(term)) score += 50;
+      if (fullName.includes(term)) score += 28;
+      if (file.includes(term)) score += 22;
+      if (type.includes(term)) score += 12;
+      score += Math.min(18, node.degree || 0);
+      return score;
+    };
+    return payload.nodes
+      .map((node) => ({ node, score: scoreNode(node) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || b.node.degree - a.node.degree || a.node.name.localeCompare(b.node.name))
+      .slice(0, 10)
+      .map((item) => item.node);
+  })();
+  const visibleSearchResults = query.trim() ? searchSuggestions : results.slice(0, 12);
+  const relationshipItems = details?.outgoing && details?.incoming
+    ? [
+        ...details.outgoing.map((edge) => ({
+          ...edge,
+          related: edge.target,
+          direction: "outgoing" as const,
+        })),
+        ...details.incoming.map((edge) => ({
+          ...edge,
+          related: edge.source,
+          direction: "incoming" as const,
+        })),
+      ]
+    : [];
+  const filteredRelationships = relationshipItems
+    .filter((edge) => {
+      const query = relationshipSearch.trim().toLowerCase();
+      if (!query) return true;
+      return [
+        edge.type,
+        edge.from,
+        edge.to,
+        edge.related?.name,
+        edge.related?.type,
+        edge.related?.fullName,
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+    })
+    .slice(0, 40);
+  const selectedStatus = selectedNode?.fullName?.startsWith("unresolved:")
+    || selectedNode?.type === "unresolved"
+    || details?.outgoing?.some((edge) => !edge.resolved)
+    ? "unresolved"
+    : "resolved";
+  const sourceLineLabel = source
+    ? showFullFile && source.lines
+      ? `Full file, ${source.lines.length} lines`
+      : `Viewing lines ${source.requestedStartLine}-${source.requestedEndLine}`
+    : "Source unavailable";
+  const handleTraceUsage = () => {
+    setShowRelationships(true);
+    setRelationshipSearch("");
+    window.setTimeout(() => {
+      relationshipsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      relationshipSearchInputRef.current?.focus();
+    }, 50);
+  };
+  const handleCompareNode = () => {
+    if (!selectedNode) return;
+    setCompareNode(selectedNode);
+    window.setTimeout(() => {
+      comparePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 50);
+  };
 
   return (
     <main
@@ -968,20 +1090,45 @@ function App() {
               ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && search()}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                if (searchSuggestions[0]) {
+                  selectNode(searchSuggestions[0].id);
+                  setResults(searchSuggestions);
+                  return;
+                }
+                search();
+              }}
               placeholder="Symbol, file, route, config"
             />
             <button type="button" onClick={search} title="Search">
               <LocateFixed size={17} />
             </button>
           </div>
-          <div className="result-list">
-            {results.slice(0, 12).map((node) => (
+          <div className="search-assist">
+            {query.trim() ? (
+              <span>{searchSuggestions.length ? `${searchSuggestions.length} suggestions` : "No local matches yet"}</span>
+            ) : (
+              <span>Start typing for instant graph suggestions</span>
+            )}
+          </div>
+          <div className="result-list search-suggestions">
+            {visibleSearchResults.map((node) => (
               <button key={node.id} type="button" onClick={() => selectNode(node.id)}>
-                <span>{typeIcon(node.type)} {node.name}</span>
-                <small>{node.type} - {relativeLabel(node.fullName)}</small>
+                <span>
+                  {typeIcon(node.type)}
+                  <strong>{node.name}</strong>
+                  <em>{node.type}</em>
+                </span>
+                <small>{relativeLabel(node.fullName || node.file)} · degree {node.degree}</small>
               </button>
             ))}
+            {query.trim() && visibleSearchResults.length === 0 && (
+              <div className="search-empty">
+                <Search size={18} />
+                <p>No matching nodes found in the loaded graph.</p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -1061,33 +1208,21 @@ function App() {
         onPointerDown={(event) => startResize("right", event)}
       />
 
-      <aside className="right-rail">
-        <section className="inspector-head" style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 20,
-          background: 'var(--panel-glass)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-          borderBottom: '1px solid var(--line-bright)',
-          margin: '-24px -20px 16px',
-          padding: '16px 20px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
-        }}>
-          <span style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            fontSize: '0.85rem',
-            fontWeight: '700',
-            color: 'var(--text-bright)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em'
-          }}>
-            <Sparkles size={16} style={{ color: 'var(--accent-bright)' }} />
-            Live Node Inspector
-          </span>
+      <aside className="right-rail inspector-shell">
+        <section className="inspector-head inspector-head-modern">
+          <div className="inspector-breadcrumb">
+            <span>Live Node Inspector</span>
+            <small>{selectedNode ? relativeLabel(selectedNode.fullName || selectedNode.file) : "No node selected"}</small>
+          </div>
           <div className="inspector-actions">
+            <button
+              type="button"
+              className={isInspectorPinned ? "is-active" : ""}
+              title="Pin node"
+              onClick={() => setIsInspectorPinned((value) => !value)}
+            >
+              <Pin size={15} />
+            </button>
             {selectedNode && (
               <button type="button" title="Clear selection (Esc)" onClick={() => {
                 setSelectedId(null);
@@ -1102,37 +1237,130 @@ function App() {
 
         {selectedNode ? (
           <>
-            <section className="node-card">
+            <section className="node-card inspector-node-panel">
               <div className="node-title">
-                <span className="node-glow" style={{ background: NODE_COLORS[selectedNode.type] || "#e2e8f0" }} />
+                <span className="node-type-mark" style={{ color: NODE_COLORS[selectedNode.type] || "#e2e8f0" }}>
+                  {typeIcon(selectedNode.type)}
+                </span>
                 <div>
                   <h2>{selectedNode.name}</h2>
-                  <p>{selectedNode.type} - {relativeLabel(selectedNode.fullName)}</p>
+                  <p>{relativeLabel(selectedNode.fullName || selectedNode.file)}</p>
+                </div>
+                <span className={`status-pill ${selectedStatus}`}>
+                  {selectedStatus === "resolved" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                  {selectedStatus === "resolved" ? "Resolved" : "Unresolved target"}
+                </span>
+              </div>
+              <div className="node-meta-row">
+                <span>{selectedNode.type}</span>
+                <span>{selectedNode.file ? relativeLabel(selectedNode.file) : "graph node"}</span>
+                <span>{selectedNode.rank?.algorithm || "deterministic"}</span>
+              </div>
+              <p className="summary">{selectedNode.summary || "No summary captured for this symbol yet."}</p>
+              <div className="score-row">
+                <div><strong>{selectedNode.degree}</strong><span>Degree</span></div>
+                <div><strong>{selectedNode.incomingCount}</strong><span>Incoming</span></div>
+                <div><strong>{selectedNode.outgoingCount}</strong><span>Outgoing</span></div>
+                <div><strong>{selectedNode.rank?.score?.toFixed(3) || "n/a"}</strong><span>Rank</span></div>
+              </div>
+              <div className="quick-actions">
+                {selectedNode.vscodeUri && (
+                  <a className="ghost-action" href={selectedNode.vscodeUri}>
+                    <ExternalLink size={14} />
+                    Jump to definition
+                  </a>
+                )}
+                <button type="button" className="ghost-action" onClick={handleTraceUsage}>
+                  <FileSearch size={14} />
+                  Trace usage
+                </button>
+                <button
+                  type="button"
+                  className={`ghost-action ${compareNode?.id === selectedNode.id ? "is-active" : ""}`}
+                  onClick={handleCompareNode}
+                >
+                  <GitCompare size={14} />
+                  {compareNode?.id === selectedNode.id ? "Compare target" : "Compare"}
+                </button>
+              </div>
+            </section>
+
+            {compareNode && (
+              <section ref={comparePanelRef} className="compare-panel">
+                <header>
+                  <span><GitCompare size={14} /> Compare nodes</span>
+                  <button type="button" onClick={() => setCompareNode(null)}>Clear</button>
+                </header>
+                {compareNode.id === selectedNode.id ? (
+                  <p className="compare-hint">
+                    This node is pinned as the comparison target. Select another node to compare degree, direction, rank, and type.
+                  </p>
+                ) : (
+                  <div className="compare-grid">
+                    <div>
+                      <small>Target</small>
+                      <strong>{compareNode.name}</strong>
+                      <span>{compareNode.type}</span>
+                    </div>
+                    <div>
+                      <small>Current</small>
+                      <strong>{selectedNode.name}</strong>
+                      <span>{selectedNode.type}</span>
+                    </div>
+                    <div>
+                      <small>Degree delta</small>
+                      <strong>{selectedNode.degree - compareNode.degree > 0 ? "+" : ""}{selectedNode.degree - compareNode.degree}</strong>
+                      <span>{compareNode.degree} {"->"} {selectedNode.degree}</span>
+                    </div>
+                    <div>
+                      <small>Rank delta</small>
+                      <strong>
+                        {((selectedNode.rank?.score || 0) - (compareNode.rank?.score || 0)).toFixed(3)}
+                      </strong>
+                      <span>{(compareNode.rank?.score || 0).toFixed(3)} {"->"} {(selectedNode.rank?.score || 0).toFixed(3)}</span>
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section className="mini-dependency-panel" aria-label="Node relationship summary">
+              <div className="mini-dependency-title">
+                <span>Dependency flow</span>
+                <small>
+                  {selectedNode.incomingCount} incoming, {selectedNode.outgoingCount} outgoing
+                </small>
+              </div>
+              <div className="mini-flow">
+                <div className="mini-node-group" title="Nodes that reference, call, import, or depend on this node">
+                  <div className="mini-node muted">{selectedNode.incomingCount}</div>
+                  <span>Incoming</span>
+                </div>
+                <div className="mini-edge incoming">
+                  <small>feeds into</small>
+                </div>
+                <div className="mini-node-group selected" title={selectedNode.name}>
+                  <div className="mini-node active">{selectedNode.name.slice(0, 2).toUpperCase()}</div>
+                  <span>Selected</span>
+                </div>
+                <div className="mini-edge outgoing">
+                  <small>points to</small>
+                </div>
+                <div className="mini-node-group" title="Nodes this node references, calls, imports, or depends on">
+                  <div className="mini-node muted">{selectedNode.outgoingCount}</div>
+                  <span>Outgoing</span>
                 </div>
               </div>
-              <p className="summary">{selectedNode.summary || "No summary captured."}</p>
-              <div className="score-row">
-                <div><strong>{selectedNode.degree}</strong><span>degree</span></div>
-                <div><strong>{selectedNode.incomingCount}</strong><span>incoming</span></div>
-                <div><strong>{selectedNode.outgoingCount}</strong><span>outgoing</span></div>
-                <div><strong>{selectedNode.rank?.score?.toFixed(3) || "n/a"}</strong><span>rank</span></div>
-              </div>
-              {selectedNode.vscodeUri && (
-                <a className="source-link" href={selectedNode.vscodeUri}>
-                  <ExternalLink size={15} />
-                  Open exact source
-                </a>
-              )}
             </section>
 
             {details && (
               <section
                 ref={relationshipsRef}
-                className="tool-panel relations-panel"
+                className="tool-panel relations-panel inspector-section"
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  maxHeight: showRelationships ? `${relationshipsHeight}px` : '56px',
+                  maxHeight: showRelationships ? 'none' : '56px',
                   minHeight: '56px',
                   overflow: 'hidden',
                   transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -1189,7 +1417,7 @@ function App() {
                       fontWeight: '600',
                       color: 'var(--accent-bright)'
                     }}>
-                      {details.outgoing.length + details.incoming.length}
+                      {relationshipItems.length}
                     </span>
                   </h2>
                   <span style={{
@@ -1205,6 +1433,15 @@ function App() {
                 </div>
                 {showRelationships && (
                   <>
+                    <div className="relationship-search">
+                      <Search size={14} />
+                      <input
+                        ref={relationshipSearchInputRef}
+                        value={relationshipSearch}
+                        onChange={(event) => setRelationshipSearch(event.target.value)}
+                        placeholder="Filter by edge, node, or type"
+                      />
+                    </div>
                     <div style={{
                       flex: '1 1 auto',
                       overflowY: 'auto',
@@ -1213,75 +1450,68 @@ function App() {
                       gap: '7px',
                       paddingRight: '4px',
                       minHeight: 0
-                    }}>
-                      {[
-                        ...details.outgoing.slice(0, 15).map((edge) => ({
-                          ...edge,
-                          related: edge.target,
-                          direction: 'outgoing' as const
-                        })),
-                        ...details.incoming.slice(0, 15).map((edge) => ({
-                          ...edge,
-                          related: edge.source,
-                          direction: 'incoming' as const
-                        })),
-                      ].map((edge) => {
+                    }}
+                    className="relationship-list">
+                      {filteredRelationships.length > 0 ? filteredRelationships.map((edge) => {
                         const related = edge.related;
+                        const relatedId = edge.direction === "outgoing" ? edge.to : edge.from;
+                        const relatedName = related?.name || relativeLabel(relatedId);
+                        const relatedType = related?.type || (edge.resolved ? "node" : "unresolved");
+                        const relatedPath = relativeLabel(related?.fullName || related?.file || relatedId);
+                        const expanded = expandedRelationships.has(edge.id);
+                        const kind = relationshipKind(edge.type);
                         return (
-                          <button
+                          <article
                             key={`${edge.id}-${related?.id || "unknown"}`}
-                            type="button"
-                            onClick={() => related?.id && selectNode(related.id)}
+                            className={`relationship-item ${kind}`}
                             style={{
-                              display: 'grid',
-                              gridTemplateColumns: '100px minmax(0, 1fr) auto',
-                              alignItems: 'center',
-                              gap: '10px',
-                              padding: '12px 14px',
                               border: '1px solid var(--line)',
                               borderRadius: '10px',
                               background: 'rgba(17, 24, 39, 0.7)',
-                              color: 'var(--text)',
-                              cursor: 'pointer',
-                              textAlign: 'left',
                               transition: 'all 250ms cubic-bezier(0.4, 0, 0.2, 1)',
-                              position: 'relative',
                               overflow: 'hidden'
                             }}
                           >
-                            <span style={{
-                              color: EDGE_COLORS[edge.type] || "#cbd5e1",
-                              fontSize: '0.75rem',
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.03em',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}>
-                              {edge.direction === 'outgoing' ? '→' : '←'} {edge.type}
-                            </span>
-                            <strong style={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontWeight: '600',
-                              fontSize: '0.9rem'
-                            }}>
-                              {related?.name || "unknown"}
-                            </strong>
-                            <small style={{
-                              color: 'var(--muted)',
-                              fontSize: '0.75rem',
-                              fontWeight: '500'
-                            }}>
-                              {related?.type || "node"}
-                            </small>
-                          </button>
+                            <button
+                              type="button"
+                              className="relationship-main"
+                              onClick={() => {
+                                setExpandedRelationships((current) => {
+                                  const next = new Set(current);
+                                  if (next.has(edge.id)) next.delete(edge.id);
+                                  else next.add(edge.id);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <span className="flow-icon" style={{ color: EDGE_COLORS[edge.type] || "#cbd5e1" }}>
+                                {edge.direction === "outgoing" ? <ArrowRight size={15} /> : <ArrowLeft size={15} />}
+                              </span>
+                              <span className="relationship-copy">
+                                <strong>{relatedName}</strong>
+                                <small>{edge.direction === "outgoing" ? "Calls or depends on" : "Called by or feeds into"}</small>
+                              </span>
+                              <span className="edge-chip">{edge.type}</span>
+                            </button>
+                            {expanded && (
+                              <div className="relationship-detail">
+                                <span>{relatedType}</span>
+                                <span>{relatedPath}</span>
+                                <button type="button" onClick={() => selectNode(related?.id || relatedId)}>
+                                  Inspect node
+                                </button>
+                              </div>
+                            )}
+                          </article>
                         );
-                      })}
+                      }) : (
+                        <div className="empty-inline">
+                          <GitBranch size={24} />
+                          <p>{relationshipSearch ? "No relationships match this filter." : "No relationships have been indexed for this node yet."}</p>
+                        </div>
+                      )}
                     </div>
-                    <div
+                    {false && <div
                       style={{
                         height: '12px',
                         cursor: 'ns-resize',
@@ -1314,7 +1544,7 @@ function App() {
                         borderRadius: '2px',
                         boxShadow: '0 0 10px rgba(6, 182, 212, 0.4)'
                       }} />
-                    </div>
+                    </div>}
                   </>
                 )}
               </section>
@@ -1323,11 +1553,11 @@ function App() {
             {/* Source Code Section - Resizable */}
             <section
               ref={sourceCodeRef}
-              className="source-panel"
+              className="source-panel inspector-section"
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                maxHeight: showSourceCode ? `${sourceCodeHeight}px` : '56px',
+                maxHeight: showSourceCode ? 'none' : '56px',
                 minHeight: '56px',
                 overflow: 'hidden',
                 transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -1385,7 +1615,7 @@ function App() {
                       fontWeight: '600',
                       color: 'var(--accent-3)'
                     }}>
-                      {source.lines.length} lines
+                      {sourceLineLabel}
                     </span>
                   )}
                 </h2>
@@ -1559,10 +1789,7 @@ function App() {
                         flexShrink: 0
                       }}>
                         <span style={{ fontWeight: '500' }}>
-                          {showFullFile
-                            ? `Full file (${source.lines.length} lines)`
-                            : `Lines ${source.requestedStartLine}-${source.requestedEndLine} with context`
-                          }
+                          {sourceLineLabel}
                         </span>
                       </div>
                       <pre style={{
@@ -1579,7 +1806,7 @@ function App() {
                         {source.lines.map((line) => (
                           <div key={line.line} className={line.highlighted ? "hot-line" : ""}>
                             <span>{line.line}</span>
-                            <code>{line.text || " "}</code>
+                            <code>{renderCodeTokens(line.text || " ")}</code>
                           </div>
                         ))}
                       </pre>
