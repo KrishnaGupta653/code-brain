@@ -674,6 +674,57 @@ class GraphVisualizer {
     ];
     document.getElementById("nodeRelations").innerHTML =
       relations.join("") || '<div class="relation-row">No related nodes</div>';
+
+    // Fetch and display source code
+    await this.loadSourceCode(nodeId);
+  }
+
+  async loadSourceCode(nodeId) {
+    const codeViewerSection = document.getElementById("codeViewerSection");
+    const codeContent = document.getElementById("codeContent");
+    const toggleBtn = document.getElementById("toggleCodeBtn");
+
+    try {
+      const response = await fetch(`/api/node/${encodeURIComponent(nodeId)}/code`);
+      
+      if (!response.ok) {
+        // No code available, hide the section
+        codeViewerSection.style.display = "none";
+        return;
+      }
+
+      const data = await response.json();
+      
+      // Show the code viewer section
+      codeViewerSection.style.display = "block";
+      
+      // Set the code content
+      codeContent.textContent = data.code;
+      codeContent.className = `language-${data.language}`;
+      
+      // Apply syntax highlighting if hljs is available
+      if (window.hljs) {
+        window.hljs.highlightElement(codeContent);
+      }
+
+      // Setup toggle button
+      let isCodeVisible = true;
+      const codeViewer = document.getElementById("codeViewer");
+      
+      toggleBtn.onclick = () => {
+        isCodeVisible = !isCodeVisible;
+        codeViewer.style.display = isCodeVisible ? "block" : "none";
+        toggleBtn.textContent = isCodeVisible ? "Hide Code" : "Show Code";
+      };
+      
+      // Reset to visible state
+      codeViewer.style.display = "block";
+      toggleBtn.textContent = "Hide Code";
+
+    } catch (error) {
+      console.error("Failed to load source code:", error);
+      codeViewerSection.style.display = "none";
+    }
   }
 
   detailRow(label, value) {

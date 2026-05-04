@@ -14,11 +14,39 @@ export async function graphCommand(projectRoot: string, port: number = 3000): Pr
     (global as any).__graphServerBroadcast = broadcast;
     
     // Handle graceful shutdown
+    let isShuttingDown = false;
     const shutdown = () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+      
       logger.info('Shutting down graph server...');
-      wss.close();
-      server.close();
-      delete (global as any).__graphServerBroadcast;
+      
+      // Force exit after 2 seconds if graceful shutdown fails
+      const forceExitTimer = setTimeout(() => {
+        logger.warn('Forcing shutdown after timeout');
+        process.exit(0);
+      }, 2000);
+      
+      // Close all WebSocket connections immediately
+      wss.clients.forEach((client) => {
+        client.terminate();
+      });
+      
+      // Close WebSocket server
+      wss.close(() => {
+        logger.debug('WebSocket server closed');
+      });
+      
+      // Close HTTP server
+      server.close(() => {
+        clearTimeout(forceExitTimer);
+        logger.success('Graph server stopped');
+        delete (global as any).__graphServerBroadcast;
+        process.exit(0);
+      });
+      
+      // Destroy all active connections to force immediate closure
+      server.closeAllConnections?.();
     };
     
     process.on('SIGINT', shutdown);

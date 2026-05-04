@@ -1,0 +1,362 @@
+/**
+ * Live Node Inspector - Custom Styles
+ * 
+ * Additional styles beyond Tailwind for enhanced interactions
+ * and micro-animations that make the interface feel polished.
+ */
+
+/* Smooth scrolling */
+.live-node-inspector,
+.live-node-inspector * {
+  scroll-behavior: smooth;
+}
+
+/* Smooth transitions for all interactive elements */
+.live-node-inspector * {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar for dark theme */
+.live-node-inspector ::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.live-node-inspector ::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: rgba(17, 24, 39, 0.5);
+  border-radius: 5px;
+}
+
+.live-node-inspector ::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: rgba(107, 114, 128, 0.5);
+  border-radius: 5px;
+  border: 2px solid rgba(17, 24, 39, 0.5);
+}
+
+.live-node-inspector ::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.7);
+}
+
+/* Firefox scrollbar */
+.live-node-inspector,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(107, 114, 128, 0.5) rgba(17, 24, 39, 0.5);
+}
+
+/* Backdrop blur for modal overlay */
+.live-node-inspector-overlay {
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal slide-in animation */
+.live-node-inspector-modal {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Relationship item hover effect */
+.relationship-item {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.relationship-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.relationship-item:hover::before {
+  background: linear-gradient(to bottom, #3b82f6, #8b5cf6);
+}
+
+/* Status badge pulse animation for unresolved */
+.status-badge-unresolved {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Code block syntax highlighting (basic) */
+.code-preview {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.code-preview .keyword {
+  color: #ff7b72;
+}
+
+.code-preview .function {
+  color: #d2a8ff;
+}
+
+.code-preview .string {
+  color: #a5d6ff;
+}
+
+.code-preview .comment {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.code-preview .number {
+  color: #79c0ff;
+}
+
+/* Search input focus glow */
+.search-input:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Button press effect */
+.btn-press:active {
+  transform: scale(0.98);
+}
+
+/* Collapsible section animation */
+.collapsible-content {
+  animation: expandDown 0.2s ease-out;
+  transform-origin: top;
+}
+
+@keyframes expandDown {
+  from {
+    opacity: 0;
+    transform: scaleY(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+/* Pin button rotation */
+.pin-button.pinned {
+  transform: rotate(45deg);
+}
+
+.pin-button {
+  transition: transform 0.2s ease;
+}
+
+/* Badge shimmer effect */
+.badge-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.badge-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Relationship type icon animation */
+.relationship-icon {
+  transition: transform 0.2s ease;
+}
+
+.relationship-item:hover .relationship-icon {
+  transform: translateX(2px);
+}
+
+/* Empty state illustration */
+.empty-state {
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+}
+
+.empty-state:hover {
+  opacity: 0.8;
+}
+
+/* File path truncation with tooltip */
+.file-path {
+  position: relative;
+  cursor: help;
+}
+
+.file-path:hover::after {
+  content: attr(data-full-path);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  background: rgba(17, 24, 39, 0.95);
+  color: #e5e7eb;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 100;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+}
+
+/* Quick action button group */
+.action-group {
+  display: flex;
+  gap: 8px;
+}
+
+.action-group button {
+  transition: all 0.2s ease;
+}
+
+.action-group button:hover {
+  transform: translateY(-1px);
+}
+
+/* Section header hover effect */
+.section-header {
+  transition: background 0.2s ease;
+}
+
+.section-header:hover {
+  background: rgba(17, 24, 39, 0.5);
+}
+
+/* Chevron rotation for collapsible */
+.chevron-rotate {
+  transition: transform 0.2s ease;
+}
+
+.chevron-rotate.expanded {
+  transform: rotate(90deg);
+}
+
+/* Focus visible for keyboard navigation */
+.live-node-inspector *:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Loading skeleton (for future use) */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(55, 65, 81, 0.3) 25%,
+    rgba(75, 85, 99, 0.3) 50%,
+    rgba(55, 65, 81, 0.3) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s ease-in-out infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .live-node-inspector-modal {
+    max-width: 100%;
+    margin: 0;
+    border-radius: 0;
+    max-height: 100vh;
+  }
+  
+  .action-group {
+    flex-direction: column;
+  }
+}
+
+/* Print styles */
+@media print {
+  .live-node-inspector-overlay {
+    background: white;
+  }
+  
+  .live-node-inspector-modal {
+    box-shadow: none;
+    border: 1px solid #000;
+  }
+  
+  button {
+    display: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .live-node-inspector {
+    border-width: 2px;
+  }
+  
+  .relationship-item {
+    border-width: 2px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .live-node-inspector * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

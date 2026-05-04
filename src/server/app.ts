@@ -24,6 +24,40 @@ function sanitizeInput(input: string, maxLength: number = 500): string {
     .trim();
 }
 
+/**
+ * Detect programming language from file extension
+ */
+function detectLanguage(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const languageMap: Record<string, string> = {
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.js': 'javascript',
+    '.jsx': 'javascript',
+    '.py': 'python',
+    '.java': 'java',
+    '.c': 'c',
+    '.cpp': 'cpp',
+    '.cs': 'csharp',
+    '.go': 'go',
+    '.rs': 'rust',
+    '.rb': 'ruby',
+    '.php': 'php',
+    '.swift': 'swift',
+    '.kt': 'kotlin',
+    '.scala': 'scala',
+    '.sh': 'bash',
+    '.json': 'json',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.md': 'markdown',
+    '.html': 'html',
+    '.css': 'css',
+    '.sql': 'sql',
+  };
+  return languageMap[ext] || 'plaintext';
+}
+
 function stripSourceText<T extends { text?: string }>(span: T): T {
   const cleaned = { ...span };
   delete cleaned.text;
@@ -674,6 +708,64 @@ export async function createGraphServer(
           : undefined,
       })),
     });
+  });
+
+  // New endpoint to fetch source code for a node
+  app.get("/api/node/:id/code", (req, res) => {
+    const node = graph.getNode(req.params.id);
+    if (!node) {
+      res.status(404).json({ error: "Node not found" });
+      return;
+    }
+
+    // If node has location with text, return it
+    if (node.location?.text) {
+      res.json({
+        code: node.location.text,
+        file: node.location.file,
+        startLine: node.location.startLine,
+        endLine: node.location.endLine,
+        language: detectLanguage(node.location.file),
+      });
+      return;
+    }
+
+    // Otherwise, try to read from file system
+    if (node.location?.file) {
+      const resolvedFile = path.isAbsolute(node.location.file)
+        ? path.resolve(node.location.file)
+        : path.resolve(projectRoot, node.location.file);
+      
+      if (!isInsideRoot(projectRoot, resolvedFile)) {
+        res.status(403).json({ error: "Source file must be inside project root" });
+        return;
+      }
+
+      if (!fs.existsSync(resolvedFile) || !fs.statSync(resolvedFile).isFile()) {
+        res.status(404).json({ error: "Source file not found" });
+        return;
+      }
+
+      try {
+        const lines = fs.readFileSync(resolvedFile, "utf-8").split(/\r?\n/);
+        const startLine = Math.max(0, (node.location.startLine || 1) - 1);
+        const endLine = Math.min(lines.length, node.location.endLine || startLine + 1);
+        const code = lines.slice(startLine, endLine).join('\n');
+
+        res.json({
+          code,
+          file: node.location.file,
+          startLine: node.location.startLine,
+          endLine: node.location.endLine,
+          language: detectLanguage(node.location.file),
+        });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to read source file" });
+      }
+      return;
+    }
+
+    res.status(404).json({ error: "No source code available for this node" });
   });
 
   app.get("/api/search", (req, res) => {

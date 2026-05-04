@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>code-brain graph</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
   <div class="shell">
@@ -94,6 +96,18 @@
       <div class="panel details" id="nodeInfo">
         <h2 id="nodeTitle">Select a node</h2>
         <div id="nodeDetails" class="node-details"></div>
+        
+        <!-- Code Viewer Section -->
+        <div id="codeViewerSection" style="display: none; margin-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h3 style="margin: 0; font-size: 0.95rem;">Source Code</h3>
+            <button id="toggleCodeBtn" type="button" style="padding: 6px 12px; font-size: 0.85rem;">Hide Code</button>
+          </div>
+          <div id="codeViewer" class="code-viewer">
+            <pre><code id="codeContent"></code></pre>
+          </div>
+        </div>
+        
         <div id="nodeRelations" class="relations"></div>
       </div>
     </aside>

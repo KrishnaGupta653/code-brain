@@ -211,3 +211,42 @@ canvas:active {
     min-height: 65vh;
   }
 }
+
+/* Code Viewer Styles */
+.code-viewer {
+  background: #0d1117;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(29, 35, 48, 0.2);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.code-viewer pre {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.code-viewer code {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #c9d1d9;
+}
+
+#toggleCodeBtn {
+  background: var(--muted);
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+#toggleCodeBtn:hover {
+  background: #4a5160;
+}
+
+#codeViewerSection h3 {
+  color: var(--text);
+  font-weight: 600;
+}

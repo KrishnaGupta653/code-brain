@@ -66,7 +66,7 @@ code-brain graph
 
 ### Developer Experience
 - **Query Language**: Find callers, callees, cycles, dead code, orphans, impact
-- **Visual Graph UI**: Interactive 2D/3D graph visualization
+- **Visual Graph UI**: Interactive 2D/3D graph visualization with live code viewer
 - **Watch Mode**: Auto-update on file changes
 - **Export Formats**: JSON, YAML, AI-optimized
 
@@ -286,7 +286,28 @@ The MCP server provides 7 tools:
 
 ### `code-brain graph`
 
-Starts the graph server, usually at `http://localhost:3000`.
+Starts the interactive graph visualization server at `http://localhost:3000`.
+
+**Features:**
+- **Live Code Viewer**: Click any node to see its source code with syntax highlighting
+- **Interactive Navigation**: Zoom, pan, search, and filter nodes
+- **Relationship Explorer**: See incoming/outgoing connections
+- **Path Finding**: Shift+click two nodes to find paths between them
+- **Real-Time Updates**: WebSocket-based live graph updates
+- **Minimap**: Bird's-eye view of the entire graph
+- **Analytics**: Centrality, importance, communities, cycles
+
+**Usage:**
+```bash
+code-brain graph              # Start on default port 3000
+code-brain graph --port 8080  # Custom port
+```
+
+Click any node to view:
+- Node metadata (name, type, location)
+- Source code with syntax highlighting (20+ languages)
+- Relationships (callers, callees, dependencies)
+- Toggle code visibility as needed
 
 ### `code-brain export --format ai`
 

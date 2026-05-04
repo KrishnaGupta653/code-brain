@@ -676,14 +676,24 @@ function App() {
   const [showFullFile, setShowFullFile] = useState(false);
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set());
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showRelationships, setShowRelationships] = useState(true);
+  const [showSourceCode, setShowSourceCode] = useState(true);
+  const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
+    Number(localStorage.getItem("codebrain:relationshipsHeight") || 300),
+  );
+  const [sourceCodeHeight, setSourceCodeHeight] = useState(() =>
+    Number(localStorage.getItem("codebrain:sourceCodeHeight") || 400),
+  );
   const [leftWidth, setLeftWidth] = useState(() =>
     Number(localStorage.getItem("codebrain:leftWidth") || 320),
   );
   const [rightWidth, setRightWidth] = useState(() =>
-    Number(localStorage.getItem("codebrain:rightWidth") || 390),
+    Number(localStorage.getItem("codebrain:rightWidth") || 420),
   );
   const shellRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const relationshipsRef = useRef<HTMLElement | null>(null);
+  const sourceCodeRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (payload) {
@@ -698,6 +708,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem("codebrain:rightWidth", String(rightWidth));
   }, [rightWidth]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:relationshipsHeight", String(relationshipsHeight));
+  }, [relationshipsHeight]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:sourceCodeHeight", String(sourceCodeHeight));
+  }, [sourceCodeHeight]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -730,18 +748,20 @@ function App() {
 
   const selectNode = useCallback((id: string) => {
     setSelectedId(id);
-    setShowFullFile(false); // Reset when selecting new node
+    setShowFullFile(false);
+    setShowRelationships(true);
+    setShowSourceCode(true);
+
     fetch(`/api/node/${encodeURIComponent(id)}`)
       .then((response) => response.json() as Promise<NodeDetails>)
       .then((node) => {
         setDetails(node);
         if (node.sourcePreview) {
-          // Request more context to show the full node code
           const params = new URLSearchParams({
             file: node.sourcePreview.file,
             startLine: String(node.sourcePreview.startLine),
             endLine: String(node.sourcePreview.endLine),
-            context: "20", // Increased from 8 to 20 for more context
+            context: "20",
           });
           return fetch(`/api/source?${params}`).then(
             (response) => response.json() as Promise<SourcePayload>,
@@ -815,6 +835,64 @@ function App() {
         const next = Math.round(rect.right - event.clientX);
         setRightWidth(Math.min(620, Math.max(280, next)));
       }
+    };
+
+    const stop = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      document.body.classList.remove("is-resizing");
+    };
+
+    document.body.classList.add("is-resizing");
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
+
+  const startRelationshipsResize = (event: React.PointerEvent) => {
+    const relationshipsEl = relationshipsRef.current;
+    if (!relationshipsEl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const startY = event.clientY;
+    const startHeight = relationshipsHeight;
+
+    const onPointerMove = (event: PointerEvent) => {
+      const delta = event.clientY - startY;
+      const newHeight = Math.min(700, Math.max(180, startHeight + delta));
+      setRelationshipsHeight(newHeight);
+    };
+
+    const stop = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      document.body.classList.remove("is-resizing");
+    };
+
+    document.body.classList.add("is-resizing");
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
+
+  const startSourceCodeResize = (event: React.PointerEvent) => {
+    const sourceCodeEl = sourceCodeRef.current;
+    if (!sourceCodeEl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const startY = event.clientY;
+    const startHeight = sourceCodeHeight;
+
+    const onPointerMove = (event: PointerEvent) => {
+      const delta = event.clientY - startY;
+      const newHeight = Math.min(800, Math.max(200, startHeight + delta));
+      setSourceCodeHeight(newHeight);
     };
 
     const stop = () => {
@@ -984,11 +1062,34 @@ function App() {
       />
 
       <aside className="right-rail">
-        <section className="inspector-head">
-          <span><Sparkles size={16} /> Live Node</span>
+        <section className="inspector-head" style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 20,
+          background: 'var(--panel-glass)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          borderBottom: '1px solid var(--line-bright)',
+          margin: '-24px -20px 16px',
+          padding: '16px 20px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+        }}>
+          <span style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            fontSize: '0.85rem',
+            fontWeight: '700',
+            color: 'var(--text-bright)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em'
+          }}>
+            <Sparkles size={16} style={{ color: 'var(--accent-bright)' }} />
+            Live Node Inspector
+          </span>
           <div className="inspector-actions">
             {selectedNode && (
-              <button type="button" title="Clear selection" onClick={() => {
+              <button type="button" title="Clear selection (Esc)" onClick={() => {
                 setSelectedId(null);
                 setDetails(null);
                 setSource(null);
@@ -1025,124 +1126,535 @@ function App() {
             </section>
 
             {details && (
-              <section className="tool-panel relations-panel">
-                <h2><GitBranch size={15} /> Relationships</h2>
-                {[
-                  ...details.outgoing.slice(0, 10).map((edge) => ({
-                    ...edge,
-                    related: edge.target,
-                  })),
-                  ...details.incoming.slice(0, 10).map((edge) => ({
-                    ...edge,
-                    related: edge.source,
-                  })),
-                ].map((edge) => {
-                  const related = edge.related;
-                  return (
-                    <button
-                      key={`${edge.id}-${related?.id || "unknown"}`}
-                      type="button"
-                      onClick={() => related?.id && selectNode(related.id)}
+              <section
+                ref={relationshipsRef}
+                className="tool-panel relations-panel"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: showRelationships ? `${relationshipsHeight}px` : '56px',
+                  minHeight: '56px',
+                  overflow: 'hidden',
+                  transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '14px 16px',
+                    cursor: 'pointer',
+                    background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(0, 0, 0, 0.5))',
+                    borderRadius: '10px',
+                    marginBottom: showRelationships ? '12px' : '0',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10,
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)',
+                    border: '1px solid rgba(6, 182, 212, 0.2)',
+                    transition: 'all 0.25s ease',
+                    flexShrink: 0
+                  }}
+                  onClick={() => setShowRelationships(!showRelationships)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(6, 182, 212, 0.18), rgba(0, 0, 0, 0.6))';
+                    e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.4)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(0, 0, 0, 0.5))';
+                    e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.2)';
+                  }}
+                >
+                  <h2 style={{
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: '700',
+                    color: 'var(--text-bright)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    <GitBranch size={15} style={{ color: 'var(--accent)' }} />
+                    Relationships
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      background: 'rgba(6, 182, 212, 0.2)',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: 'var(--accent-bright)'
+                    }}>
+                      {details.outgoing.length + details.incoming.length}
+                    </span>
+                  </h2>
+                  <span style={{
+                    transform: showRelationships ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.3s ease',
+                    display: 'inline-block',
+                    color: 'var(--accent)',
+                    fontSize: '1.2rem',
+                    fontWeight: '700'
+                  }}>
+                    ▼
+                  </span>
+                </div>
+                {showRelationships && (
+                  <>
+                    <div style={{
+                      flex: '1 1 auto',
+                      overflowY: 'auto',
+                      overflowX: 'hidden',
+                      display: 'grid',
+                      gap: '7px',
+                      paddingRight: '4px',
+                      minHeight: 0
+                    }}>
+                      {[
+                        ...details.outgoing.slice(0, 15).map((edge) => ({
+                          ...edge,
+                          related: edge.target,
+                          direction: 'outgoing' as const
+                        })),
+                        ...details.incoming.slice(0, 15).map((edge) => ({
+                          ...edge,
+                          related: edge.source,
+                          direction: 'incoming' as const
+                        })),
+                      ].map((edge) => {
+                        const related = edge.related;
+                        return (
+                          <button
+                            key={`${edge.id}-${related?.id || "unknown"}`}
+                            type="button"
+                            onClick={() => related?.id && selectNode(related.id)}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '100px minmax(0, 1fr) auto',
+                              alignItems: 'center',
+                              gap: '10px',
+                              padding: '12px 14px',
+                              border: '1px solid var(--line)',
+                              borderRadius: '10px',
+                              background: 'rgba(17, 24, 39, 0.7)',
+                              color: 'var(--text)',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              transition: 'all 250ms cubic-bezier(0.4, 0, 0.2, 1)',
+                              position: 'relative',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            <span style={{
+                              color: EDGE_COLORS[edge.type] || "#cbd5e1",
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.03em',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              {edge.direction === 'outgoing' ? '→' : '←'} {edge.type}
+                            </span>
+                            <strong style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontWeight: '600',
+                              fontSize: '0.9rem'
+                            }}>
+                              {related?.name || "unknown"}
+                            </strong>
+                            <small style={{
+                              color: 'var(--muted)',
+                              fontSize: '0.75rem',
+                              fontWeight: '500'
+                            }}>
+                              {related?.type || "node"}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div
+                      style={{
+                        height: '12px',
+                        cursor: 'ns-resize',
+                        background: 'linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.25), transparent)',
+                        borderRadius: '6px',
+                        marginTop: '8px',
+                        position: 'relative',
+                        flexShrink: 0,
+                        transition: 'all 200ms ease'
+                      }}
+                      onPointerDown={startRelationshipsResize}
+                      title="Drag to resize relationships panel"
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.4), transparent)';
+                        e.currentTarget.style.height = '14px';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.25), transparent)';
+                        e.currentTarget.style.height = '12px';
+                      }}
                     >
-                      <span style={{ color: EDGE_COLORS[edge.type] || "#cbd5e1" }}>{edge.type}</span>
-                      <strong>{related?.name || "unknown"}</strong>
-                      <small>{related?.type || "node"}</small>
-                    </button>
-                  );
-                })}
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: '50px',
+                        height: '4px',
+                        background: 'rgba(6, 182, 212, 0.6)',
+                        borderRadius: '2px',
+                        boxShadow: '0 0 10px rgba(6, 182, 212, 0.4)'
+                      }} />
+                    </div>
+                  </>
+                )}
               </section>
             )}
 
-            {source && (
-              <section className="source-panel">
-                <header>
-                  <span><Code2 size={15} /> {source.relativeFile}</span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {!showFullFile && (
-                      <button
-                        type="button"
-                        onClick={loadFullFile}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '6px 12px',
-                          fontSize: '0.75rem',
-                          border: '1px solid rgba(148, 163, 184, 0.25)',
-                          borderRadius: '8px',
-                          background: 'rgba(6, 182, 212, 0.15)',
-                          color: '#22d3ee',
-                          cursor: 'pointer',
-                          transition: 'all 200ms ease',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(6, 182, 212, 0.25)';
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(6, 182, 212, 0.15)';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                        }}
-                      >
-                        <Maximize2 size={12} />
-                        Full File
-                      </button>
-                    )}
-                    {source.vscodeUri && (
-                      <a href={source.vscodeUri}>
-                        <ExternalLink size={12} />
-                        Open
-                      </a>
-                    )}
-                  </div>
-                </header>
-                <div style={{
-                  padding: '8px 12px',
-                  background: 'rgba(6, 182, 212, 0.08)',
-                  borderBottom: '1px solid var(--line-bright)',
-                  fontSize: '0.75rem',
-                  color: 'var(--muted)',
+            {/* Source Code Section - Resizable */}
+            <section
+              ref={sourceCodeRef}
+              className="source-panel"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                maxHeight: showSourceCode ? `${sourceCodeHeight}px` : '56px',
+                minHeight: '56px',
+                overflow: 'hidden',
+                transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                position: 'relative'
+              }}
+            >
+              <div
+                style={{
                   display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'space-between',
-                  alignItems: 'center'
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                  background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(0, 0, 0, 0.5))',
+                  borderRadius: '10px',
+                  marginBottom: showSourceCode ? '12px' : '0',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 10,
+                  backdropFilter: 'blur(12px)',
+                  WebkitBackdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(139, 92, 246, 0.2)',
+                  transition: 'all 0.25s ease',
+                  flexShrink: 0
+                }}
+                onClick={() => setShowSourceCode(!showSourceCode)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(0, 0, 0, 0.6))';
+                  e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(0, 0, 0, 0.5))';
+                  e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                }}
+              >
+                <h2 style={{
+                  margin: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  fontSize: '0.85rem',
+                  fontWeight: '700',
+                  color: 'var(--text-bright)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
                 }}>
-                  <span>
-                    {showFullFile
-                      ? `Full file (${source.lines.length} lines)`
-                      : `Lines ${source.requestedStartLine}-${source.requestedEndLine} with context`
-                    }
-                  </span>
-                  {showFullFile && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowFullFile(false);
-                        selectNode(selectedId!);
-                      }}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '0.7rem',
-                        border: '1px solid rgba(148, 163, 184, 0.2)',
-                        borderRadius: '6px',
-                        background: 'rgba(0, 0, 0, 0.3)',
+                  <Code2 size={15} style={{ color: 'var(--accent-3)' }} />
+                  Source Code
+                  {source && (
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      background: 'rgba(139, 92, 246, 0.2)',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: 'var(--accent-3)'
+                    }}>
+                      {source.lines.length} lines
+                    </span>
+                  )}
+                </h2>
+                <span style={{
+                  transform: showSourceCode ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.3s ease',
+                  display: 'inline-block',
+                  color: 'var(--accent-3)',
+                  fontSize: '1.2rem',
+                  fontWeight: '700'
+                }}>
+                  ▼
+                </span>
+              </div>
+
+              {showSourceCode && (
+                <>
+                  {source ? (
+                    <div style={{
+                      flex: '1 1 auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden',
+                      border: '1px solid var(--line-bright)',
+                      borderRadius: '10px',
+                      background: 'var(--panel-strong)',
+                      minHeight: 0
+                    }}>
+                      <header style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '14px',
+                        padding: '12px 14px',
+                        borderBottom: '1px solid var(--line-bright)',
+                        background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(0, 0, 0, 0.5))',
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 10,
+                        backdropFilter: 'blur(12px)',
+                        WebkitBackdropFilter: 'blur(12px)',
+                        flexShrink: 0
+                      }}>
+                        <span style={{
+                          display: 'flex',
+                          minWidth: 0,
+                          alignItems: 'center',
+                          gap: '10px',
+                          overflow: 'hidden',
+                          color: 'var(--text-bright)',
+                          fontSize: '0.85rem',
+                          fontWeight: '600',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          <Code2 size={14} style={{ flexShrink: 0 }} />
+                          {source.relativeFile}
+                        </span>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                          {!showFullFile && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                loadFullFile();
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                border: '1px solid rgba(139, 92, 246, 0.3)',
+                                borderRadius: '8px',
+                                background: 'rgba(139, 92, 246, 0.15)',
+                                color: 'var(--accent-3)',
+                                cursor: 'pointer',
+                                transition: 'all 200ms ease',
+                                fontWeight: '600'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(139, 92, 246, 0.25)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(139, 92, 246, 0.15)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                              }}
+                            >
+                              <Maximize2 size={12} />
+                              Full File
+                            </button>
+                          )}
+                          {showFullFile && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowFullFile(false);
+                                selectNode(selectedId!);
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                border: '1px solid rgba(148, 163, 184, 0.2)',
+                                borderRadius: '8px',
+                                background: 'rgba(0, 0, 0, 0.3)',
+                                color: 'var(--muted)',
+                                cursor: 'pointer',
+                                transition: 'all 200ms ease',
+                                fontWeight: '600'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.5)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
+                              }}
+                            >
+                              Show Less
+                            </button>
+                          )}
+                          {source.vscodeUri && (
+                            <a
+                              href={source.vscodeUri}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                border: '1px solid var(--line-bright)',
+                                borderRadius: '8px',
+                                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(6, 182, 212, 0.15))',
+                                color: 'var(--text-bright)',
+                                textDecoration: 'none',
+                                fontWeight: '600',
+                                transition: 'all 200ms ease',
+                                cursor: 'pointer'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139, 92, 246, 0.35), rgba(6, 182, 212, 0.25))';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.3)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(6, 182, 212, 0.15))';
+                                e.currentTarget.style.boxShadow = 'none';
+                              }}
+                            >
+                              <ExternalLink size={12} />
+                              Open
+                            </a>
+                          )}
+                        </div>
+                      </header>
+                      <div style={{
+                        padding: '8px 12px',
+                        background: 'rgba(139, 92, 246, 0.08)',
+                        borderBottom: '1px solid var(--line-bright)',
+                        fontSize: '0.75rem',
                         color: 'var(--muted)',
-                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexShrink: 0
+                      }}>
+                        <span style={{ fontWeight: '500' }}>
+                          {showFullFile
+                            ? `Full file (${source.lines.length} lines)`
+                            : `Lines ${source.requestedStartLine}-${source.requestedEndLine} with context`
+                          }
+                        </span>
+                      </div>
+                      <pre style={{
+                        flex: '1 1 auto',
+                        margin: 0,
+                        overflow: 'auto',
+                        padding: '12px 0',
+                        background: 'rgba(0, 0, 0, 0.8)',
+                        fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", Consolas, monospace',
+                        fontSize: '0.8rem',
+                        lineHeight: '1.7',
+                        minHeight: 0
+                      }}>
+                        {source.lines.map((line) => (
+                          <div key={line.line} className={line.highlighted ? "hot-line" : ""}>
+                            <span>{line.line}</span>
+                            <code>{line.text || " "}</code>
+                          </div>
+                        ))}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '16px',
+                      padding: '48px 24px',
+                      textAlign: 'center',
+                      color: 'var(--muted)',
+                      background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(0, 0, 0, 0.7))',
+                      borderRadius: '12px',
+                      border: '1px dashed rgba(139, 92, 246, 0.3)'
+                    }}>
+                      <Code2 size={48} style={{ opacity: 0.3, color: 'var(--accent-3)' }} />
+                      <div>
+                        <p style={{ margin: 0, fontSize: '1rem', fontWeight: '600', color: 'var(--text)' }}>
+                          {selectedNode?.type === 'file'
+                            ? 'File node selected'
+                            : 'No source code available'
+                          }
+                        </p>
+                        <p style={{ margin: '8px 0 0', fontSize: '0.85rem', opacity: 0.8 }}>
+                          {selectedNode?.type === 'file'
+                            ? 'Click a function, class, or method to see code'
+                            : 'Try selecting a function, class, or method node'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {source && (
+                    <div
+                      style={{
+                        height: '12px',
+                        cursor: 'ns-resize',
+                        background: 'linear-gradient(to bottom, transparent, rgba(139, 92, 246, 0.25), transparent)',
+                        borderRadius: '6px',
+                        marginTop: '8px',
+                        position: 'relative',
+                        flexShrink: 0,
+                        transition: 'all 200ms ease'
+                      }}
+                      onPointerDown={startSourceCodeResize}
+                      title="Drag to resize source code panel"
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(to bottom, transparent, rgba(139, 92, 246, 0.4), transparent)';
+                        e.currentTarget.style.height = '14px';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(to bottom, transparent, rgba(139, 92, 246, 0.25), transparent)';
+                        e.currentTarget.style.height = '12px';
                       }}
                     >
-                      Show Less
-                    </button>
-                  )}
-                </div>
-                <pre style={{ maxHeight: showFullFile ? '600px' : '380px' }}>
-                  {source.lines.map((line) => (
-                    <div key={line.line} className={line.highlighted ? "hot-line" : ""}>
-                      <span>{line.line}</span>
-                      <code>{line.text || " "}</code>
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: '50px',
+                        height: '4px',
+                        background: 'rgba(139, 92, 246, 0.6)',
+                        borderRadius: '2px',
+                        boxShadow: '0 0 10px rgba(139, 92, 246, 0.4)'
+                      }} />
                     </div>
-                  ))}
-                </pre>
-              </section>
-            )}
+                  )}
+                </>
+              )}
+            </section>
           </>
         ) : (
           <section className="empty-state">
