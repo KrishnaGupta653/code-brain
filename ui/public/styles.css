@@ -25,7 +25,8 @@ body {
 .shell {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -34,6 +35,10 @@ body {
   border-right: 1px solid var(--line);
   backdrop-filter: blur(18px);
   overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100vh;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .brand h1 {
@@ -249,4 +254,45 @@ canvas:active {
 #codeViewerSection h3 {
   color: var(--text);
   font-weight: 600;
+}
+
+/* Graph hover tooltip */
+.graph-tooltip {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  background: rgba(13, 17, 23, 0.92);
+  backdrop-filter: blur(12px);
+  color: #e6edf3;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: "IBM Plex Sans", sans-serif;
+  line-height: 1.35;
+  white-space: nowrap;
+  z-index: 100;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -110%);
+}
+
+.graph-tooltip.visible {
+  opacity: 1;
+}
+
+.graph-tooltip .tt-name {
+  font-weight: 600;
+  color: #fff;
+}
+
+.graph-tooltip .tt-type {
+  color: #8b949e;
+  margin-left: 6px;
+}
+
+.graph-tooltip .tt-degree {
+  color: #58a6ff;
+  font-size: 0.75rem;
+  margin-top: 2px;
 }

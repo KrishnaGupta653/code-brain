@@ -371,6 +371,8 @@ function GraphStage({
   onSelect,
   onHover,
   onExpandCluster,
+  cameraLocked,
+  onToggleCameraLock,
 }: {
   payload: GraphPayload;
   selectedId: string | null;
@@ -379,6 +381,8 @@ function GraphStage({
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
   onExpandCluster?: (communityId: number) => void;
+  cameraLocked?: boolean;
+  onToggleCameraLock?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -440,17 +444,17 @@ function GraphStage({
     if (!containerRef.current) return;
 
     const graph: any = new Graph({ multi: true, type: "directed" });
-    const radius = Math.max(8, Math.sqrt(payload.nodes.length) * 2.2);
+    const radius = Math.max(12, Math.sqrt(payload.nodes.length) * 3.5);
     const communityCount = Math.max(1, payload.analytics?.communities?.length || 1);
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
     payload.nodes.forEach((node, index) => {
       const community = communityLookup.get(node.id) ?? Number(node.metadata?.communityId ?? stableNumber(String(node.file || node.type)) % communityCount);
       const communityAngle = community * goldenAngle;
-      const communityRadius = Math.sqrt(community + 1) * radius * 1.7;
+      const communityRadius = Math.sqrt(community + 1) * radius * 2.8;
       const localSeed = stableNumber(`${node.id}:${index}`);
       const localAngle = (localSeed % 3600) / 3600 * Math.PI * 2;
-      const localRadius = Math.sqrt((localSeed % 1000) / 1000) * Math.max(5, radius * 0.72);
+      const localRadius = Math.sqrt((localSeed % 1000) / 1000) * Math.max(8, radius * 1.2);
       const rankScore = node.rank?.score ?? 0;
       const depthAngle = localAngle * 1.7 + communityAngle;
       const baseSize = nodeSize(node);
@@ -458,7 +462,7 @@ function GraphStage({
         label: node.name,
         x: Math.cos(communityAngle) * communityRadius + Math.cos(localAngle) * localRadius,
         y: Math.sin(communityAngle) * communityRadius + Math.sin(localAngle) * localRadius,
-        z: Math.sin(depthAngle) * radius * (0.45 + rankScore),
+        z: Math.sin(depthAngle) * radius * (0.65 + rankScore * 0.8),
         size: baseSize,
         color: NODE_COLORS[node.type] || "#e2e8f0",
         baseColor: NODE_COLORS[node.type] || "#e2e8f0",
@@ -490,13 +494,13 @@ function GraphStage({
         iterations: Math.min(260, Math.max(70, graph.order * 2.4)),
         settings: {
           ...inferred,
-          gravity: 0.08,
-          scalingRatio: graph.order > 600 ? 18 : 11,
+          gravity: 0.05,
+          scalingRatio: graph.order > 600 ? 28 : 18,
           strongGravityMode: false,
           adjustSizes: true,
           barnesHutOptimize: graph.order > 250,
-          edgeWeightInfluence: 0.72,
-          slowDown: 2.4,
+          edgeWeightInfluence: 0.6,
+          slowDown: 3.2,
         },
       });
     } else if (graph.order >= 1800) {
@@ -605,17 +609,30 @@ function GraphStage({
       );
     });
 
-    if (selectedId && graph.hasNode(selectedId)) {
+    // Only animate camera if not locked and node is far from current view
+    if (selectedId && graph.hasNode(selectedId) && !cameraLocked) {
       const position = sigma.getNodeDisplayData(selectedId);
+      const camera = sigma.getCamera();
+      const currentState = camera.getState();
+
       if (position) {
-        sigma.getCamera().animate(
-          { x: position.x, y: position.y, ratio: 0.15 },
-          { duration: 420 },
-        );
+        // Calculate distance from current camera position
+        const dx = position.x - currentState.x;
+        const dy = position.y - currentState.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Only animate if node is far away (outside current viewport)
+        const viewportRadius = 1 / currentState.ratio;
+        if (distance > viewportRadius * 0.6) {
+          sigma.getCamera().animate(
+            { x: position.x, y: position.y, ratio: Math.min(currentState.ratio, 0.25) },
+            { duration: 300 },
+          );
+        }
       }
     }
     sigma.refresh();
-  }, [activeTypes, hoveredId, nodeLookup, selectedId]);
+  }, [activeTypes, hoveredId, nodeLookup, selectedId, cameraLocked]);
 
   const zoom = (factor: number) => {
     const sigma = sigmaRef.current;
@@ -682,6 +699,18 @@ function GraphStage({
         <button type="button" title="Zoom out" onClick={() => zoom(1.28)}>
           <ZoomOut size={18} />
         </button>
+        <button
+          type="button"
+          title={cameraLocked ? "Unlock camera (allow auto-focus)" : "Lock camera (prevent auto-focus)"}
+          onClick={onToggleCameraLock}
+          style={{
+            background: cameraLocked
+              ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.35), rgba(139, 92, 246, 0.25))'
+              : undefined
+          }}
+        >
+          {cameraLocked ? <LocateFixed size={18} /> : <Pin size={18} />}
+        </button>
         <button type="button" title="Reset sphere" onClick={resetSphere}>
           <Maximize2 size={18} />
         </button>
@@ -706,6 +735,7 @@ function App() {
   const [relationshipSearch, setRelationshipSearch] = useState("");
   const [expandedRelationships, setExpandedRelationships] = useState<Set<string>>(new Set());
   const [isInspectorPinned, setIsInspectorPinned] = useState(false);
+  const [isCameraLocked, setIsCameraLocked] = useState(false);
   const [compareNode, setCompareNode] = useState<GraphNode | null>(null);
   const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
     Number(localStorage.getItem("codebrain:relationshipsHeight") || 300),
@@ -989,17 +1019,17 @@ function App() {
   const visibleSearchResults = query.trim() ? searchSuggestions : results.slice(0, 12);
   const relationshipItems = details?.outgoing && details?.incoming
     ? [
-        ...details.outgoing.map((edge) => ({
-          ...edge,
-          related: edge.target,
-          direction: "outgoing" as const,
-        })),
-        ...details.incoming.map((edge) => ({
-          ...edge,
-          related: edge.source,
-          direction: "incoming" as const,
-        })),
-      ]
+      ...details.outgoing.map((edge) => ({
+        ...edge,
+        related: edge.target,
+        direction: "outgoing" as const,
+      })),
+      ...details.incoming.map((edge) => ({
+        ...edge,
+        related: edge.source,
+        direction: "incoming" as const,
+      })),
+    ]
     : [];
   const filteredRelationships = relationshipItems
     .filter((edge) => {
@@ -1198,6 +1228,8 @@ function App() {
         onSelect={selectNode}
         onHover={setHoveredId}
         onExpandCluster={expandCommunity}
+        cameraLocked={isCameraLocked}
+        onToggleCameraLock={() => setIsCameraLocked(!isCameraLocked)}
       />
 
       <div
@@ -1451,7 +1483,7 @@ function App() {
                       paddingRight: '4px',
                       minHeight: 0
                     }}
-                    className="relationship-list">
+                      className="relationship-list">
                       {filteredRelationships.length > 0 ? filteredRelationships.map((edge) => {
                         const related = edge.related;
                         const relatedId = edge.direction === "outgoing" ? edge.to : edge.from;
