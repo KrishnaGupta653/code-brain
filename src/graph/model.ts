@@ -6,7 +6,6 @@ import {
   SourceSpan,
   ProvenanceRecord
 } from '../types/models.js';
-import { globalProvenanceTracker } from '../provenance/index.js';
 
 export class GraphModel {
   private nodes: Map<string, GraphNode> = new Map();
@@ -110,9 +109,10 @@ export class GraphModel {
     const queue: Array<{ nodeId: string; path: string[] }> = [
       { nodeId: fromId, path: [fromId] }
     ];
+    let head = 0;
 
-    while (queue.length > 0) {
-      const { nodeId, path } = queue.shift()!;
+    while (head < queue.length) {
+      const { nodeId, path } = queue[head++];
 
       if (nodeId === toId) {
         return path;
@@ -212,7 +212,7 @@ export function createGraphNode(
     updatedAt: Date.now()
   };
 
-  globalProvenanceTracker.trackParsing(id, type, [location]);
+  // Provenance tracking now handled by GraphBuilder instance, not global singleton
 
   return {
     id,

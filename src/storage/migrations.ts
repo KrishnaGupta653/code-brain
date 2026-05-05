@@ -279,6 +279,34 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 13,
+    description: 'Add graph analytics columns to nodes table',
+    up: (db) => {
+      // Check if columns already exist to make migration idempotent
+      const cols = db.prepare("PRAGMA table_info(nodes)").all() as Array<{name: string}>;
+      const colNames = cols.map(c => c.name);
+      
+      if (!colNames.includes('importance')) {
+        db.exec(`
+          ALTER TABLE nodes ADD COLUMN importance REAL NOT NULL DEFAULT 0.0;
+          ALTER TABLE nodes ADD COLUMN is_entry_point BOOLEAN NOT NULL DEFAULT 0;
+          ALTER TABLE nodes ADD COLUMN is_dead BOOLEAN NOT NULL DEFAULT 0;
+          ALTER TABLE nodes ADD COLUMN is_bridge BOOLEAN NOT NULL DEFAULT 0;
+          ALTER TABLE nodes ADD COLUMN call_count_in INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE nodes ADD COLUMN call_count_out INTEGER NOT NULL DEFAULT 0;
+        `);
+      }
+      
+      // Add indexes for new columns
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(project_id, importance DESC);
+        CREATE INDEX IF NOT EXISTS idx_nodes_namespace ON nodes(project_id, namespace);
+        CREATE INDEX IF NOT EXISTS idx_nodes_dead ON nodes(project_id, is_dead) WHERE is_dead = 1;
+        CREATE INDEX IF NOT EXISTS idx_nodes_exported ON nodes(project_id, is_exported);
+      `);
+    },
+  },
 ];
 export function runMigrations(db: Database.Database): void {
   // Check if schema_version table exists

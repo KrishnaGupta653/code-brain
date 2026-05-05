@@ -140,7 +140,7 @@ export async function indexCommand(
             if (node) {
               node.communityId = communityIndex;
               // Assign importance score from analytics
-              node.importanceScore = analyticsResult.importance.get(nodeId) || 0;
+              node.importance = analyticsResult.importance.get(nodeId) || 0;
             }
           });
         });

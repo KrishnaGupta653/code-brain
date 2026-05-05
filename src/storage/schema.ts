@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS nodes (
   summary TEXT,
   is_exported BOOLEAN DEFAULT FALSE,
   metadata TEXT,
+  importance REAL NOT NULL DEFAULT 0.0,
+  is_entry_point BOOLEAN NOT NULL DEFAULT 0,
+  is_dead BOOLEAN NOT NULL DEFAULT 0,
+  is_bridge BOOLEAN NOT NULL DEFAULT 0,
+  semantic_role TEXT,
+  semantic_role_confidence REAL DEFAULT 0.0,
+  namespace TEXT,
+  call_count_in INTEGER NOT NULL DEFAULT 0,
+  call_count_out INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -135,6 +144,10 @@ CREATE INDEX IF NOT EXISTS idx_nodes_project_type ON nodes(project_id, type);
 CREATE INDEX IF NOT EXISTS idx_nodes_file_path ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
 CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
+CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(project_id, importance DESC);
+CREATE INDEX IF NOT EXISTS idx_nodes_namespace ON nodes(project_id, namespace);
+CREATE INDEX IF NOT EXISTS idx_nodes_dead ON nodes(project_id, is_dead) WHERE is_dead = 1;
+CREATE INDEX IF NOT EXISTS idx_nodes_exported ON nodes(project_id, is_exported);
 CREATE INDEX IF NOT EXISTS idx_edges_project_id ON edges(project_id);
 CREATE INDEX IF NOT EXISTS idx_edges_from_id ON edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to_id ON edges(to_id);
@@ -158,4 +171,4 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 );
 `;
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 13;

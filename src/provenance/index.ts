@@ -1,1 +1,1 @@
-export { ProvenanceTracker, globalProvenanceTracker } from './tracker.js';
+export { ProvenanceTracker } from './tracker.js';

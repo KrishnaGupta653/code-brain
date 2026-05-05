@@ -301,8 +301,9 @@ export class SQLiteStorage {
       const insertNode = this.db.prepare(`
         INSERT INTO nodes
         (id, project_id, file_path, name, full_name, type, start_line, end_line, start_col, end_col, summary, metadata, 
-         semantic_path, namespace, hierarchy_label, semantic_role, community_id, importance_score, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         semantic_path, namespace, hierarchy_label, semantic_role, community_id, importance, 
+         is_entry_point, is_dead, is_bridge, call_count_in, call_count_out, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertEdge = this.db.prepare(`
@@ -318,6 +319,7 @@ export class SQLiteStorage {
       `);
 
       for (const node of nodes) {
+        const meta = node.metadata || {};
         insertNode.run(
           node.id,
           projectId,
@@ -330,13 +332,18 @@ export class SQLiteStorage {
           node.location?.startCol ?? 0,
           node.location?.endCol ?? 0,
           node.summary || "",
-          JSON.stringify(node.metadata || {}),
+          JSON.stringify(meta),
           node.semanticPath || null,
           node.namespace || null,
           node.hierarchyLabel || null,
           node.semanticRole || null,
           node.communityId || null,
-          node.importanceScore || 0,
+          node.importance || 0,
+          meta.isEntryPoint ? 1 : 0,
+          meta.isDead ? 1 : 0,
+          meta.isBridge ? 1 : 0,
+          (meta.callCountIn as number) || 0,
+          (meta.callCountOut as number) || 0,
           node.provenance.createdAt || now,
           node.provenance.updatedAt || now,
         );
@@ -397,7 +404,12 @@ export class SQLiteStorage {
       hierarchy_label: string | null;
       semantic_role: string | null;
       community_id: number | null;
-      importance_score: number;
+      importance: number;
+      is_entry_point: number;
+      is_dead: number;
+      is_bridge: number;
+      call_count_in: number;
+      call_count_out: number;
       created_at: number;
       updated_at: number;
     }>;
@@ -411,6 +423,14 @@ export class SQLiteStorage {
         endCol: row.end_col,
       };
 
+      const metadata = row.metadata ? JSON.parse(row.metadata) : {};
+      // Add analytics flags to metadata
+      metadata.isEntryPoint = row.is_entry_point === 1;
+      metadata.isDead = row.is_dead === 1;
+      metadata.isBridge = row.is_bridge === 1;
+      metadata.callCountIn = row.call_count_in;
+      metadata.callCountOut = row.call_count_out;
+
       const node = createGraphNode(
         row.id,
         row.type as NodeType,
@@ -418,7 +438,7 @@ export class SQLiteStorage {
         source,
         row.full_name,
         row.summary || undefined,
-        row.metadata ? JSON.parse(row.metadata) : {},
+        metadata,
       );
 
       // Restore semantic fields
@@ -427,7 +447,7 @@ export class SQLiteStorage {
       node.hierarchyLabel = row.hierarchy_label || undefined;
       node.semanticRole = row.semantic_role || undefined;
       node.communityId = row.community_id || undefined;
-      node.importanceScore = row.importance_score || 0;
+      node.importance = row.importance || 0;
 
       node.provenance = this.getProvenanceFor(
         row.id,
@@ -1135,7 +1155,7 @@ export class SQLiteStorage {
     node.hierarchyLabel = row.hierarchy_label || undefined;
     node.semanticRole = row.semantic_role || undefined;
     node.communityId = row.community_id || undefined;
-    node.importanceScore = row.importance_score || 0;
+    node.importance = row.importance_score || 0;
 
     node.provenance = this.getProvenanceFor(
       row.id,

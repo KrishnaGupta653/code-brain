@@ -21,6 +21,12 @@ const GetGraphExportSchema = z.object({
   model: z.string().optional().default('gpt-4'),
 });
 
+const GetGraphExportCBv2Schema = z.object({
+  project_path: z.string().min(1, 'Project path is required'),
+  focus: z.string().optional(),
+  max_tokens: z.number().int().positive().optional().default(100000),
+});
+
 const SearchSymbolsSchema = z.object({
   project_path: z.string().min(1, 'Project path is required'),
   query: z.string().min(1, 'Query is required'),
@@ -58,6 +64,7 @@ const SemanticSearchSchema = z.object({
 });
 
 type GetGraphExportInput = z.infer<typeof GetGraphExportSchema>;
+type GetGraphExportCBv2Input = z.infer<typeof GetGraphExportCBv2Schema>;
 type SearchSymbolsInput = z.infer<typeof SearchSymbolsSchema>;
 type FindCallersInput = z.infer<typeof FindCallersSchema>;
 type FindCalleesInput = z.infer<typeof FindCalleesSchema>;
@@ -95,7 +102,7 @@ export class CodeBrainMCPServer {
       const tools: Tool[] = [
         {
           name: 'get_graph_export',
-          description: 'Export the code graph in AI-optimized format with hierarchical structure',
+          description: 'Export the code graph in AI-optimized format with hierarchical structure, PageRank importance scoring, dead code detection, and cycle analysis. Includes module summaries, knowledge index, and layout hints.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -114,6 +121,28 @@ export class CodeBrainMCPServer {
               model: {
                 type: 'string',
                 description: 'AI model name for token budget (e.g., gpt-4, claude-opus)',
+              },
+            },
+            required: ['project_path'],
+          },
+        },
+        {
+          name: 'get_graph_export_cbv2',
+          description: 'Export the code graph in CBv2 compact tuple format (10× token efficiency). Uses integer type codes, tuple arrays, and bitfield flags instead of verbose JSON objects.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              project_path: {
+                type: 'string',
+                description: 'Path to the project root directory',
+              },
+              focus: {
+                type: 'string',
+                description: 'Optional focus path to limit export scope',
+              },
+              max_tokens: {
+                type: 'number',
+                description: 'Maximum tokens for the export (default: 100000)',
               },
             },
             required: ['project_path'],
@@ -179,7 +208,7 @@ export class CodeBrainMCPServer {
         },
         {
           name: 'detect_cycles',
-          description: 'Detect circular dependencies in the codebase',
+          description: 'Detect circular dependencies in the codebase using Tarjan\'s strongly connected components algorithm. Returns dependency cycles that should be refactored.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -193,7 +222,7 @@ export class CodeBrainMCPServer {
         },
         {
           name: 'find_dead_exports',
-          description: 'Find unused exports in the codebase',
+          description: 'Find unused exports in the codebase (exported symbols that are never imported). Helps identify dead code that can be safely removed.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -207,7 +236,7 @@ export class CodeBrainMCPServer {
         },
         {
           name: 'analyze_impact',
-          description: 'Analyze the impact of changing a specific symbol',
+          description: 'Analyze the impact of changing a specific symbol. Returns direct dependents, transitive impact, affected tests, blast radius score (0-1), and refactoring effort estimate. Critical for safe refactoring.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -264,6 +293,8 @@ export class CodeBrainMCPServer {
         switch (name) {
           case 'get_graph_export':
             return await this.handleGetGraphExport(args);
+          case 'get_graph_export_cbv2':
+            return await this.handleGetGraphExportCBv2(args);
           case 'search_symbols':
             return await this.handleSearchSymbols(args);
           case 'find_callers':
@@ -315,15 +346,26 @@ export class CodeBrainMCPServer {
 
   // Get cached graph or load from storage
   private getCachedGraph(projectPath: string, storage: SQLiteStorage): any {
-    const cached = this.graphCache.get(projectPath);
+    const state = storage.getIndexState(projectPath);
+    const lastIndexedAt = state?.lastIndexedAt ?? 0;
+    const cacheKey = `${projectPath}:${lastIndexedAt}`;
+    
+    const cached = this.graphCache.get(cacheKey);
     if (cached && Date.now() - cached.loadedAt < this.GRAPH_CACHE_TTL) {
-      logger.debug(`Using cached graph for ${projectPath}`);
+      logger.debug(`Using cached graph for ${projectPath} (indexed at ${lastIndexedAt})`);
       return cached.graph;
+    }
+
+    // Evict all stale entries for this project path
+    for (const key of this.graphCache.keys()) {
+      if (key.startsWith(projectPath + ':')) {
+        this.graphCache.delete(key);
+      }
     }
 
     logger.debug(`Loading graph from storage for ${projectPath}`);
     const graph = storage.loadGraph(projectPath);
-    this.graphCache.set(projectPath, { graph, loadedAt: Date.now() });
+    this.graphCache.set(cacheKey, { graph, loadedAt: Date.now() });
     return graph;
   }
 
@@ -380,6 +422,54 @@ export class CodeBrainMCPServer {
         {
           type: 'text',
           text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async handleGetGraphExportCBv2(args: unknown) {
+    const input = GetGraphExportCBv2Schema.parse(args);
+    const storage = await this.initStorage(input.project_path);
+
+    const graph = this.getCachedGraph(input.project_path, storage);
+    const project = storage.getProject(input.project_path);
+    
+    if (!project) {
+      throw new Error('Project not found. Run "code-brain index" first.');
+    }
+
+    const exporter = new ExportEngine(graph, project, input.project_path);
+    const queryEngine = new QueryEngine(graph, storage, input.project_path);
+    
+    // Get all nodes or focus on specific path
+    let queryResult: QueryResult;
+    if (input.focus) {
+      const focusNodes = queryEngine.findByName(input.focus);
+      if (focusNodes.length > 0) {
+        queryResult = queryEngine.findRelated(focusNodes[0].id, 2, 1000);
+      } else {
+        queryResult = { nodes: [], edges: [], truncated: false };
+      }
+    } else {
+      // Get all nodes
+      queryResult = {
+        nodes: graph.getNodes(),
+        edges: graph.getEdges(),
+        truncated: false,
+      };
+    }
+
+    const result = exporter.exportCBv2(
+      queryResult,
+      input.focus,
+      input.max_tokens,
+    );
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result),
         },
       ],
     };

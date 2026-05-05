@@ -566,9 +566,10 @@ export async function createGraphServer(
       const visited = new Set<string>();
       const maxDepth = 2;
       const maxNodes = 300;
+      let head = 0;
 
-      while (queue.length > 0 && relatedIds.size < maxNodes) {
-        const currentId = queue.shift()!;
+      while (head < queue.length && relatedIds.size < maxNodes) {
+        const currentId = queue[head++];
         if (visited.has(currentId)) continue;
         visited.add(currentId);
 
@@ -973,13 +974,13 @@ export async function createGraphServer(
         id: n.id,
         name: n.name,
         path: n.location?.file,
-        importance: n.importanceScore
+        importance: n.importance
       })),
       criticalDependencies: impact.criticalDependencies.map(n => ({
         id: n.id,
         name: n.name,
         type: n.type,
-        importance: n.importanceScore
+        importance: n.importance
       })),
       coveringTests: impact.coveringTests.map(n => ({
         id: n.id,

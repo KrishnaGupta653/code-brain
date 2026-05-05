@@ -9,7 +9,7 @@ import { SQLiteStorage } from "../../storage/index.js";
 
 export async function exportCommand(
   projectRoot: string,
-  format: "json" | "yaml" | "ai" = "json",
+  format: "json" | "yaml" | "ai" | "cbv2" = "json",
   focus?: string,
   maxTokens?: number,
   top?: number,
@@ -125,6 +125,13 @@ export async function exportCommand(
         model,
       );
       output = JSON.stringify(bundle, null, 2);
+    } else if (format === "cbv2") {
+      const bundle = exporter.exportCBv2(
+        queryResult,
+        focus,
+        tokenBudget,
+      );
+      output = JSON.stringify(bundle);
     } else if (format === "json") {
       output = exporter.exportAsJSON(queryResult, focus);
     } else if (format === "yaml") {

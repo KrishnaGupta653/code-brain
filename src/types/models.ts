@@ -94,7 +94,6 @@ export interface GraphNode {
   
   // Analytics fields
   communityId?: number; // Cluster/community assignment from analytics
-  importanceScore?: number; // Computed importance score (0-1)
 }
 
 export interface GraphEdge {
@@ -170,7 +169,6 @@ export interface ExportBundle {
   evidence?: SourceSpan[];
   exportedAt: number;
   exportFormat: "json" | "yaml" | "ai";
-  rules?: string[];
 }
 
 export interface AIExportBundle extends ExportBundle {
@@ -189,7 +187,6 @@ export interface AIExportBundle extends ExportBundle {
   callChains?: string[][];
   ranking?: RankingScore[];
   focus?: string;
-  rules: string[];
   modules?: any[]; // Module summaries for hierarchical export
   pathMap?: Record<string, string>; // File path compression map
   knowledge?: KnowledgeIndex;
@@ -349,6 +346,7 @@ export interface ParsedSymbol {
   metadata?: Record<string, unknown>;
   params?: ParsedParam[];     // for function/method
   returnType?: string;        // for function/method; 'unknown' if not annotated
+  bodyText?: string;          // Full source text of the function/method body, if captured by parser
 }
 
 export interface ParsedFile {
@@ -361,4 +359,113 @@ export interface ParsedFile {
   entryPoints: string[];
   isTestFile: boolean;
   isConfigFile: boolean;
+}
+
+// ============================================================================
+// CBv2 Export Format — Compact tuple-based format (10× token efficiency)
+// ============================================================================
+
+/**
+ * Type code maps for compact encoding
+ */
+export const CBv2NodeTypeCode: Record<NodeType, number> = {
+  project: 0,
+  file: 1,
+  module: 2,
+  class: 3,
+  function: 4,
+  method: 5,
+  variable: 6,
+  constant: 7,
+  type: 8,
+  interface: 9,
+  enum: 10,
+  route: 11,
+  config: 12,
+  test: 13,
+  doc: 14,
+  example: 15,
+  "api-schema": 16,
+  "api-endpoint": 17,
+  "api-operation": 18,
+  "api-type": 19,
+};
+
+export const CBv2EdgeTypeCode: Record<EdgeType, number> = {
+  IMPORTS: 0,
+  EXPORTS: 1,
+  CALLS: 2,
+  CALLS_UNRESOLVED: 3,
+  CALLS_CROSS_LANGUAGE: 4,
+  OWNS: 5,
+  DEFINES: 6,
+  USES: 7,
+  DEPENDS_ON: 8,
+  DOCUMENTS: 9,
+  EXAMPLE_OF: 10,
+  TESTS: 11,
+  IMPLEMENTS: 12,
+  EXTENDS: 13,
+  DECORATES: 14,
+  REFERENCES: 15,
+  ENTRY_POINT: 16,
+  DEFINES_API: 17,
+  RESOLVES: 18,
+};
+
+/**
+ * Compact node tuple format:
+ * [id, typeCode, name, filePath, startLine, endLine, importance, flags, summary?]
+ * 
+ * flags bitfield:
+ * - bit 0: isExported
+ * - bit 1: isEntryPoint
+ * - bit 2: isDead
+ * - bit 3: isBridge
+ * - bit 4: inCycle
+ */
+export type CBv2NodeTuple = [
+  string,  // id
+  number,  // typeCode (from CBv2NodeTypeCode)
+  string,  // name
+  string,  // filePath
+  number,  // startLine
+  number,  // endLine
+  number,  // importance (0-1, rounded to 3 decimals)
+  number,  // flags bitfield
+  string?, // summary (optional)
+];
+
+/**
+ * Compact edge tuple format:
+ * [fromId, toId, typeCode, resolved]
+ */
+export type CBv2EdgeTuple = [
+  string,  // fromId
+  string,  // toId
+  number,  // typeCode (from CBv2EdgeTypeCode)
+  number,  // resolved (0 or 1)
+];
+
+/**
+ * CBv2 export bundle — compact tuple-based format
+ */
+export interface CBv2Bundle {
+  v: 2;  // version
+  p: {   // project metadata
+    n: string;  // name
+    r: string;  // root
+    l: string;  // language
+    fc: number; // fileCount
+    sc: number; // symbolCount
+    ec: number; // edgeCount
+  };
+  n: CBv2NodeTuple[];  // nodes
+  e: CBv2EdgeTuple[];  // edges
+  m?: {  // metadata (optional)
+    ep?: string[];     // entryPoints
+    cycles?: string[][]; // dependency cycles
+    ur?: number;       // unresolvedCount
+  };
+  t: number;  // exportedAt timestamp
 }

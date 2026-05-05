@@ -4,8 +4,10 @@ import path from "path";
 import { GraphModel, createGraphEdge, createGraphNode } from "./model.js";
 import { SemanticAnalyzer } from "./semantics.js";
 import { RelationshipAnalyzer } from "./relationships.js";
+import { GraphAnalytics } from "./analytics.js";
 import { Parser } from "../parser/index.js";
 import { ParallelParser } from "../parser/parallel.js";
+import { ProvenanceTracker } from "../provenance/tracker.js";
 import {
   ParsedCall,
   ParsedFile,
@@ -36,6 +38,7 @@ export class GraphBuilder {
   private projectId = "";
   private projectRoot = "";
   private pathAliases: PathAlias[] = [];
+  private provenanceTracker = new ProvenanceTracker();
 
   async buildFromRepository(
     root: string,
@@ -52,6 +55,7 @@ export class GraphBuilder {
     this.projectRoot = root;
     this.projectId = stableId("project", root);
     this.pathAliases = this.loadPathAliases(root);
+    this.provenanceTracker = new ProvenanceTracker(); // fresh tracker per build
 
     logger.info(`Building graph from: ${root}`);
 
@@ -94,6 +98,22 @@ export class GraphBuilder {
     // Analyze relationships for explanations
     const relationshipAnalyzer = new RelationshipAnalyzer(this.graph);
     relationshipAnalyzer.analyzeAllEdges();
+
+    // Run graph analytics (PageRank, dead code, cycles, bridges)
+    logger.info("Running graph analytics...");
+    const analytics = new GraphAnalytics(this.graph);
+    analytics.run();
+    analytics.populateCallCounts();
+    
+    // Store topological sort in project node metadata
+    const topoOrder = analytics.topologicalSort();
+    const projNode = this.graph.getNode(this.projectId);
+    if (projNode) {
+      projNode.metadata = {
+        ...(projNode.metadata ?? {}),
+        buildOrder: topoOrder,
+      };
+    }
 
     logger.success(
       `Graph built. ${this.graph.getStats().nodeCount} nodes, ${this.graph.getStats().edgeCount} edges`,

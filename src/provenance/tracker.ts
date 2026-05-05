@@ -52,5 +52,3 @@ export class ProvenanceTracker {
     this.records.clear();
   }
 }
-
-export const globalProvenanceTracker = new ProvenanceTracker();

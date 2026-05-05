@@ -39,6 +39,9 @@ export class RelationshipAnalyzer {
   /**
    * Detect cross-language calls in the codebase.
    * Returns edges that represent calls between different languages.
+   * 
+   * TODO: Re-enable when parsers capture bodyText in ParsedSymbol.
+   * Currently all calls return empty because location.text is declaration-only.
    */
   detectCrossLanguageCalls(): CrossLanguageCall[] {
     const calls: CrossLanguageCall[] = [];
@@ -83,31 +86,16 @@ export class RelationshipAnalyzer {
 
   /**
    * Detect cross-language calls within a node.
+   * 
+   * NOTE: Currently disabled because node.location.text only contains the declaration
+   * signature, not the function body where subprocess calls appear. This method returns
+   * zero results for every codebase until parsers capture bodyText in ParsedSymbol.
    */
   private detectCrossLanguageInNode(node: GraphNode, sourceLanguage: string): CrossLanguageCall[] {
-    const calls: CrossLanguageCall[] = [];
-    const sourceText = node.location?.text || '';
-
-    if (sourceLanguage === 'typescript') {
-      // TypeScript calling Python
-      calls.push(...this.detectTypeScriptToPython(node, sourceText));
-      // TypeScript calling Java
-      calls.push(...this.detectTypeScriptToJava(node, sourceText));
-      // TypeScript calling Go
-      calls.push(...this.detectTypeScriptToGo(node, sourceText));
-    } else if (sourceLanguage === 'python') {
-      // Python calling TypeScript/Node
-      calls.push(...this.detectPythonToTypeScript(node, sourceText));
-      // Python calling Java
-      calls.push(...this.detectPythonToJava(node, sourceText));
-      // Python calling Go
-      calls.push(...this.detectPythonToGo(node, sourceText));
-    } else if (sourceLanguage === 'java') {
-      // Java JNI calls
-      calls.push(...this.detectJavaJNI(node, sourceText));
-    }
-
-    return calls;
+    // location.text is only the declaration signature, not the body.
+    // Body text is not currently captured by parsers.
+    // Cross-language detection requires body text — skip until parsers capture it.
+    return [];
   }
 
   /**

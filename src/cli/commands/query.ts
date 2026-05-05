@@ -162,7 +162,7 @@ export async function queryCommand(
         logger.info(`Impact analysis for ${options.symbol}:`);
         console.log(`\nImpacted files: ${impact.impactedFiles.length}`);
         impact.impactedFiles.slice(0, 10).forEach(node => {
-          console.log(`  - ${node.location?.file} (importance: ${node.importanceScore?.toFixed(3)})`);
+          console.log(`  - ${node.location?.file} (importance: ${node.importance?.toFixed(3)})`);
         });
         console.log(`\nCritical dependencies: ${impact.criticalDependencies.length}`);
         impact.criticalDependencies.slice(0, 10).forEach(node => {

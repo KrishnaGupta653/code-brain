@@ -92,7 +92,7 @@ export async function chatCommand(
     const contextNodes = Array.from(allNodes)
       .map((id) => graph.getNode(id))
       .filter((n): n is GraphNode => Boolean(n))
-      .sort((a, b) => (b.importanceScore || 0) - (a.importanceScore || 0))
+      .sort((a, b) => (b.importance || 0) - (a.importance || 0))
       .slice(0, 40); // cap at 40 nodes
 
     const context = formatGraphContext(contextNodes, Array.from(allEdges.values()));

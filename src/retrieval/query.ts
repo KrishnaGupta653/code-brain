@@ -21,10 +21,11 @@ export class QueryEngine {
     const edges = new Map<string, GraphEdge>();
     const visited = new Set<string>();
     const queue: Array<{ id: string; currentDepth: number }> = [{ id: nodeId, currentDepth: 0 }];
+    let head = 0;
     let truncated = false;
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
+    while (head < queue.length) {
+      const current = queue[head++];
       if (visited.has(current.id) || current.currentDepth > depth) {
         continue;
       }
@@ -104,8 +105,8 @@ export class QueryEngine {
         if (aExact !== bExact) return aExact - bExact;
         
         // Then by importance score
-        const aScore = a.importanceScore || 0;
-        const bScore = b.importanceScore || 0;
+        const aScore = a.importance || 0;
+        const bScore = b.importance || 0;
         if (aScore !== bScore) return bScore - aScore;
         
         // Finally alphabetically
@@ -364,9 +365,10 @@ export class QueryEngine {
     const callers = new Set<string>();
     const visited = new Set<string>();
     const queue: Array<{ id: string; depth: number }> = [{ id: target.id, depth: 0 }];
+    let head = 0;
 
-    while (queue.length > 0) {
-      const { id, depth } = queue.shift()!;
+    while (head < queue.length) {
+      const { id, depth } = queue[head++];
       if (visited.has(id) || depth > maxDepth) continue;
       visited.add(id);
 
@@ -397,9 +399,10 @@ export class QueryEngine {
     const callees = new Set<string>();
     const visited = new Set<string>();
     const queue: Array<{ id: string; depth: number }> = [{ id: target.id, depth: 0 }];
+    let head = 0;
 
-    while (queue.length > 0) {
-      const { id, depth } = queue.shift()!;
+    while (head < queue.length) {
+      const { id, depth } = queue[head++];
       if (visited.has(id) || depth > maxDepth) continue;
       visited.add(id);
 
@@ -485,9 +488,10 @@ export class QueryEngine {
     const impacted = new Set<string>();
     const visited = new Set<string>();
     const queue: Array<{ id: string; depth: number }> = [{ id: node.id, depth: 0 }];
+    let head = 0;
 
-    while (queue.length > 0) {
-      const { id, depth } = queue.shift()!;
+    while (head < queue.length) {
+      const { id, depth } = queue[head++];
       if (visited.has(id) || depth > maxDepth) continue;
       visited.add(id);
 
@@ -508,11 +512,11 @@ export class QueryEngine {
 
     const impactedFiles = impactedNodes
       .filter(n => n.type === 'file')
-      .sort((a, b) => (b.importanceScore || 0) - (a.importanceScore || 0));
+      .sort((a, b) => (b.importance || 0) - (a.importance || 0));
 
     const criticalDependencies = impactedNodes
-      .filter(n => (n.importanceScore || 0) > 0.7)
-      .sort((a, b) => (b.importanceScore || 0) - (a.importanceScore || 0))
+      .filter(n => (n.importance || 0) > 0.7)
+      .sort((a, b) => (b.importance || 0) - (a.importance || 0))
       .slice(0, 10);
 
     const coveringTests = impactedNodes
