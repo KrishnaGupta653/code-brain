@@ -287,15 +287,32 @@ const MIGRATIONS: Migration[] = [
       const cols = db.prepare("PRAGMA table_info(nodes)").all() as Array<{name: string}>;
       const colNames = cols.map(c => c.name);
       
-      if (!colNames.includes('importance')) {
+      // Handle migration from importance_score to importance
+      if (colNames.includes('importance_score') && !colNames.includes('importance')) {
+        // Rename importance_score to importance
         db.exec(`
-          ALTER TABLE nodes ADD COLUMN importance REAL NOT NULL DEFAULT 0.0;
-          ALTER TABLE nodes ADD COLUMN is_entry_point BOOLEAN NOT NULL DEFAULT 0;
-          ALTER TABLE nodes ADD COLUMN is_dead BOOLEAN NOT NULL DEFAULT 0;
-          ALTER TABLE nodes ADD COLUMN is_bridge BOOLEAN NOT NULL DEFAULT 0;
-          ALTER TABLE nodes ADD COLUMN call_count_in INTEGER NOT NULL DEFAULT 0;
-          ALTER TABLE nodes ADD COLUMN call_count_out INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE nodes RENAME COLUMN importance_score TO importance;
         `);
+      } else if (!colNames.includes('importance')) {
+        // Add importance if it doesn't exist
+        db.exec(`ALTER TABLE nodes ADD COLUMN importance REAL NOT NULL DEFAULT 0.0;`);
+      }
+      
+      // Add other analytics columns if they don't exist
+      if (!colNames.includes('is_entry_point')) {
+        db.exec(`ALTER TABLE nodes ADD COLUMN is_entry_point BOOLEAN NOT NULL DEFAULT 0;`);
+      }
+      if (!colNames.includes('is_dead')) {
+        db.exec(`ALTER TABLE nodes ADD COLUMN is_dead BOOLEAN NOT NULL DEFAULT 0;`);
+      }
+      if (!colNames.includes('is_bridge')) {
+        db.exec(`ALTER TABLE nodes ADD COLUMN is_bridge BOOLEAN NOT NULL DEFAULT 0;`);
+      }
+      if (!colNames.includes('call_count_in')) {
+        db.exec(`ALTER TABLE nodes ADD COLUMN call_count_in INTEGER NOT NULL DEFAULT 0;`);
+      }
+      if (!colNames.includes('call_count_out')) {
+        db.exec(`ALTER TABLE nodes ADD COLUMN call_count_out INTEGER NOT NULL DEFAULT 0;`);
       }
       
       // Add indexes for new columns
@@ -305,6 +322,24 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_nodes_dead ON nodes(project_id, is_dead) WHERE is_dead = 1;
         CREATE INDEX IF NOT EXISTS idx_nodes_exported ON nodes(project_id, is_exported);
       `);
+    },
+  },
+  {
+    version: 14,
+    description: 'Add vec_embeddings virtual table for fast vector search (requires sqlite-vec)',
+    up: (db) => {
+      // Try to create vec_embeddings virtual table (requires sqlite-vec extension)
+      try {
+        db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
+            node_id TEXT PRIMARY KEY,
+            embedding FLOAT[1536]
+          );
+        `);
+        logger.debug('vec_embeddings virtual table created successfully');
+      } catch (err) {
+        logger.warn('Failed to create vec_embeddings table (sqlite-vec not available). Vector search will use full scan.');
+      }
     },
   },
 ];

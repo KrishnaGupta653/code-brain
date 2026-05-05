@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Page</title>
+</head>
+<body>
+    <h1>Server is working!</h1>
+    <div id="test"></div>
+    <script>
+        // Test if JavaScript runs
+        document.getElementById('test').innerHTML = 'JavaScript is working!';
+        
+        // Test if API is accessible
+        fetch('/api/graph?level=0')
+            .then(r => r.json())
+            .then(data => {
+                console.log('API Response:', data);
+                document.getElementById('test').innerHTML += '<br>API returned ' + data.nodes.length + ' nodes';
+            })
+            .catch(err => {
+                console.error('API Error:', err);
+                document.getElementById('test').innerHTML += '<br>API Error: ' + err.message;
+            });
+    </script>
+</body>
+</html>

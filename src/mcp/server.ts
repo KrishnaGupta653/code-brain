@@ -9,6 +9,10 @@ import { z } from 'zod';
 import { SQLiteStorage } from '../storage/sqlite.js';
 import { ExportEngine } from '../retrieval/export.js';
 import { QueryEngine } from '../retrieval/query.js';
+import { ImpactTracer } from '../retrieval/impact-tracer.js';
+import { PatternQueryEngine } from '../retrieval/pattern-query.js';
+import { InvariantDetector } from '../graph/invariants.js';
+import { ContextAssembler } from '../retrieval/context-assembler.js';
 import { QueryResult } from '../types/models.js';
 import { logger } from '../utils/index.js';
 import path from 'path';
@@ -280,6 +284,54 @@ export class CodeBrainMCPServer {
             required: ['project_path', 'query'],
           },
         },
+        {
+          name: 'query_pattern',
+          description: 'Structural graph pattern query. Find nodes by type, edge relationships, importance, namespace, or name pattern. Example: find all route nodes that have no incoming TESTS edge (untested routes). No competitor offers this — it queries graph topology, not just text.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              project_path: { type: 'string', description: 'Path to the project root' },
+              node_types: { type: 'array', items: { type: 'string' }, description: 'Filter by node types e.g. ["function","class","route"]' },
+              has_edge_type: { type: 'string', description: 'Only nodes WITH this edge type (e.g. "TESTS")' },
+              has_edge_direction: { type: 'string', enum: ['incoming', 'outgoing'], description: 'Direction for has_edge_type filter' },
+              not_edge_type: { type: 'string', description: 'Only nodes WITHOUT this edge type' },
+              not_edge_direction: { type: 'string', enum: ['incoming', 'outgoing'], description: 'Direction for not_edge_type filter' },
+              min_importance: { type: 'number', description: 'Minimum importance score (0-1)' },
+              name_pattern: { type: 'string', description: 'Regex pattern for node name' },
+              namespace: { type: 'string', description: 'Namespace/directory glob pattern' },
+              is_dead: { type: 'boolean', description: 'Filter dead code nodes' },
+              is_bridge: { type: 'boolean', description: 'Filter architectural bridge nodes' },
+              limit: { type: 'number', description: 'Max results (default 20)' },
+            },
+            required: ['project_path'],
+          },
+        },
+        {
+          name: 'check_invariants',
+          description: 'Detect architectural invariants and violations. Finds patterns like "all routes call auth", "no direct DB access from API layer", "all exports have tests". Returns both confirmed invariants and violations. Critical for architecture review.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              project_path: { type: 'string', description: 'Path to the project root' },
+            },
+            required: ['project_path'],
+          },
+        },
+        {
+          name: 'assemble_context',
+          description: 'Intelligently assembles the most relevant code context for a given task. Uses graph structure + importance + task analysis to select symbols within a token budget. Far superior to naive keyword search — includes definition, callers, callees, tests, and docs for each relevant symbol.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              project_path: { type: 'string', description: 'Path to the project root' },
+              task: { type: 'string', description: 'Natural language description of what you are doing' },
+              focus: { type: 'array', items: { type: 'string' }, description: 'Optional symbol names or file paths to focus on' },
+              max_tokens: { type: 'number', description: 'Token budget for assembled context (default: 8000)' },
+              task_type: { type: 'string', enum: ['bug_fix', 'feature_add', 'refactor', 'understand', 'test'], description: 'Optional task type hint' },
+            },
+            required: ['project_path', 'task'],
+          },
+        },
       ];
 
       return { tools };
@@ -309,6 +361,12 @@ export class CodeBrainMCPServer {
             return await this.handleAnalyzeImpact(args);
           case 'semantic_search':
             return await this.handleSemanticSearch(args);
+          case 'query_pattern':
+            return await this.handleQueryPattern(args);
+          case 'check_invariants':
+            return await this.handleCheckInvariants(args);
+          case 'assemble_context':
+            return await this.handleAssembleContext(args);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -576,15 +634,49 @@ export class CodeBrainMCPServer {
       throw new Error(`Symbol not found: ${input.symbol}`);
     }
 
-    const impact = queryEngine.findRelated(symbolNodes[0].id, 3, 100);
+    const tracer = new ImpactTracer(graph);
+    const analysis = tracer.analyzeImpact(symbolNodes[0].id, {
+      maxDepth: 5,
+      includeIndirect: true,
+    });
+
+    if (!analysis) {
+      throw new Error(`Failed to analyze impact for symbol: ${input.symbol}`);
+    }
 
     return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(impact, null, 2),
-        },
-      ],
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          target: { 
+            id: analysis.target.id, 
+            name: analysis.target.name, 
+            type: analysis.target.type, 
+            file: analysis.target.location?.file 
+          },
+          blastRadius: analysis.blastRadius,
+          explanation: analysis.explanation,
+          directImpact: analysis.directImpact.map(n => ({ 
+            id: n.id, 
+            name: n.name, 
+            type: n.type, 
+            importance: n.importance 
+          })),
+          transitiveImpact: analysis.transitiveImpact.map(n => ({ 
+            id: n.id, 
+            name: n.name, 
+            type: n.type, 
+            importance: n.importance 
+          })),
+          affectedTests: analysis.affectedTests.map(n => ({ 
+            id: n.id, 
+            name: n.name, 
+            file: n.location?.file 
+          })),
+          affectedFiles: Array.from(analysis.affectedFiles),
+          totalAffected: analysis.directImpact.length + analysis.transitiveImpact.length,
+        }, null, 2),
+      }],
     };
   }
 
@@ -656,6 +748,157 @@ export class CodeBrainMCPServer {
           text: JSON.stringify(results, null, 2),
         },
       ],
+    };
+  }
+
+  private async handleQueryPattern(args: unknown) {
+    const input = z.object({
+      project_path: z.string(),
+      node_types: z.array(z.string()).optional(),
+      has_edge_type: z.string().optional(),
+      has_edge_direction: z.enum(['incoming', 'outgoing']).optional(),
+      not_edge_type: z.string().optional(),
+      not_edge_direction: z.enum(['incoming', 'outgoing']).optional(),
+      min_importance: z.number().optional(),
+      name_pattern: z.string().optional(),
+      namespace: z.string().optional(),
+      is_dead: z.boolean().optional(),
+      is_bridge: z.boolean().optional(),
+      limit: z.number().optional(),
+    }).parse(args);
+
+    const storage = await this.initStorage(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
+    const engine = new PatternQueryEngine(graph);
+
+    // Build the query from individual params
+    const query: any = {
+      description: 'MCP pattern query',
+      nodeFilter: {
+        types: input.node_types as any,
+        namePattern: input.name_pattern ? new RegExp(input.name_pattern, 'i') : undefined,
+        minImportance: input.min_importance,
+      },
+      edgePattern: input.has_edge_type ? {
+        type: input.has_edge_type as any,
+        direction: (input.has_edge_direction ?? 'incoming') as any,
+      } : undefined,
+      notPattern: input.not_edge_type ? {
+        type: input.not_edge_type as any,
+        direction: (input.not_edge_direction ?? 'incoming') as any,
+      } : undefined,
+      metadataFilter: {
+        matches: {
+          ...(input.is_dead !== undefined ? { isDead: input.is_dead } : {}),
+          ...(input.is_bridge !== undefined ? { isBridge: input.is_bridge } : {}),
+        },
+      },
+    };
+
+    const results = engine.query(query);
+    const limited = results.slice(0, input.limit ?? 20);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          total: results.length,
+          shown: limited.length,
+          results: limited.map(match => ({
+            id: match.node.id,
+            name: match.node.name,
+            type: match.node.type,
+            file: match.node.location?.file,
+            importance: match.node.importance,
+            isDead: match.node.metadata?.isDead,
+            isBridge: match.node.metadata?.isBridge,
+            summary: match.node.summary,
+            reason: match.reason,
+          })),
+        }, null, 2),
+      }],
+    };
+  }
+
+  private async handleCheckInvariants(args: unknown) {
+    const input = z.object({ project_path: z.string() }).parse(args);
+    const storage = await this.initStorage(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
+    const detector = new InvariantDetector(graph);
+    const report = detector.checkInvariants();
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          totalViolations: report.totalViolations,
+          healthScore: report.healthScore,
+          errors: report.errors.map(v => ({
+            ruleId: v.ruleId,
+            severity: v.severity,
+            nodeId: v.node.id,
+            nodeName: v.node.name,
+            message: v.message,
+          })),
+          warnings: report.warnings.map(v => ({
+            ruleId: v.ruleId,
+            severity: v.severity,
+            nodeId: v.node.id,
+            nodeName: v.node.name,
+            message: v.message,
+          })),
+          info: report.info.map(v => ({
+            ruleId: v.ruleId,
+            severity: v.severity,
+            nodeId: v.node.id,
+            nodeName: v.node.name,
+            message: v.message,
+          })),
+        }, null, 2),
+      }],
+    };
+  }
+
+  private async handleAssembleContext(args: unknown) {
+    const input = z.object({
+      project_path: z.string(),
+      task: z.string(),
+      focus: z.array(z.string()).optional(),
+      max_tokens: z.number().optional(),
+      task_type: z.enum(['bug_fix', 'feature_add', 'refactor', 'understand', 'test']).optional(),
+    }).parse(args);
+
+    const storage = await this.initStorage(input.project_path);
+    const graph = this.getCachedGraph(input.project_path, storage);
+    const assembler = new ContextAssembler(graph);
+
+    const context = await assembler.assemble({
+      task: input.task,
+      focus: input.focus,
+      maxTokens: input.max_tokens ?? 8000,
+      taskType: input.task_type,
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          strategy: context.strategy,
+          estimatedTokens: context.estimatedTokens,
+          nodeCount: context.nodes.length,
+          nodes: context.nodes.map(n => ({
+            id: n.id,
+            name: n.name,
+            type: n.type,
+            file: n.location?.file,
+            lines: n.location ? [n.location.startLine, n.location.endLine] : undefined,
+            importance: n.importance,
+            summary: n.summary,
+            relevanceScore: context.scores.get(n.id),
+          })),
+          edges: context.edges.map(e => ({ from: e.from, to: e.to, type: e.type })),
+        }, null, 2),
+      }],
     };
   }
 

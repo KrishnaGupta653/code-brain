@@ -401,7 +401,7 @@ function GraphStage({
   );
   const communityLookup = useMemo(() => buildCommunityLookup(payload), [payload]);
 
-  const projectSphere = useCallback(() => {
+  const projectSphere = () => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
@@ -438,7 +438,7 @@ function GraphStage({
     });
 
     sigma.refresh();
-  }, []);
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -738,17 +738,26 @@ function App() {
   const [isCameraLocked, setIsCameraLocked] = useState(false);
   const [compareNode, setCompareNode] = useState<GraphNode | null>(null);
   const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
-    Number(localStorage.getItem("codebrain:relationshipsHeight") || 300),
+    typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:relationshipsHeight") || 300) : 300,
   );
   const [sourceCodeHeight, setSourceCodeHeight] = useState(() =>
-    Number(localStorage.getItem("codebrain:sourceCodeHeight") || 400),
+    typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:sourceCodeHeight") || 400) : 400,
   );
   const [leftWidth, setLeftWidth] = useState(() =>
-    Number(localStorage.getItem("codebrain:leftWidth") || 320),
+    typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:leftWidth") || 320) : 320,
   );
   const [rightWidth, setRightWidth] = useState(() =>
-    Number(localStorage.getItem("codebrain:rightWidth") || 420),
+    typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:rightWidth") || 420) : 420,
   );
+  
+  // Analysis panels state
+  const [deadCode, setDeadCode] = useState<any[]>([]);
+  const [bridges, setBridges] = useState<any[]>([]);
+  const [invariants, setInvariants] = useState<any>(null);
+  const [showDeadCode, setShowDeadCode] = useState(false);
+  const [showBridges, setShowBridges] = useState(false);
+  const [showInvariants, setShowInvariants] = useState(false);
+  
   const shellRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const relationshipSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -807,7 +816,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedId, showShortcuts]);
 
-  const selectNode = useCallback((id: string) => {
+  const selectNode = (id: string) => {
     setSelectedId(id);
     setShowFullFile(false);
     setShowRelationships(true);
@@ -847,9 +856,9 @@ function App() {
         setDetails(null);
         setSource(null);
       });
-  }, []);
+  };
 
-  const loadFullFile = useCallback(() => {
+  const loadFullFile = () => {
     if (!details?.sourcePreview) return;
 
     // Load entire file by requesting from line 1 to a very large number
@@ -870,9 +879,9 @@ function App() {
         setShowFullFile(true);
       })
       .catch((err) => console.error('Failed to load full file:', err));
-  }, [details]);
+  };
 
-  const search = useCallback(() => {
+  const search = () => {
     const trimmed = query.trim();
     if (!trimmed) return;
     fetch(`/api/search?q=${encodeURIComponent(trimmed)}`)
@@ -882,7 +891,7 @@ function App() {
         if (items[0]) selectNode(items[0].id);
       })
       .catch(() => setResults([]));
-  }, [query, selectNode]);
+  };
 
   const toggleType = (type: string) => {
     setActiveTypes((current) => {
@@ -1070,6 +1079,40 @@ function App() {
       comparePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }, 50);
   };
+  
+  // Analysis panel fetch functions
+  const loadDeadCode = async () => {
+    try {
+      const res = await fetch('/api/analyze/dead-code');
+      const data = await res.json();
+      setDeadCode(data.nodes || []);
+      setShowDeadCode(true);
+    } catch (err) {
+      console.error('Failed to load dead code:', err);
+    }
+  };
+  
+  const loadBridges = async () => {
+    try {
+      const res = await fetch('/api/analyze/bridges');
+      const data = await res.json();
+      setBridges(data.nodes || []);
+      setShowBridges(true);
+    } catch (err) {
+      console.error('Failed to load bridges:', err);
+    }
+  };
+  
+  const loadInvariants = async () => {
+    try {
+      const res = await fetch('/api/analyze/invariants');
+      const data = await res.json();
+      setInvariants(data);
+      setShowInvariants(true);
+    } catch (err) {
+      console.error('Failed to load invariants:', err);
+    }
+  };
 
   return (
     <main
@@ -1209,6 +1252,104 @@ function App() {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="tool-panel">
+          <h2>
+            <AlertTriangle size={15} /> Dead Code
+            <button 
+              type="button" 
+              onClick={loadDeadCode}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Scan
+            </button>
+          </h2>
+          {showDeadCode && (
+            <div className="hub-list">
+              {deadCode.length === 0 ? (
+                <div style={{ padding: '8px', color: '#64748b', fontSize: '12px' }}>
+                  No dead code detected
+                </div>
+              ) : (
+                deadCode.slice(0, 10).map((node: any) => (
+                  <button key={node.id} type="button" onClick={() => selectNode(node.id)}>
+                    <span>{node.name}</span>
+                    <small>{node.type} - {node.file?.split('/').pop()}</small>
+                  </button>
+                ))
+              )}
+              {deadCode.length > 10 && (
+                <div style={{ padding: '4px 8px', color: '#64748b', fontSize: '11px' }}>
+                  +{deadCode.length - 10} more
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="tool-panel">
+          <h2>
+            <GitBranch size={15} /> Bridge Nodes
+            <button 
+              type="button" 
+              onClick={loadBridges}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Find
+            </button>
+          </h2>
+          {showBridges && (
+            <div className="hub-list">
+              {bridges.length === 0 ? (
+                <div style={{ padding: '8px', color: '#64748b', fontSize: '12px' }}>
+                  No bridge nodes found
+                </div>
+              ) : (
+                bridges.map((node: any) => (
+                  <button key={node.id} type="button" onClick={() => selectNode(node.id)}>
+                    <span>{node.name}</span>
+                    <small>{node.type} - importance {((node.importance || 0) * 100).toFixed(0)}%</small>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="tool-panel">
+          <h2>
+            <CheckCircle2 size={15} /> Invariants
+            <button 
+              type="button" 
+              onClick={loadInvariants}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Check
+            </button>
+          </h2>
+          {showInvariants && invariants && (
+            <div style={{ fontSize: '12px' }}>
+              <div style={{ padding: '8px', borderBottom: '1px solid var(--line)' }}>
+                <div>Health Score: <strong>{invariants.healthScore?.toFixed(1)}%</strong></div>
+                <div style={{ marginTop: '4px', color: '#64748b' }}>
+                  {invariants.errors?.length || 0} errors, {invariants.warnings?.length || 0} warnings
+                </div>
+              </div>
+              {invariants.errors?.slice(0, 3).map((v: any, i: number) => (
+                <div key={i} style={{ padding: '6px 8px', borderLeft: '3px solid #ef4444', margin: '4px 0', background: 'rgba(239,68,68,0.05)' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '2px' }}>{v.nodeName}</div>
+                  <div style={{ fontSize: '11px', color: '#f87171' }}>{v.message}</div>
+                </div>
+              ))}
+              {invariants.warnings?.slice(0, 2).map((v: any, i: number) => (
+                <div key={i} style={{ padding: '6px 8px', borderLeft: '3px solid #f59e0b', margin: '4px 0', background: 'rgba(245,158,11,0.05)' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '2px' }}>{v.nodeName}</div>
+                  <div style={{ fontSize: '11px', color: '#fbbf24' }}>{v.message}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </aside>
 
@@ -2009,8 +2150,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+createRoot(document.getElementById("root")!).render(<App />);

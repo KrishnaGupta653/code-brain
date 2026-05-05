@@ -7,6 +7,10 @@ import { WebSocketServer, WebSocket } from "ws";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { QueryEngine } from "../retrieval/query.js";
+import { ImpactTracer } from "../retrieval/impact-tracer.js";
+import { PatternQueryEngine } from "../retrieval/pattern-query.js";
+import { InvariantDetector } from "../graph/invariants.js";
+import { ContextAssembler } from "../retrieval/context-assembler.js";
 import { logger, getDbPath } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
 import { GraphEdge, GraphNode, RankingScore, SourceSpan } from "../types/models.js";
@@ -342,6 +346,8 @@ export async function createGraphServer(
   const uiDist = path.resolve(__dirname, "../../ui/dist");
   const uiPublic = path.resolve(__dirname, "../../ui/public");
   const staticDir = fs.existsSync(uiDist) ? uiDist : uiPublic;
+  logger.info(`Serving static files from: ${staticDir}`);
+  logger.info(`UI dist exists: ${fs.existsSync(uiDist)}`);
   app.use(express.static(staticDir));
 
   logger.info(`Server starting for projectRoot: ${projectRoot}`);
@@ -988,6 +994,115 @@ export async function createGraphServer(
         file: n.location?.file
       }))
     });
+  });
+
+  // Pattern query endpoint
+  app.get('/api/query/pattern', (req, res) => {
+    try {
+      const nodeTypes = req.query.types ? String(req.query.types).split(',') : undefined;
+      const hasEdgeType = req.query.has_edge ? String(req.query.has_edge) : undefined;
+      const hasEdgeDir = (req.query.has_edge_dir as 'incoming' | 'outgoing') || 'incoming';
+      const notEdgeType = req.query.not_edge ? String(req.query.not_edge) : undefined;
+      const notEdgeDir = (req.query.not_edge_dir as 'incoming' | 'outgoing') || 'incoming';
+      const minImportance = req.query.min_importance ? Number(req.query.min_importance) : undefined;
+      const namePattern = req.query.name ? String(req.query.name) : undefined;
+      const isDead = req.query.is_dead === 'true' ? true : req.query.is_dead === 'false' ? false : undefined;
+      const isBridge = req.query.is_bridge === 'true' ? true : req.query.is_bridge === 'false' ? false : undefined;
+      const limit = req.query.limit ? Math.min(100, Number(req.query.limit)) : 20;
+
+      const engine = new PatternQueryEngine(graph);
+      const results = engine.query({
+        description: 'REST pattern query',
+        nodeFilter: {
+          types: nodeTypes as any,
+          namePattern: namePattern ? new RegExp(namePattern, 'i') : undefined,
+          minImportance,
+        },
+        edgePattern: hasEdgeType ? { type: hasEdgeType as any, direction: hasEdgeDir } : undefined,
+        notPattern: notEdgeType ? { type: notEdgeType as any, direction: notEdgeDir } : undefined,
+        metadataFilter: {
+          matches: {
+            ...(isDead !== undefined ? { isDead } : {}),
+            ...(isBridge !== undefined ? { isBridge } : {}),
+          },
+        },
+      });
+
+      res.json({ total: results.length, results: results.slice(0, limit).map(m => m.node) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Invariants endpoint
+  app.get('/api/analyze/invariants', (_req, res) => {
+    try {
+      const detector = new InvariantDetector(graph);
+      const report = detector.checkInvariants();
+      res.json({
+        totalViolations: report.totalViolations,
+        healthScore: report.healthScore,
+        errors: report.errors,
+        warnings: report.warnings,
+        info: report.info,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Dead code endpoint
+  app.get('/api/analyze/dead-code', (_req, res) => {
+    try {
+      const deadNodes = graph.getNodes()
+        .filter(n => n.metadata?.isDead === true)
+        .map(n => ({ id: n.id, name: n.name, type: n.type, file: n.location?.file, importance: n.importance }))
+        .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
+      res.json({ total: deadNodes.length, nodes: deadNodes });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Bridge nodes endpoint
+  app.get('/api/analyze/bridges', (_req, res) => {
+    try {
+      const bridgeNodes = graph.getNodes()
+        .filter(n => n.metadata?.isBridge === true)
+        .map(n => ({ id: n.id, name: n.name, type: n.type, file: n.location?.file, importance: n.importance }))
+        .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
+      res.json({ total: bridgeNodes.length, nodes: bridgeNodes });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Impact trace endpoint (uses ImpactTracer, replacing the basic findImpact)
+  app.get('/api/query/impact-full', (req, res) => {
+    try {
+      const target = sanitizeInput(String(req.query.target || ''), 200);
+      const maxDepth = Math.min(10, Number(req.query.depth || 5));
+      if (!target) { res.status(400).json({ error: 'target is required' }); return; }
+
+      const nodes = queryEngine.findByName(target);
+      if (nodes.length === 0) { res.status(404).json({ error: `Symbol not found: ${target}` }); return; }
+
+      const tracer = new ImpactTracer(graph);
+      const analysis = tracer.analyzeImpact(nodes[0].id, { maxDepth });
+      if (!analysis) { res.status(500).json({ error: 'Failed to analyze impact' }); return; }
+
+      res.json({
+        target: { id: analysis.target.id, name: analysis.target.name },
+        blastRadius: analysis.blastRadius,
+        explanation: analysis.explanation,
+        directImpact: analysis.directImpact,
+        transitiveImpact: analysis.transitiveImpact,
+        affectedTests: analysis.affectedTests,
+        affectedFiles: Array.from(analysis.affectedFiles),
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
   });
 
   app.get("*", (_req, res, next) => {

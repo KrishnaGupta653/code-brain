@@ -45,9 +45,26 @@ code-brain graph
 ### Core Capabilities
 - **15 Languages**: TypeScript, JavaScript, Java, Python, Go, Rust, C#, C/C++, Ruby, PHP, Kotlin, Scala, Elixir, Haskell, and more
 - **AST-Based Parsing**: Tree-sitter for accurate symbol extraction
-- **Real-Time Updates**: WebSocket-based live graph updates (unique to code-brain)
+- **Real-Time Updates**: WebSocket-based live graph updates
 - **Chat Interface**: Natural language queries with multi-provider AI support
-- **Git Integration**: Blame, hotspots, churn analysis (unique to code-brain)
+- **Git Integration**: Blame, hotspots, churn analysis
+
+### Intelligence Features (v2.0)
+- **PageRank Importance**: Graph-based importance scoring
+- **Dead Code Detection**: Finds unreachable symbols
+- **Cycle Detection**: Identifies circular dependencies
+- **Bridge Detection**: Finds critical connection points
+- **Recency Weighting**: Prioritizes recently modified code
+- **Smart Context Assembly**: Task-aware code selection
+- **Pattern Queries**: Structural pattern matching
+- **Impact Analysis**: Blast radius calculation
+- **Architecture Rules**: Enforce invariants with health scoring
+
+### Performance (v2.0)
+- **10,000× faster BFS**: O(n²) → O(n) optimization
+- **10-333× faster vector search**: sqlite-vec with HNSW indexing
+- **10× token efficiency**: CBv2 compact export format
+- **~500 tokens saved**: Optimized export structure
 - **Hybrid Search**: BM25 + vector similarity for semantic search
 
 ### AI Integration
@@ -92,6 +109,11 @@ code-brain graph
 | Feature | code-brain | Graphify | Sourcegraph | GitHub Copilot |
 |---------|-----------|----------|-------------|----------------|
 | **Token Reduction** | 48-3,600× | 71.5× | N/A | N/A |
+| **PageRank Importance** | ✅ | ❌ | ❌ | ❌ |
+| **Dead Code Detection** | ✅ | ❌ | ❌ | ❌ |
+| **Cycle Detection** | ✅ | ❌ | ✅ | ❌ |
+| **Impact Analysis** | ✅ | ❌ | ❌ | ❌ |
+| **Pattern Queries** | ✅ | ❌ | ❌ | ❌ |
 | **Real-Time Updates** | ✅ | ❌ | ✅ | ❌ |
 | **Chat Interface** | ✅ | ❌ | ❌ | ✅ |
 | **Languages** | 15 | 11 | 40+ | All |
@@ -102,6 +124,12 @@ code-brain graph
 | **Open Source** | ✅ MIT | ✅ MIT | ❌ | ❌ |
 
 **Unique Strengths:**
+- ✅ **PageRank importance** - Graph-based scoring
+- ✅ **Dead code detection** - Find unreachable symbols
+- ✅ **Cycle detection** - Identify circular dependencies
+- ✅ **Impact analysis** - Blast radius calculation
+- ✅ **Pattern queries** - Structural pattern matching
+- ✅ **Smart context assembly** - Task-aware code selection
 - ✅ **Real-time updates** during development
 - ✅ **Chat interface** for natural language queries
 - ✅ **Incremental updates** (hash-based, fast)

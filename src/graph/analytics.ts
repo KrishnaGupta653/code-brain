@@ -3,6 +3,7 @@
  * 
  * Implements graph algorithms for code intelligence:
  * - PageRank: Importance scoring based on graph topology
+ * - Recency weighting: Boost importance for recently modified code
  * - Tarjan's SCC: Strongly connected components (dependency cycles)
  * - Dead code detection: Unreachable symbols
  * - Betweenness centrality: Bridge node detection
@@ -20,17 +21,23 @@ export class GraphAnalytics {
    */
   run(): void {
     const pr = this.pagerank();
+    const recencyWeights = this.calculateRecencyWeights();
     const bridges = this.betweennessCentrality(pr);
     const dead = this.detectDeadCode();
     const sccs = this.tarjanSCC();
 
     // Write results back to nodes
     for (const node of this.graph.getNodes()) {
-      node.importance = parseFloat((pr.get(node.id) ?? 0).toFixed(4));
+      const baseImportance = pr.get(node.id) ?? 0;
+      const recencyWeight = recencyWeights.get(node.id) ?? 1.0;
+      // Blend PageRank (70%) with recency weight (30%)
+      const finalImportance = baseImportance * 0.7 + (baseImportance * recencyWeight * 0.3);
+      node.importance = parseFloat(finalImportance.toFixed(4));
       node.metadata = {
         ...(node.metadata ?? {}),
         isBridge: bridges.has(node.id),
         isDead: dead.has(node.id),
+        recencyWeight: parseFloat(recencyWeight.toFixed(3)),
       };
     }
 
@@ -47,6 +54,81 @@ export class GraphAnalytics {
         }
       }
     }
+  }
+
+  /**
+   * Calculate recency weights based on file modification times.
+   * Returns a map of node ID to recency weight (0.5 to 1.5).
+   * Recently modified files get higher weights.
+   */
+  calculateRecencyWeights(): Map<string, number> {
+    const weights = new Map<string, number>();
+    const now = Date.now();
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    const ONE_WEEK = 7 * ONE_DAY;
+    const ONE_MONTH = 30 * ONE_DAY;
+    const SIX_MONTHS = 180 * ONE_DAY;
+
+    // Group nodes by file
+    const nodesByFile = new Map<string, GraphNode[]>();
+    for (const node of this.graph.getNodes()) {
+      if (!node.location?.file) continue;
+      const file = node.location.file;
+      if (!nodesByFile.has(file)) nodesByFile.set(file, []);
+      nodesByFile.get(file)!.push(node);
+    }
+
+    // Calculate recency weight for each file based on last modification
+    const fileWeights = new Map<string, number>();
+    for (const [file, nodes] of nodesByFile) {
+      // Try to get last modification time from node metadata
+      let lastModified: number | undefined;
+      for (const node of nodes) {
+        const fileNode = this.graph.getNodes().find(n => n.type === 'file' && n.location?.file === file);
+        if (fileNode?.metadata?.lastCommitAt) {
+          lastModified = fileNode.metadata.lastCommitAt as number;
+          break;
+        }
+      }
+
+      if (!lastModified) {
+        // Default weight for files without git metadata
+        fileWeights.set(file, 1.0);
+        continue;
+      }
+
+      const age = now - lastModified;
+      let weight: number;
+      if (age < ONE_DAY) {
+        weight = 1.5; // Very recent (< 1 day)
+      } else if (age < ONE_WEEK) {
+        weight = 1.3; // Recent (< 1 week)
+      } else if (age < ONE_MONTH) {
+        weight = 1.1; // Somewhat recent (< 1 month)
+      } else if (age < SIX_MONTHS) {
+        weight = 1.0; // Normal (< 6 months)
+      } else {
+        weight = 0.8; // Old (> 6 months)
+      }
+      fileWeights.set(file, weight);
+    }
+
+    // Apply file weights to all nodes in that file
+    for (const [file, nodes] of nodesByFile) {
+      const weight = fileWeights.get(file) ?? 1.0;
+      for (const node of nodes) {
+        weights.set(node.id, weight);
+      }
+    }
+
+    // Default weight for nodes without file location
+    for (const node of this.graph.getNodes()) {
+      if (!weights.has(node.id)) {
+        weights.set(node.id, 1.0);
+      }
+    }
+
+    return weights;
   }
 
   /**

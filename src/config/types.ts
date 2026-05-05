@@ -70,6 +70,8 @@ export const DEFAULT_CONFIG: CodeBrainConfig = {
     'build',
     '.git',
     '.codebrain',
+    '.codebrain.*',
+    '.codebrain.backup.*',
     '.vscode',
     '.idea',
     'coverage',

@@ -53,7 +53,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   is_bridge BOOLEAN NOT NULL DEFAULT 0,
   semantic_role TEXT,
   semantic_role_confidence REAL DEFAULT 0.0,
+  semantic_path TEXT,
   namespace TEXT,
+  hierarchy_label TEXT,
+  community_id INTEGER,
   call_count_in INTEGER NOT NULL DEFAULT 0,
   call_count_out INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
@@ -171,4 +174,4 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 );
 `;
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;

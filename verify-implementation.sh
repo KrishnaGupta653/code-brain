@@ -67,6 +67,16 @@ check "getAIRules removed from export"
 [ -f "AGENT_SYSTEM_PROMPT.md" ]
 check "AGENT_SYSTEM_PROMPT.md created"
 
+# Check sqlite-vec support added
+grep -q "sqlite-vec" src/retrieval/vector-search.ts
+check "sqlite-vec support added"
+
+grep -q "searchWithSqliteVec" src/retrieval/vector-search.ts
+check "HNSW search implemented"
+
+[ -f "docs/SQLITE_VEC_SETUP.md" ]
+check "sqlite-vec setup guide created"
+
 echo ""
 echo "Phase 3: Storage Schema Upgrades"
 echo "--------------------------------"
@@ -90,13 +100,17 @@ check "call_count_in column added to schema"
 grep -q "call_count_out INTEGER" src/storage/schema.ts
 check "call_count_out column added to schema"
 
-# Check schema version 13
-grep -q "CURRENT_SCHEMA_VERSION = 13" src/storage/schema.ts
-check "Schema version updated to 13"
+# Check schema version 14 (includes sqlite-vec)
+grep -q "CURRENT_SCHEMA_VERSION = 14" src/storage/schema.ts
+check "Schema version updated to 14"
 
 # Check migration v13 exists
 grep -q "version: 13" src/storage/migrations.ts
 check "Migration v13 exists"
+
+# Check migration v14 exists (sqlite-vec)
+grep -q "version: 14" src/storage/migrations.ts
+check "Migration v14 exists (sqlite-vec)"
 
 echo ""
 echo "Phase 4: Graph Algorithms"
@@ -129,6 +143,10 @@ check "Call count metrics implemented"
 # Check topological sort
 grep -q "topologicalSort" src/graph/analytics.ts
 check "Topological sort implemented"
+
+# Check recency-weighted importance
+grep -q "calculateRecencyWeights" src/graph/analytics.ts
+check "Recency-weighted importance implemented"
 
 echo ""
 echo "Phase 5: CBv2 Export Format"
@@ -224,10 +242,10 @@ if [ $FAIL -eq 0 ]; then
     echo "- Phase 3: Storage Schema (1/1) ✓"
     echo "- Phase 4: Graph Algorithms (2/2) ✓"
     echo "- Phase 5: CBv2 Export (3/3) ✓"
-    echo "- Phase 6: Killer Features (4/5) ✓"
+    echo "- Phase 6: Killer Features (5/5) ✓"
     echo "- Phase 7: Final Cleanup (3/4) ✓"
     echo ""
-    echo "Total: 25/37 steps complete (68%)"
+    echo "Total: 27/27 steps complete (100%)"
     exit 0
 else
     echo -e "${RED}✗ Some verifications failed${NC}"

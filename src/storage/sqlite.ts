@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { createRequire } from "module";
 import {
   EdgeType,
   NodeType,
@@ -24,6 +25,7 @@ interface StoredFileHash {
 
 export class SQLiteStorage {
   private db!: Database.Database;
+  private sqliteVecAvailable = false;
 
   constructor(private dbPath: string) {
     const dir = path.dirname(dbPath);
@@ -62,6 +64,9 @@ export class SQLiteStorage {
 
     try {
       this.db = new Database(dbPath);
+      
+      // Try to load sqlite-vec extension
+      this.loadSqliteVec();
       
       // Set pragmas with error handling
       try {
@@ -111,6 +116,19 @@ export class SQLiteStorage {
         `Try removing the .codebrain directory and reinitializing.`,
         error
       );
+    }
+  }
+
+  private loadSqliteVec(): void {
+    try {
+      const require = createRequire(import.meta.url);
+      const sqliteVec = require('sqlite-vec');
+      sqliteVec.load(this.db);
+      this.sqliteVecAvailable = true;
+      logger.info('✓ sqlite-vec extension loaded successfully');
+    } catch (err) {
+      logger.warn('sqlite-vec not available, falling back to full-scan vector search');
+      this.sqliteVecAvailable = false;
     }
   }
 
@@ -637,6 +655,19 @@ export class SQLiteStorage {
       `
       )
       .run(nodeId, buffer, model, version, embedding.length, now, now);
+    
+    // Also insert into vec_embeddings if sqlite-vec is available
+    if (this.sqliteVecAvailable) {
+      try {
+        this.db.prepare(`
+          INSERT OR REPLACE INTO vec_embeddings(node_id, embedding)
+          VALUES (?, vec_f32(?))
+        `).run(nodeId, buffer);
+      } catch (err) {
+        // Silently fail if vec_embeddings doesn't exist
+        logger.debug('Failed to insert into vec_embeddings:', err);
+      }
+    }
   }
 
   /**
@@ -1125,7 +1156,7 @@ export class SQLiteStorage {
       hierarchy_label: string | null;
       semantic_role: string | null;
       community_id: number | null;
-      importance_score: number;
+      importance: number;
       created_at: number;
       updated_at: number;
     },
@@ -1155,7 +1186,7 @@ export class SQLiteStorage {
     node.hierarchyLabel = row.hierarchy_label || undefined;
     node.semanticRole = row.semantic_role || undefined;
     node.communityId = row.community_id || undefined;
-    node.importance = row.importance_score || 0;
+    node.importance = row.importance || 0;
 
     node.provenance = this.getProvenanceFor(
       row.id,
