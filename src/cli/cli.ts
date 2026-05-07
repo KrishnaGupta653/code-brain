@@ -5,6 +5,7 @@ import { updateCommand } from "./commands/update.js";
 import { graphCommand } from "./commands/graph.js";
 import { exportCommand } from "./commands/export.js";
 import { watchCommand } from "./commands/watch.js";
+import { registerCleanCommand } from "./commands/clean.js";
 import { logger } from "../utils/index.js";
 
 export function setupCLI(): Command {
@@ -301,6 +302,9 @@ export function setupCLI(): Command {
         process.exit(1);
       }
     });
+
+  // Register clean command
+  registerCleanCommand(program);
 
   program
     .command("help")

@@ -231,6 +231,7 @@ code-brain query --type callers --symbol MyFunction
 code-brain analyze --git
 code-brain export --format ai --max-tokens 100000
 code-brain export --format ai --focus src/parser --model gpt-4
+code-brain clean --path /path/to/project --force
 code-brain mcp
 ```
 
@@ -248,6 +249,29 @@ Scans the repository, parses supported files, builds the graph, and stores it in
 ### `code-brain update`
 
 Detects changed files using stored hashes and re-indexes changed files plus direct import/test dependents.
+
+### `code-brain clean`
+
+Removes the `.codebrain` directory and all indexed data from a repository.
+
+```bash
+# Show what will be deleted (requires --force to actually delete)
+code-brain clean --path /path/to/project
+
+# Delete without confirmation
+code-brain clean --path /path/to/project --force
+```
+
+**Warning:** This permanently deletes:
+- Graph database
+- Embeddings
+- Configuration
+- All backups
+
+Use this to:
+- Free up disk space
+- Start fresh with a clean index
+- Remove code-brain from a project
 
 ### `code-brain watch`
 
