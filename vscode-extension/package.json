@@ -1,0 +1,128 @@
+{
+  "name": "code-brain-vscode",
+  "displayName": "code-brain",
+  "description": "Codebase intelligence: importance scores, impact analysis, dead code detection, and architecture invariants",
+  "version": "1.0.0",
+  "publisher": "code-brain",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "code intelligence",
+    "graph",
+    "dead code",
+    "impact analysis",
+    "architecture",
+    "refactoring",
+    "code quality"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeBrain.analyzeImpact",
+        "title": "code-brain: Analyze Impact of This Symbol"
+      },
+      {
+        "command": "codeBrain.findCallers",
+        "title": "code-brain: Find All Callers"
+      },
+      {
+        "command": "codeBrain.showDeadCode",
+        "title": "code-brain: Show Dead Code in File"
+      },
+      {
+        "command": "codeBrain.patternQuery",
+        "title": "code-brain: Run Pattern Query..."
+      },
+      {
+        "command": "codeBrain.checkInvariants",
+        "title": "code-brain: Check Architecture Invariants"
+      },
+      {
+        "command": "codeBrain.openDashboard",
+        "title": "code-brain: Open Graph Dashboard"
+      }
+    ],
+    "configuration": {
+      "title": "code-brain",
+      "properties": {
+        "codeBrain.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "code-brain server URL"
+        },
+        "codeBrain.showImportanceLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show importance score above functions"
+        },
+        "codeBrain.highlightDeadCode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Dim dead code in editor"
+        },
+        "codeBrain.showBridgeWarnings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show warnings for bridge nodes (critical architectural points)"
+        },
+        "codeBrain.autoStartServer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start code-brain server when VSCode opens"
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "codeBrain.deadCode",
+        "description": "Color for dead code",
+        "defaults": {
+          "dark": "#ef444460",
+          "light": "#dc262660",
+          "highContrast": "#ef444480"
+        }
+      },
+      {
+        "id": "codeBrain.bridgeNode",
+        "description": "Color for bridge nodes",
+        "defaults": {
+          "dark": "#f59e0b80",
+          "light": "#d9770680",
+          "highContrast": "#f59e0b"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --outfile=dist/extension.js --sourcemap",
+    "watch": "npm run build -- --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.19.11",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/code-brain/code-brain.git"
+  },
+  "bugs": {
+    "url": "https://github.com/code-brain/code-brain/issues"
+  },
+  "homepage": "https://github.com/code-brain/code-brain#readme",
+  "license": "MIT"
+}

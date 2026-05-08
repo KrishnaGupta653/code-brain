@@ -235,6 +235,62 @@ export function setupCLI(): Command {
       }
     });
 
+  // CI/CD commands with JSON output
+  program
+    .command("ci:impact")
+    .description("Analyze impact of changed files (CI/CD)")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--files <files>", "Comma-separated list of changed files")
+    .option("--no-json", "Output text instead of JSON")
+    .action(async (options) => {
+      try {
+        const { impactCommand } = await import("./commands/ci.js");
+        await impactCommand(options.path, {
+          files: options.files,
+          json: options.json !== false,
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("ci:invariants")
+    .description("Check architecture invariants (CI/CD)")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--no-json", "Output text instead of JSON")
+    .action(async (options) => {
+      try {
+        const { invariantsCommand } = await import("./commands/ci.js");
+        await invariantsCommand(options.path, {
+          json: options.json !== false,
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("ci:dead-code")
+    .description("Find dead code in changed files (CI/CD)")
+    .option("-p, --path <path>", "Project root path", process.cwd())
+    .option("--files <files>", "Comma-separated list of changed files")
+    .option("--no-json", "Output text instead of JSON")
+    .action(async (options) => {
+      try {
+        const { deadCodeCommand } = await import("./commands/ci.js");
+        await deadCodeCommand(options.path, {
+          files: options.files,
+          json: options.json !== false,
+        });
+      } catch (error) {
+        logger.error("Command failed", error);
+        process.exit(1);
+      }
+    });
+
   program
     .command("mcp")
     .description("Start Model Context Protocol server for AI assistants")

@@ -373,6 +373,10 @@ function GraphStage({
   onExpandCluster,
   cameraLocked,
   onToggleCameraLock,
+  viewMode,
+  onViewModeChange,
+  onContextMenu,
+  searchQuery,
 }: {
   payload: GraphPayload;
   selectedId: string | null;
@@ -383,6 +387,10 @@ function GraphStage({
   onExpandCluster?: (communityId: number) => void;
   cameraLocked?: boolean;
   onToggleCameraLock?: () => void;
+  viewMode: 'type' | 'importance' | 'dead' | 'bridge';
+  onViewModeChange: (mode: 'type' | 'importance' | 'dead' | 'bridge') => void;
+  onContextMenu: (x: number, y: number, nodeId: string, nodeName: string) => void;
+  searchQuery: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -401,7 +409,7 @@ function GraphStage({
   );
   const communityLookup = useMemo(() => buildCommunityLookup(payload), [payload]);
 
-  const projectSphere = () => {
+  const projectSphere = useCallback(() => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
@@ -438,7 +446,7 @@ function GraphStage({
     });
 
     sigma.refresh();
-  };
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -488,21 +496,38 @@ function GraphStage({
 
     // Community-seeded ForceAtlas2: fast, stable, and readable for architecture maps.
     // For very large graphs we keep the seeded LOD layout and let cluster expansion refine locally.
+    // Use setTimeout to make layout non-blocking (prevents UI freeze)
     if (graph.order > 2 && graph.order < 1800) {
       const inferred = forceAtlas2.inferSettings(graph);
-      forceAtlas2.assign(graph, {
-        iterations: Math.min(260, Math.max(70, graph.order * 2.4)),
-        settings: {
-          ...inferred,
-          gravity: 0.05,
-          scalingRatio: graph.order > 600 ? 28 : 18,
-          strongGravityMode: false,
-          adjustSizes: true,
-          barnesHutOptimize: graph.order > 250,
-          edgeWeightInfluence: 0.6,
-          slowDown: 3.2,
-        },
-      });
+      
+      // Run layout in chunks to avoid blocking the main thread
+      setTimeout(() => {
+        forceAtlas2.assign(graph, {
+          iterations: Math.min(260, Math.max(70, graph.order * 2.4)),
+          settings: {
+            ...inferred,
+            gravity: 0.05,
+            scalingRatio: graph.order > 600 ? 28 : 18,
+            strongGravityMode: false,
+            adjustSizes: true,
+            barnesHutOptimize: graph.order > 250,
+            edgeWeightInfluence: 0.6,
+            slowDown: 3.2,
+          },
+        });
+        
+        // Snapshot final positions as base after layout completes
+        graph.forEachNode((id: string, attrs: NodeAttributes) => {
+          graph.setNodeAttribute(id, 'baseX', attrs.x);
+          graph.setNodeAttribute(id, 'baseY', attrs.y);
+          graph.setNodeAttribute(id, 'baseZ', attrs.z ?? 0);
+        });
+        
+        // Refresh sigma to show updated positions
+        if (sigmaRef.current) {
+          sigmaRef.current.refresh();
+        }
+      }, 0);
     } else if (graph.order >= 1800) {
       console.info(`Large graph detected (${graph.order} nodes), using optimized layout`);
     }
@@ -527,6 +552,12 @@ function GraphStage({
       defaultDrawNodeHover: drawCleanNodeHover,
       minCameraRatio: 0.08,
       maxCameraRatio: 4,
+      // Performance optimizations - eliminates lag during pan/zoom
+      hideEdgesOnMove: true,          // Single biggest performance win - no edge rendering during pan
+      hideLabelsOnMove: true,         // No label rendering during zoom
+      enableEdgeEvents: false,        // Disables all edge events (click, hover, wheel)
+      zIndex: true,                   // Important nodes render on top
+      defaultEdgeColor: "#334155",    // Fast rendering without lookup
     });
 
     sigma.on("clickNode", ({ node }) => {
@@ -543,6 +574,16 @@ function GraphStage({
     });
     sigma.on("enterNode", ({ node }) => onHover(node));
     sigma.on("leaveNode", () => onHover(null));
+    
+    // Context menu on right-click
+    sigma.on("rightClickNode", ({ node, event }) => {
+      event.original.preventDefault();
+      const nodeData = nodeLookup.get(node);
+      onContextMenu(event.x, event.y, node, nodeData?.name ?? node);
+    });
+    sigma.on("rightClickStage", () => onContextMenu(0, 0, '', ''));
+    sigma.on("clickStage", () => onContextMenu(0, 0, '', ''));
+    
     sigmaRef.current = sigma;
     graphRef.current = graph;
     projectSphere();
@@ -573,12 +614,15 @@ function GraphStage({
       const baseSize = Number(attrs.baseSize ?? attrs.size ?? (node ? nodeSize(node) : 4));
 
       graph.setNodeAttribute(id, "hidden", !visibleByType);
+      
+      // When a node is selected, make unrelated nodes much more transparent
+      const opacity = related ? 1.0 : (focusId ? 0.15 : 0.44);
       graph.setNodeAttribute(
         id,
         "color",
         related
-          ? attrs.color || attrs.baseColor
-          : hexToRgba(String(attrs.baseColor || attrs.color || "#e2e8f0"), 0.44),
+          ? attrs.baseColor || attrs.color
+          : hexToRgba(String(attrs.baseColor || attrs.color || "#e2e8f0"), opacity),
       );
       graph.setNodeAttribute(id, "highlighted", id === selectedId || id === hoveredId);
       graph.setNodeAttribute(id, "forceLabel", id === selectedId || id === hoveredId);
@@ -586,7 +630,7 @@ function GraphStage({
       graph.setNodeAttribute(
         id,
         "size",
-        baseSize * (id === selectedId ? 1.15 : related ? 1 : 0.95),
+        baseSize * (id === selectedId ? 1.3 : related ? 1.05 : 0.7),
       );
     });
 
@@ -596,16 +640,21 @@ function GraphStage({
       const related =
         !focusId || selectedNeighbors.has(source) || selectedNeighbors.has(target);
       const baseColor = String(attrs.baseColor || attrs.color || "#64748b");
-      graph.setEdgeAttribute(edgeId, "hidden", false);
+      
+      // Hide unrelated edges completely when a node is selected
+      const edgeHidden = focusId ? !related : false;
+      const edgeOpacity = related ? 1.0 : (focusId ? 0.05 : 0.34);
+      
+      graph.setEdgeAttribute(edgeId, "hidden", edgeHidden);
       graph.setEdgeAttribute(
         edgeId,
         "color",
-        related ? baseColor : hexToRgba(baseColor, 0.34),
+        related ? baseColor : hexToRgba(baseColor, edgeOpacity),
       );
       graph.setEdgeAttribute(
         edgeId,
         "size",
-        sourceVisible && targetVisible ? (related ? 1.7 : 0.75) : 0.4,
+        sourceVisible && targetVisible ? (related ? 2.2 : 0.5) : 0.3,
       );
     });
 
@@ -631,14 +680,99 @@ function GraphStage({
         }
       }
     }
-    sigma.refresh();
+    
+    // Use requestAnimationFrame to batch refresh and prevent flashing
+    requestAnimationFrame(() => {
+      sigma.refresh();
+    });
   }, [activeTypes, hoveredId, nodeLookup, selectedId, cameraLocked]);
+
+  // View mode effect: recolor nodes based on selected visualization mode
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    const graph = graphRef.current;
+    if (!sigma || !graph) return;
+
+    graph.forEachNode((id: string) => {
+      const nodeData = nodeLookup.get(id);
+      if (!nodeData) return;
+
+      let color: string;
+      if (viewMode === 'importance') {
+        const imp = (nodeData as any).importance ?? nodeData.rank?.score ?? 0;
+        // green (low) → amber (mid) → red (high)
+        const r = Math.round(255 * Math.min(1, imp * 2));
+        const g = Math.round(255 * Math.min(1, (1 - imp) * 2));
+        color = `rgb(${r},${g},40)`;
+      } else if (viewMode === 'dead') {
+        color = nodeData.metadata?.isDead ? '#ef4444' : 'rgba(71,85,105,0.5)';
+      } else if (viewMode === 'bridge') {
+        color = nodeData.metadata?.isBridge ? '#f59e0b' : 'rgba(71,85,105,0.5)';
+      } else {
+        color = NODE_COLORS[nodeData.type] ?? '#94a3b8';
+      }
+      
+      graph.setNodeAttribute(id, 'color', color);
+      graph.setNodeAttribute(id, 'baseColor', color);
+    });
+
+    // Use requestAnimationFrame to batch refresh and prevent flashing
+    requestAnimationFrame(() => {
+      sigma.refresh();
+    });
+  }, [viewMode, nodeLookup]);
+
+  // Search dimming effect: dim non-matching nodes as user types
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    const graph = graphRef.current;
+    if (!sigma || !graph || searchQuery.length < 2) {
+      // Restore all colors if search is cleared
+      if (sigma && graph && searchQuery.length === 0) {
+        graph.forEachNode((id: string) => {
+          const nodeData = nodeLookup.get(id);
+          if (!nodeData) return;
+          const color = NODE_COLORS[nodeData.type] ?? '#94a3b8';
+          graph.setNodeAttribute(id, 'color', color);
+          graph.setNodeAttribute(id, 'baseColor', color);
+        });
+        requestAnimationFrame(() => {
+          sigma.refresh();
+        });
+      }
+      return;
+    }
+
+    const lower = searchQuery.toLowerCase();
+    graph.forEachNode((id: string) => {
+      const nodeData = nodeLookup.get(id);
+      if (!nodeData) return;
+      
+      const matches = nodeData.name?.toLowerCase().includes(lower) ||
+                      nodeData.fullName?.toLowerCase().includes(lower) ||
+                      nodeData.file?.toLowerCase().includes(lower);
+      
+      const baseColor = NODE_COLORS[nodeData.type] ?? '#94a3b8';
+      const color = matches ? baseColor : 'rgba(71,85,105,0.2)';
+      graph.setNodeAttribute(id, 'color', color);
+    });
+
+    // Use requestAnimationFrame to batch refresh and prevent flashing
+    requestAnimationFrame(() => {
+      sigma.refresh();
+    });
+  }, [searchQuery, nodeLookup]);
 
   const zoom = (factor: number) => {
     const sigma = sigmaRef.current;
     if (!sigma) return;
     const camera = sigma.getCamera();
-    camera.animate({ ratio: camera.getState().ratio * factor }, { duration: 180 });
+    // Use instant zoom without animation to prevent flashing
+    const currentState = camera.getState();
+    camera.setState({ 
+      ...currentState, 
+      ratio: currentState.ratio * factor 
+    });
   };
 
   const resetCamera = () => {
@@ -674,7 +808,10 @@ function GraphStage({
       x: clamp(drag.rotationX + dy * 0.006, -1.15, 1.15),
       y: drag.rotationY + dx * 0.006,
     };
-    projectSphere();
+    // Use requestAnimationFrame to throttle sphere rotation updates
+    requestAnimationFrame(() => {
+      projectSphere();
+    });
   };
 
   const stopSphereDrag = (event: React.PointerEvent<HTMLElement>) => {
@@ -715,6 +852,29 @@ function GraphStage({
           <Maximize2 size={18} />
         </button>
       </div>
+
+      {/* View mode toggle bar */}
+      <div style={{
+        position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)',
+        display: 'flex', gap: '3px', background: 'rgba(10,14,23,0.88)',
+        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
+        padding: '3px', zIndex: 20, backdropFilter: 'blur(16px)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+      }}>
+        {(['type', 'importance', 'dead', 'bridge'] as const).map(mode => (
+          <button key={mode} type="button"
+            onClick={() => onViewModeChange(mode)}
+            style={{
+              padding: '5px 14px', borderRadius: '7px', border: 'none', fontSize: '11px',
+              fontWeight: 600, cursor: 'pointer', transition: 'all 150ms',
+              background: viewMode === mode ? 'rgba(6,182,212,0.2)' : 'transparent',
+              color: viewMode === mode ? '#22d3ee' : '#64748b',
+              letterSpacing: '0.03em',
+            }}>
+            {mode === 'type' ? 'By Type' : mode === 'importance' ? '⚡ Heatmap' : mode === 'dead' ? '🪦 Dead' : '🌉 Bridges'}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }
@@ -737,6 +897,8 @@ function App() {
   const [isInspectorPinned, setIsInspectorPinned] = useState(false);
   const [isCameraLocked, setIsCameraLocked] = useState(false);
   const [compareNode, setCompareNode] = useState<GraphNode | null>(null);
+  const [viewMode, setViewMode] = useState<'type' | 'importance' | 'dead' | 'bridge'>('type');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string; nodeName: string } | null>(null);
   const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
     typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:relationshipsHeight") || 300) : 300,
   );
@@ -757,6 +919,10 @@ function App() {
   const [showDeadCode, setShowDeadCode] = useState(false);
   const [showBridges, setShowBridges] = useState(false);
   const [showInvariants, setShowInvariants] = useState(false);
+  const [patternQuery, setPatternQuery] = useState('');
+  const [patternResults, setPatternResults] = useState<any[]>([]);
+  const [patternLoading, setPatternLoading] = useState(false);
+  const [patternError, setPatternError] = useState('');
   
   const shellRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1114,6 +1280,38 @@ function App() {
     }
   };
 
+  const runPatternQuery = async () => {
+    if (!patternQuery.trim()) return;
+    setPatternLoading(true);
+    setPatternError('');
+    try {
+      const params = new URLSearchParams({ limit: '25' });
+      for (const part of patternQuery.trim().split(/\s+/)) {
+        if (part.startsWith('type:')) params.set('types', part.slice(5));
+        else if (part.startsWith('no-edge:')) {
+          const [, t, d] = part.split(':');
+          params.set('not_edge', t);
+          if (d) params.set('not_edge_dir', d);
+        } else if (part.startsWith('has-edge:')) {
+          const [, t, d] = part.split(':');
+          params.set('has_edge', t);
+          if (d) params.set('has_edge_dir', d);
+        } else if (part === 'dead') params.set('is_dead', 'true');
+        else if (part === 'bridge') params.set('is_bridge', 'true');
+        else if (part.startsWith('name:')) params.set('name', part.slice(5));
+        else if (part.startsWith('min-importance:')) params.set('min_importance', part.slice(15));
+      }
+      const res = await fetch(`/api/query/pattern?${params}`);
+      const data = await res.json();
+      setPatternResults(data.results ?? []);
+      if (!data.results?.length) setPatternError('No matches found');
+    } catch (e) {
+      setPatternError('Query failed');
+    } finally {
+      setPatternLoading(false);
+    }
+  };
+
   return (
     <main
       ref={shellRef}
@@ -1242,6 +1440,41 @@ function App() {
           </div>
         </section>
 
+        {/* Legend Panel */}
+        <section className="tool-panel">
+          <h2>
+            <Keyboard size={15} /> Legend
+          </h2>
+          <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '6px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Node Types
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                {Object.entries(NODE_COLORS).map(([type, color]) => (
+                  <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: '10px' }}>{type}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '6px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Edge Types
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                {Object.entries(EDGE_COLORS).map(([type, color]) => (
+                  <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '16px', height: '2px', background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: '10px' }}>{type.replace(/_/g, ' ')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="tool-panel">
           <h2><Activity size={15} /> Signal Hubs</h2>
           <div className="hub-list">
@@ -1351,6 +1584,40 @@ function App() {
             </div>
           )}
         </section>
+
+        {/* Pattern Query Panel */}
+        <section className="tool-panel">
+          <h2><Search size={15} /> Pattern Query</h2>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '8px' }}>
+            Find nodes by structure. Examples:
+            <code style={{ display: 'block', marginTop: '4px', padding: '4px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '10px' }}>
+              type:route no-edge:TESTS:incoming
+            </code>
+          </div>
+          <div className="search-box" style={{ marginBottom: '6px' }}>
+            <input
+              value={patternQuery}
+              onChange={e => setPatternQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && runPatternQuery()}
+              placeholder="type:route no-edge:TESTS:incoming"
+              style={{ fontSize: '12px' }}
+            />
+            <button type="button" onClick={runPatternQuery} disabled={patternLoading}>
+              {patternLoading ? '…' : 'Run'}
+            </button>
+          </div>
+          {patternError && <div style={{ fontSize: '11px', color: 'var(--muted)', padding: '4px 0' }}>{patternError}</div>}
+          <div className="hub-list">
+            {patternResults.map(n => (
+              <button key={n.id} type="button" onClick={() => selectNode(n.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span className="dot" style={{ background: NODE_COLORS[n.type] || '#94a3b8', flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%' }} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                <small style={{ opacity: 0.6, flexShrink: 0 }}>{n.type}</small>
+              </button>
+            ))}
+          </div>
+        </section>
       </aside>
 
       <div
@@ -1371,7 +1638,60 @@ function App() {
         onExpandCluster={expandCommunity}
         cameraLocked={isCameraLocked}
         onToggleCameraLock={() => setIsCameraLocked(!isCameraLocked)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onContextMenu={(x, y, nodeId, nodeName) => {
+          if (nodeId) setContextMenu({ x, y, nodeId, nodeName });
+          else setContextMenu(null);
+        }}
+        searchQuery={query}
       />
+
+      {/* Context menu */}
+      {contextMenu && contextMenu.nodeId && (
+        <div
+          style={{
+            position: 'fixed', left: contextMenu.x, top: contextMenu.y,
+            background: 'rgba(15,20,30,0.97)', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '10px', padding: '6px', zIndex: 100, minWidth: '200px',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.6)', backdropFilter: 'blur(20px)',
+          }}
+          onMouseLeave={() => setContextMenu(null)}
+        >
+          <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: '4px' }}>
+            <strong style={{ color: 'var(--text)' }}>{contextMenu.nodeName}</strong>
+          </div>
+          {[
+            { label: '🔍 Focus & expand', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); } },
+            { label: '💥 Analyze impact', action: async () => {
+              setContextMenu(null);
+              try {
+                const res = await fetch(`/api/query/impact-full?target=${encodeURIComponent(contextMenu.nodeName)}`);
+                const data = await res.json();
+                // Could show results in a modal or highlight affected nodes
+                console.log('Impact analysis:', data);
+              } catch (e) {
+                console.error('Impact analysis failed:', e);
+              }
+            }},
+            { label: '📞 Find callers', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); }},
+            { label: '🔗 Copy node ID', action: () => { navigator.clipboard.writeText(contextMenu.nodeId); setContextMenu(null); }},
+          ].map(item => (
+            <button key={item.label} type="button" onClick={item.action}
+              style={{
+                display: 'block', width: '100%', padding: '7px 10px', textAlign: 'left',
+                background: 'transparent', border: 'none', borderRadius: '6px',
+                color: 'var(--text)', fontSize: '12px', cursor: 'pointer',
+                transition: 'background 120ms',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         className="panel-resizer"
@@ -2146,6 +2466,28 @@ function App() {
       >
         <Keyboard size={20} />
       </button>
+
+      {/* Status Bar */}
+      <footer style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, height: '28px',
+        background: 'rgba(6,8,15,0.96)', borderTop: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex', alignItems: 'center', padding: '0 16px', gap: '20px',
+        fontSize: '11px', color: 'var(--muted)', backdropFilter: 'blur(12px)', zIndex: 50,
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+          code-brain
+        </span>
+        <span>{payload?.stats.nodeCount ?? 0} nodes · {payload?.stats.edgeCount ?? 0} edges</span>
+        {payload?.analytics?.health && (
+          <span>Health: <strong style={{ color: (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) < 0.1 ? '#10b981' : '#f59e0b' }}>
+            {(100 - (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) * 100).toFixed(0)}%
+          </strong></span>
+        )}
+        <span>View: <strong style={{ color: 'var(--accent)' }}>{viewMode}</strong></span>
+        {lastUpdate && <span style={{ opacity: 0.7 }}>Updated: {lastUpdate}</span>}
+        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>⌘K for commands · Right-click nodes for actions</span>
+      </footer>
     </main>
   );
 }

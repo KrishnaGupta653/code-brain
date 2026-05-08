@@ -271,8 +271,9 @@ export class ContextAssembler {
     const queue: Array<{ node: GraphNode; depth: number }> = seeds.map(n => ({ node: n, depth: 0 }));
     const visited = new Set<string>(seeds.map(n => n.id));
 
-    while (queue.length > 0) {
-      const { node, depth } = queue.shift()!;
+    let _head = 0;
+    while (_head < queue.length) {
+      const { node, depth } = queue[_head++];
 
       if (depth >= analysis.expansionDepth) continue;
 

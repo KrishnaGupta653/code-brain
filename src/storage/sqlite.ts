@@ -513,6 +513,249 @@ export class SQLiteStorage {
     return graph;
   }
 
+  /**
+   * Load graph with level-based filtering for lazy loading.
+   * Level 0: Files/modules only (< 200 nodes typically)
+   * Level 1: + Classes/interfaces/routes (< 1000 nodes typically)
+   * Level 2: Full load (all nodes)
+   */
+  loadGraphLevel(projectRoot: string, level: 0 | 1 | 2): GraphModel {
+    const projectId = this.getProjectId(projectRoot);
+    const graph = new GraphModel();
+
+    // Define type filters per level
+    const typeFilters: Record<number, string[]> = {
+      0: ['project', 'file', 'module', 'config'],
+      1: ['project', 'file', 'module', 'config', 'class', 'interface', 'route', 'enum', 'type'],
+      2: [], // Empty = all types
+    };
+
+    const types = typeFilters[level];
+    let nodeQuery: string;
+    let nodeParams: any[];
+
+    if (types.length > 0) {
+      const placeholders = types.map(() => '?').join(',');
+      nodeQuery = `SELECT * FROM nodes WHERE project_id = ? AND type IN (${placeholders}) ORDER BY importance DESC`;
+      nodeParams = [projectId, ...types];
+    } else {
+      nodeQuery = 'SELECT * FROM nodes WHERE project_id = ?';
+      nodeParams = [projectId];
+    }
+
+    const nodes = this.db.prepare(nodeQuery).all(...nodeParams) as Array<{
+      id: string;
+      type: string;
+      name: string;
+      full_name: string;
+      file_path: string;
+      start_line: number;
+      end_line: number;
+      start_col: number;
+      end_col: number;
+      summary: string;
+      metadata: string;
+      semantic_path: string | null;
+      namespace: string | null;
+      hierarchy_label: string | null;
+      semantic_role: string | null;
+      community_id: number | null;
+      importance: number;
+      is_entry_point: number;
+      is_dead: number;
+      is_bridge: number;
+      call_count_in: number;
+      call_count_out: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+
+    // Load nodes
+    for (const row of nodes) {
+      const source: SourceSpan = {
+        file: row.file_path || "",
+        startLine: row.start_line,
+        endLine: row.end_line,
+        startCol: row.start_col,
+        endCol: row.end_col,
+      };
+
+      const metadata = row.metadata ? JSON.parse(row.metadata) : {};
+      metadata.isEntryPoint = row.is_entry_point === 1;
+      metadata.isDead = row.is_dead === 1;
+      metadata.isBridge = row.is_bridge === 1;
+      metadata.callCountIn = row.call_count_in;
+      metadata.callCountOut = row.call_count_out;
+
+      const node = createGraphNode(
+        row.id,
+        row.type as NodeType,
+        row.name,
+        source,
+        row.full_name,
+        row.summary || undefined,
+        metadata,
+      );
+
+      node.semanticPath = row.semantic_path || undefined;
+      node.namespace = row.namespace || undefined;
+      node.hierarchyLabel = row.hierarchy_label || undefined;
+      node.semanticRole = row.semantic_role || undefined;
+      node.communityId = row.community_id || undefined;
+      node.importance = row.importance || 0;
+
+      node.provenance = this.getProvenanceFor(
+        row.id,
+        projectId,
+        row.created_at,
+        row.updated_at,
+      );
+      graph.addNode(node);
+    }
+
+    // Load edges between loaded nodes only
+    const nodeIds = new Set(nodes.map(n => n.id));
+    
+    let edgeQuery: string;
+    let edgeParams: any[];
+
+    if (types.length > 0) {
+      const placeholders = types.map(() => '?').join(',');
+      edgeQuery = `
+        SELECT e.* FROM edges e
+        WHERE e.project_id = ?
+        AND e.from_id IN (SELECT id FROM nodes WHERE project_id = ? AND type IN (${placeholders}))
+        AND e.to_id IN (SELECT id FROM nodes WHERE project_id = ? AND type IN (${placeholders}))
+      `;
+      edgeParams = [projectId, projectId, ...types, projectId, ...types];
+    } else {
+      edgeQuery = 'SELECT * FROM edges WHERE project_id = ?';
+      edgeParams = [projectId];
+    }
+
+    const edges = this.db.prepare(edgeQuery).all(...edgeParams) as Array<{
+      id: string;
+      type: string;
+      from_id: string;
+      to_id: string;
+      resolved: number;
+      metadata: string;
+      created_at: number;
+      updated_at: number;
+    }>;
+
+    for (const row of edges) {
+      // Only add edges where both nodes are loaded
+      if (nodeIds.has(row.from_id) && nodeIds.has(row.to_id)) {
+        const sourceSpans = this.getSourceSpans(row.id, projectId);
+        const edge = createGraphEdge(
+          row.id,
+          row.type as EdgeType,
+          row.from_id,
+          row.to_id,
+          Boolean(row.resolved),
+          sourceSpans,
+          row.metadata ? JSON.parse(row.metadata) : {},
+        );
+
+        edge.provenance = this.getProvenanceFor(
+          row.id,
+          projectId,
+          row.created_at,
+          row.updated_at,
+        );
+        
+        try {
+          graph.addEdge(edge);
+        } catch {
+          // Skip edges with missing nodes (shouldn't happen but be defensive)
+        }
+      }
+    }
+
+    logger.info(`Loaded graph level ${level}: ${nodes.length} nodes, ${graph.getEdges().length} edges`);
+    return graph;
+  }
+
+  /**
+   * Load nodes by namespace for on-demand expansion.
+   */
+  loadNodesByNamespace(projectRoot: string, namespace: string): GraphNode[] {
+    const projectId = this.getProjectId(projectRoot);
+    
+    const nodes = this.db
+      .prepare("SELECT * FROM nodes WHERE project_id = ? AND (namespace = ? OR namespace LIKE ?) ORDER BY importance DESC LIMIT 500")
+      .all(projectId, namespace, `${namespace}.%`) as Array<{
+      id: string;
+      type: string;
+      name: string;
+      full_name: string;
+      file_path: string;
+      start_line: number;
+      end_line: number;
+      start_col: number;
+      end_col: number;
+      summary: string;
+      metadata: string;
+      semantic_path: string | null;
+      namespace: string | null;
+      hierarchy_label: string | null;
+      semantic_role: string | null;
+      community_id: number | null;
+      importance: number;
+      is_entry_point: number;
+      is_dead: number;
+      is_bridge: number;
+      call_count_in: number;
+      call_count_out: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+
+    return nodes.map(row => {
+      const source: SourceSpan = {
+        file: row.file_path || "",
+        startLine: row.start_line,
+        endLine: row.end_line,
+        startCol: row.start_col,
+        endCol: row.end_col,
+      };
+
+      const metadata = row.metadata ? JSON.parse(row.metadata) : {};
+      metadata.isEntryPoint = row.is_entry_point === 1;
+      metadata.isDead = row.is_dead === 1;
+      metadata.isBridge = row.is_bridge === 1;
+      metadata.callCountIn = row.call_count_in;
+      metadata.callCountOut = row.call_count_out;
+
+      const node = createGraphNode(
+        row.id,
+        row.type as NodeType,
+        row.name,
+        source,
+        row.full_name,
+        row.summary || undefined,
+        metadata,
+      );
+
+      node.semanticPath = row.semantic_path || undefined;
+      node.namespace = row.namespace || undefined;
+      node.hierarchyLabel = row.hierarchy_label || undefined;
+      node.semanticRole = row.semantic_role || undefined;
+      node.communityId = row.community_id || undefined;
+      node.importance = row.importance || 0;
+
+      node.provenance = this.getProvenanceFor(
+        row.id,
+        projectId,
+        row.created_at,
+        row.updated_at,
+      );
+
+      return node;
+    });
+  }
+
   saveRankingScores(projectRoot: string, scores: RankingScore[]): void {
     const projectId = this.getProjectId(projectRoot);
     const now = Date.now();

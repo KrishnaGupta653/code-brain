@@ -11,7 +11,7 @@
 | **Token Reduction** | 48-3,600× | 71.5× | N/A | N/A |
 | **Real-Time Updates** | ✅ | ❌ | ✅ | ❌ |
 | **Chat Interface** | ✅ | ❌ | ❌ | ✅ |
-| **Languages** | 15 | 11 | 40+ | All |
+| **Languages** | 30 | 11 | 40+ | All |
 | **Git Integration** | ✅ | ❌ | ✅ | ✅ |
 | **Local/Offline** | ✅ | ✅ | ❌ | ❌ |
 | **Multi-Modal** | PDF | PDF+Images+Video | ❌ | ❌ |
@@ -36,7 +36,7 @@
 2. **Chat Interface** - Natural language queries with multi-provider AI
 3. **Query-Based Compression** - Up to 3,600× on specific queries
 4. **Incremental Updates** - Hash-based change detection (Graphify rebuilds everything)
-5. **More Languages** - 15 vs 11
+5. **More Languages** - 30 vs 11
 6. **Git Integration** - Blame, hotspots, churn analysis
 7. **Hybrid Search** - BM25 + vector similarity
 8. **API Key Authentication** - Optional security for teams

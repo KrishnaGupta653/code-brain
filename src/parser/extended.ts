@@ -184,3 +184,280 @@ export class HaskellParser {
     });
   }
 }
+
+// New language parsers (Phase 3)
+
+// Helper function to safely import optional tree-sitter languages
+function tryImport(moduleName: string): any | null {
+  try {
+    return require(moduleName);
+  } catch {
+    return null;
+  }
+}
+
+export class SwiftParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Swift = tryImport('tree-sitter-swift');
+    if (!Swift) {
+      throw new Error('tree-sitter-swift not installed. Run: npm install tree-sitter-swift');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'swift',
+      treeSitterLanguage: Swift,
+      declarationTypes: {
+        class_declaration: 'class',
+        struct_declaration: 'class',
+        protocol_declaration: 'interface',
+        function_declaration: 'function',
+        enum_declaration: 'enum',
+      },
+      importTypes: ['import_declaration'],
+      testFilePattern: /(Test|Spec)\.swift$/,
+    });
+  }
+}
+
+export class DartParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Dart = tryImport('tree-sitter-dart');
+    if (!Dart) {
+      throw new Error('tree-sitter-dart not installed. Run: npm install tree-sitter-dart');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'dart',
+      treeSitterLanguage: Dart,
+      declarationTypes: {
+        class_definition: 'class',
+        function_signature: 'function',
+        method_signature: 'function',
+      },
+      importTypes: ['import_specification'],
+      testFilePattern: /_test\.dart$/,
+    });
+  }
+}
+
+export class LuaParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Lua = tryImport('tree-sitter-lua');
+    if (!Lua) {
+      throw new Error('tree-sitter-lua not installed. Run: npm install tree-sitter-lua');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'lua',
+      treeSitterLanguage: Lua,
+      declarationTypes: {
+        function_declaration: 'function',
+        local_function: 'function',
+        function_definition: 'function',
+      },
+      importTypes: [],
+      testFilePattern: /_spec\.lua$/,
+    });
+  }
+}
+
+export class BashParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Bash = tryImport('tree-sitter-bash');
+    if (!Bash) {
+      throw new Error('tree-sitter-bash not installed. Run: npm install tree-sitter-bash');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'bash',
+      treeSitterLanguage: Bash,
+      declarationTypes: {
+        function_definition: 'function',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.sh$/,
+    });
+  }
+}
+
+export class SqlParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Sql = tryImport('tree-sitter-sql');
+    if (!Sql) {
+      throw new Error('tree-sitter-sql not installed. Run: npm install tree-sitter-sql');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'sql',
+      treeSitterLanguage: Sql,
+      declarationTypes: {
+        create_table: 'class',
+        create_function: 'function',
+        create_procedure: 'function',
+        create_view: 'type',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.sql$/,
+    });
+  }
+}
+
+export class HclParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Hcl = tryImport('tree-sitter-hcl');
+    if (!Hcl) {
+      throw new Error('tree-sitter-hcl not installed. Run: npm install tree-sitter-hcl');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'hcl',
+      treeSitterLanguage: Hcl,
+      declarationTypes: {
+        block: 'type',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.tf$/,
+    });
+  }
+}
+
+export class DockerfileParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Dockerfile = tryImport('tree-sitter-dockerfile');
+    if (!Dockerfile) {
+      throw new Error('tree-sitter-dockerfile not installed. Run: npm install tree-sitter-dockerfile');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'dockerfile',
+      treeSitterLanguage: Dockerfile,
+      declarationTypes: {
+        from_instruction: 'type',
+        run_instruction: 'type',
+      },
+      importTypes: [],
+      testFilePattern: /Dockerfile\.test$/,
+    });
+  }
+}
+
+export class CssParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Css = tryImport('tree-sitter-css');
+    if (!Css) {
+      throw new Error('tree-sitter-css not installed. Run: npm install tree-sitter-css');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'css',
+      treeSitterLanguage: Css,
+      declarationTypes: {
+        rule_set: 'class',
+        keyframes_statement: 'function',
+      },
+      importTypes: ['import_statement'],
+      testFilePattern: /_test\.css$/,
+    });
+  }
+}
+
+export class HtmlParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Html = tryImport('tree-sitter-html');
+    if (!Html) {
+      throw new Error('tree-sitter-html not installed. Run: npm install tree-sitter-html');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'html',
+      treeSitterLanguage: Html,
+      declarationTypes: {
+        element: 'class',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.html$/,
+    });
+  }
+}
+
+export class VueParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Vue = tryImport('tree-sitter-vue');
+    if (!Vue) {
+      throw new Error('tree-sitter-vue not installed. Run: npm install tree-sitter-vue');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'vue',
+      treeSitterLanguage: Vue,
+      declarationTypes: {
+        component: 'class',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.vue$/,
+    });
+  }
+}
+
+export class SvelteParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Svelte = tryImport('tree-sitter-svelte');
+    if (!Svelte) {
+      throw new Error('tree-sitter-svelte not installed. Run: npm install tree-sitter-svelte');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'svelte',
+      treeSitterLanguage: Svelte,
+      declarationTypes: {
+        component: 'class',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.svelte$/,
+    });
+  }
+}
+
+export class TomlParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Toml = tryImport('tree-sitter-toml');
+    if (!Toml) {
+      throw new Error('tree-sitter-toml not installed. Run: npm install tree-sitter-toml');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'toml',
+      treeSitterLanguage: Toml,
+      declarationTypes: {
+        table: 'type',
+        pair: 'variable',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.toml$/,
+    });
+  }
+}
+
+export class YamlParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Yaml = tryImport('tree-sitter-yaml');
+    if (!Yaml) {
+      throw new Error('tree-sitter-yaml not installed. Run: npm install tree-sitter-yaml');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'yaml',
+      treeSitterLanguage: Yaml,
+      declarationTypes: {
+        block_mapping_pair: 'type',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.ya?ml$/,
+    });
+  }
+}
+
+export class JsonParser {
+  static parseFile(filePath: string): ParsedFile {
+    const Json = tryImport('tree-sitter-json');
+    if (!Json) {
+      throw new Error('tree-sitter-json not installed. Run: npm install tree-sitter-json');
+    }
+    return GenericTreeSitterParser.parseFile(filePath, {
+      language: 'json',
+      treeSitterLanguage: Json,
+      declarationTypes: {
+        pair: 'variable',
+      },
+      importTypes: [],
+      testFilePattern: /_test\.json$/,
+    });
+  }
+}

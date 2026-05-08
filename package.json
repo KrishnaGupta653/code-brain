@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Multi-language codebase intelligence system with AST-based parsing, knowledge graphs, and AI-optimized exports. Supports TypeScript, JavaScript, Java, Python, Go, Rust, C#, C, C++, Ruby, PHP, Kotlin, Scala, Elixir, and Haskell with fallback coverage for many more languages.",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "code-brain": "dist/index.js"
   },
@@ -11,6 +12,8 @@
     "build": "npm run build:server && npm run typecheck:ui && npm run build:ui",
     "build:server": "tsc && chmod +x dist/index.js",
     "build:ui": "vite build --config ui/vite.config.ts",
+    "build:extension": "cd vscode-extension && npm install && npm run build",
+    "package:extension": "cd vscode-extension && npm run package",
     "typecheck:ui": "tsc -p ui/tsconfig.json",
     "start": "node dist/index.js",
     "dev": "node --loader ts-node/esm src/index.ts",
@@ -51,16 +54,16 @@
     "graph-database",
     "code-intelligence"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "code-brain contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/code-brain.git"
+    "url": "https://github.com/code-brain/code-brain.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/code-brain/issues"
+    "url": "https://github.com/code-brain/code-brain/issues"
   },
-  "homepage": "https://github.com/yourusername/code-brain#readme",
+  "homepage": "https://github.com/code-brain/code-brain#readme",
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
     "@iarna/toml": "^2.2.5",
@@ -111,6 +114,22 @@
     "yaml": "^2.8.4",
     "zod": "^4.3.6"
   },
+  "optionalDependencies": {
+    "tree-sitter-swift": "^0.6.0",
+    "tree-sitter-dart": "^0.0.1",
+    "tree-sitter-lua": "^0.1.0",
+    "tree-sitter-bash": "^0.21.0",
+    "tree-sitter-sql": "^0.3.0",
+    "tree-sitter-hcl": "^0.0.1",
+    "tree-sitter-dockerfile": "^0.2.0",
+    "tree-sitter-css": "^0.21.0",
+    "tree-sitter-html": "^0.20.3",
+    "tree-sitter-vue": "^0.0.1",
+    "tree-sitter-svelte": "^0.11.0",
+    "tree-sitter-toml": "^0.6.0",
+    "tree-sitter-yaml": "^0.6.1",
+    "tree-sitter-json": "^0.21.0"
+  },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/glob": "^8.1.0",
@@ -138,6 +157,7 @@
     "dist",
     "python",
     "ui/dist",
+    "vscode-extension",
     "README.md",
     "LICENSE",
     "QUICK_SETUP.md",

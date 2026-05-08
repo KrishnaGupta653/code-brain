@@ -171,8 +171,9 @@ export class AnthropicClient {
     const queue = [...requests];
 
     const processBatch = async () => {
-      while (queue.length > 0) {
-        const request = queue.shift();
+      let _head = 0;
+      while (_head < queue.length) {
+        const request = queue[_head++];
         if (!request) break;
 
         try {

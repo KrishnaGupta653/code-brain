@@ -49,8 +49,9 @@ export async function updateCommand(projectRoot: string): Promise<void> {
     );
 
     const queue = [...changedOrNew];
-    while (queue.length > 0) {
-      const currentPath = queue.shift()!;
+    let _head = 0;
+    while (_head < queue.length) {
+      const currentPath = queue[_head++];
       const currentFileNode = fileNodes.find(node => fileIdToPath.get(node.id) === currentPath);
       if (!currentFileNode) {
         continue;

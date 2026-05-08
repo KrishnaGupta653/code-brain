@@ -1,0 +1,190 @@
+name: code-brain Architecture Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**.ts'
+      - '**.tsx'
+      - '**.js'
+      - '**.jsx'
+      - '**.py'
+      - '**.java'
+      - '**.go'
+      - '**.rs'
+      - '**.cs'
+      - '**.c'
+      - '**.cpp'
+      - '**.rb'
+      - '**.php'
+
+jobs:
+  architecture-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for accurate analysis
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install code-brain
+        run: npm install -g code-brain
+      
+      - name: Index repository
+        run: code-brain index
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+      
+      - name: Get changed files
+        id: changed-files
+        run: |
+          # Get list of changed files in this PR
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(ts|tsx|js|jsx|py|java|go|rs|cs|c|cpp|rb|php)$' || echo "")
+          
+          # Limit to first 50 files to avoid overwhelming the analysis
+          CHANGED_FILES=$(echo "$CHANGED_FILES" | head -50)
+          
+          # Convert to comma-separated list
+          CHANGED_FILES_CSV=$(echo "$CHANGED_FILES" | tr '\n' ',' | sed 's/,$//')
+          
+          echo "files=$CHANGED_FILES_CSV" >> $GITHUB_OUTPUT
+          echo "count=$(echo "$CHANGED_FILES" | wc -l)" >> $GITHUB_OUTPUT
+      
+      - name: Analyze impact
+        id: impact
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          # Run impact analysis on changed files
+          RESULT=$(code-brain ci:impact --files "${{ steps.changed-files.outputs.files }}" 2>/dev/null || echo '{"blastRadius":0,"affected":0,"tests":0}')
+          
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Check invariants
+        id: invariants
+        run: |
+          # Check architecture invariants
+          RESULT=$(code-brain ci:invariants 2>/dev/null || echo '{"errors":[],"warnings":[],"healthScore":100}')
+          
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Detect dead code
+        id: dead-code
+        run: |
+          # Find dead code in changed files
+          RESULT=$(code-brain ci:dead-code --files "${{ steps.changed-files.outputs.files }}" 2>/dev/null || echo '{"count":0,"nodes":[]}')
+          
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const impact = ${{ steps.impact.outputs.result || '{"blastRadius":0,"affected":0,"tests":0}' }};
+            const invariants = ${{ steps.invariants.outputs.result || '{"errors":[],"warnings":[],"healthScore":100}' }};
+            const deadCode = ${{ steps.dead-code.outputs.result || '{"count":0,"nodes":[]}' }};
+            const changedCount = ${{ steps.changed-files.outputs.count || 0 }};
+            
+            // Determine blast radius emoji
+            const blastEmoji = impact.blastRadius > 0.7 ? '🔴' : impact.blastRadius > 0.4 ? '🟡' : '🟢';
+            
+            // Determine health emoji
+            const healthEmoji = invariants.healthScore >= 90 ? '✅' : invariants.healthScore >= 70 ? '⚠️' : '❌';
+            
+            // Build comment body
+            let body = '## 🧠 code-brain Architecture Review\n\n';
+            
+            // Impact Analysis Section
+            body += `### ${blastEmoji} Impact Analysis\n\n`;
+            body += `- **Files changed:** ${changedCount}\n`;
+            body += `- **Blast radius:** ${(impact.blastRadius * 100).toFixed(1)}%\n`;
+            body += `- **Affected symbols:** ${impact.affected || 0}\n`;
+            body += `- **Affected tests:** ${impact.tests || 0}\n\n`;
+            
+            if (impact.blastRadius > 0.7) {
+              body += '> ⚠️ **High-impact change** - This PR affects a significant portion of the codebase. Consider:\n';
+              body += '> - Breaking into smaller PRs\n';
+              body += '> - Adding more tests\n';
+              body += '> - Requesting additional reviewers\n\n';
+            } else if (impact.blastRadius > 0.4) {
+              body += '> ℹ️ **Medium-impact change** - Review affected areas carefully.\n\n';
+            } else {
+              body += '> ✅ **Low-impact change** - Safe to merge with standard review.\n\n';
+            }
+            
+            // Architecture Invariants Section
+            body += `### ${healthEmoji} Architecture Invariants\n\n`;
+            body += `- **Health score:** ${invariants.healthScore}%\n`;
+            body += `- **Errors:** ${invariants.errors?.length || 0}\n`;
+            body += `- **Warnings:** ${invariants.warnings?.length || 0}\n\n`;
+            
+            if (invariants.errors?.length > 0) {
+              body += '#### ❌ Violations\n\n';
+              invariants.errors.slice(0, 5).forEach(error => {
+                body += `- **${error.invariant}**: ${error.message}\n`;
+                body += `  - Node: \`${error.nodeName}\`\n`;
+              });
+              if (invariants.errors.length > 5) {
+                body += `\n_...and ${invariants.errors.length - 5} more violations_\n`;
+              }
+              body += '\n';
+            } else if (invariants.warnings?.length > 0) {
+              body += '#### ⚠️ Warnings\n\n';
+              invariants.warnings.slice(0, 3).forEach(warning => {
+                body += `- **${warning.invariant}**: ${warning.message}\n`;
+              });
+              if (invariants.warnings.length > 3) {
+                body += `\n_...and ${invariants.warnings.length - 3} more warnings_\n`;
+              }
+              body += '\n';
+            } else {
+              body += '✅ All architecture invariants pass!\n\n';
+            }
+            
+            // Dead Code Section
+            if (deadCode.count > 0) {
+              body += '### 🪦 Dead Code Detected\n\n';
+              body += `Found **${deadCode.count}** unused symbol(s) in changed files:\n\n`;
+              deadCode.nodes.slice(0, 5).forEach(node => {
+                body += `- \`${node.name}\` (${node.type}) in \`${node.file}\`\n`;
+              });
+              if (deadCode.count > 5) {
+                body += `\n_...and ${deadCode.count - 5} more_\n`;
+              }
+              body += '\n> 💡 Consider removing dead code to improve maintainability.\n\n';
+            }
+            
+            // Footer
+            body += '---\n';
+            body += '<sub>Powered by [code-brain](https://github.com/code-brain/code-brain) | ';
+            body += '[View Graph Dashboard](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})</sub>';
+            
+            // Post comment
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Fail on critical violations
+        if: steps.invariants.outputs.result != '' && fromJSON(steps.invariants.outputs.result).errors.length > 0
+        run: |
+          echo "::error::Architecture invariant violations detected"
+          exit 1

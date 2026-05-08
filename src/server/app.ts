@@ -11,7 +11,7 @@ import { ImpactTracer } from "../retrieval/impact-tracer.js";
 import { PatternQueryEngine } from "../retrieval/pattern-query.js";
 import { InvariantDetector } from "../graph/invariants.js";
 import { ContextAssembler } from "../retrieval/context-assembler.js";
-import { logger, getDbPath } from "../utils/index.js";
+import { logger, getDbPath, stableId } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
 import { GraphEdge, GraphNode, RankingScore, SourceSpan } from "../types/models.js";
 
@@ -354,9 +354,25 @@ export async function createGraphServer(
   logger.info(`Resolved to: ${path.resolve(projectRoot)}`);
 
   const storage = new SQLiteStorage(getDbPath(projectRoot));
-  const graph = storage.loadGraph(projectRoot);
+  
+  // Use lazy loading for large projects (> 5000 nodes)
+  // This prevents OOM errors and speeds up server startup
+  const projectId = stableId('project', path.resolve(projectRoot));
+  const nodeCountResult = storage['db'].prepare('SELECT COUNT(*) as count FROM nodes WHERE project_id = ?').get(projectId) as { count: number } | undefined;
+  const nodeCount = nodeCountResult?.count ?? 0;
+  const useLazyLoading = nodeCount > 5000;
+  
+  let graph: ReturnType<typeof storage.loadGraph>;
+  if (useLazyLoading) {
+    logger.info(`Large project detected (${nodeCount} nodes), using lazy loading (level 0)`);
+    graph = storage.loadGraphLevel(projectRoot, 0);
+  } else {
+    logger.info(`Loading full graph (${nodeCount} nodes)`);
+    graph = storage.loadGraph(projectRoot);
+  }
+  
   const queryEngine = new QueryEngine(graph, storage, projectRoot);
-  const stats = graph.getStats();
+  const graphStats = graph.getStats();
   const analytics = computeAnalytics(graph);
   let rankingScores = storage.getRankingScores(projectRoot);
   if (rankingScores.length === 0) {
@@ -372,11 +388,40 @@ export async function createGraphServer(
   }
   const rankingByNode = new Map(rankingScores.map((score) => [score.nodeId, score]));
 
-  logger.info(`Graph loaded with stats: ${JSON.stringify(stats)}`);
-
-  storage.close();
+  logger.info(`Graph loaded with stats: ${JSON.stringify(graphStats)}`);
+  if (useLazyLoading) {
+    logger.info(`Lazy loading enabled - use /api/expand/namespace to load more nodes`);
+  }
 
   logger.success("Graph loaded for visualization");
+
+  // Add namespace expansion endpoint for lazy loading
+  app.get('/api/expand/namespace', (req, res) => {
+    const ns = sanitizeInput(String(req.query.ns || ''), 200);
+    if (!ns) {
+      res.status(400).json({ error: 'ns parameter required' });
+      return;
+    }
+    
+    try {
+      const nodes = storage.loadNodesByNamespace(projectRoot, ns);
+      res.json({
+        namespace: ns,
+        count: nodes.length,
+        nodes: nodes.map(node => ({
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          fullName: node.fullName,
+          namespace: node.namespace,
+          importance: node.importance,
+          location: node.location ? stripSourceText(node.location) : undefined,
+        }))
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
 
   // Add level-based graph endpoint
   app.get("/api/graph", (req, res) => {
@@ -453,7 +498,7 @@ export async function createGraphServer(
       res.json({
         nodes: clusterNodes,
         edges: clusterEdges,
-        stats: { ...stats, level: 0, clustered: true },
+        stats: { ...graphStats, level: 0, clustered: true },
         ranking: rankingScores.slice(0, 50),
         analytics: {
           health: analytics.health,
@@ -507,7 +552,7 @@ export async function createGraphServer(
       res.json({
         nodes,
         edges,
-        stats: { ...stats, level: 2, communityId },
+        stats: { ...graphStats, level: 2, communityId },
         ranking: rankingScores.slice(0, 50),
       });
       return;
@@ -548,7 +593,7 @@ export async function createGraphServer(
       res.json({
         nodes: fileNodes,
         edges,
-        stats: { ...stats, level: 1 },
+        stats: { ...graphStats, level: 1 },
         ranking: rankingScores.slice(0, 50),
         analytics: {
           health: analytics.health,
@@ -626,7 +671,7 @@ export async function createGraphServer(
       res.json({
         nodes,
         edges,
-        stats: { ...stats, level: 2, focus: focusNodeId },
+        stats: { ...graphStats, level: 2, focus: focusNodeId },
         ranking: rankingScores.slice(0, 50),
       });
       return;
@@ -660,7 +705,7 @@ export async function createGraphServer(
     res.json({
       nodes,
       edges,
-      stats,
+      stats: graphStats,
       ranking: rankingScores.slice(0, 50),
       analytics: {
         health: analytics.health,
@@ -823,7 +868,7 @@ export async function createGraphServer(
   });
 
   app.get("/api/stats", (_req, res) => {
-    res.json(stats);
+    res.json(graphStats);
   });
 
   app.get("/api/analytics", (_req, res) => {
@@ -1152,6 +1197,19 @@ export async function createGraphServer(
           }
         });
       };
+      
+      // Graceful shutdown handlers
+      const shutdown = () => {
+        logger.info('Shutting down gracefully...');
+        storage.close();
+        server.close(() => {
+          logger.info('Server closed');
+          process.exit(0);
+        });
+      };
+      
+      process.on('SIGTERM', shutdown);
+      process.on('SIGINT', shutdown);
       
       resolve({ server, wss, broadcast });
     });

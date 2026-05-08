@@ -15,6 +15,20 @@ import {
   RubyParser,
   RustParser,
   ScalaParser,
+  SwiftParser,
+  DartParser,
+  LuaParser,
+  BashParser,
+  SqlParser,
+  HclParser,
+  DockerfileParser,
+  CssParser,
+  HtmlParser,
+  VueParser,
+  SvelteParser,
+  TomlParser,
+  YamlParser,
+  JsonParser,
 } from './extended.js';
 import { parseFileWithRegistry, registerParserForExtension, registerDefaultParser } from './registry.js';
 import { ParsedFile } from '../types/models.js';
@@ -51,6 +65,31 @@ registerParserForExtension('.exs', ElixirParser);
 registerParserForExtension('.hs', HaskellParser);
 registerParserForExtension('.lhs', HaskellParser);
 
+// Tier 1 — high demand languages (Phase 3)
+registerParserForExtension('.swift', SwiftParser);
+registerParserForExtension('.dart', DartParser);
+registerParserForExtension('.lua', LuaParser);
+registerParserForExtension('.sh', BashParser);
+registerParserForExtension('.bash', BashParser);
+
+// Tier 2 — infrastructure/DevOps (Phase 3)
+registerParserForExtension('.sql', SqlParser);
+registerParserForExtension('.tf', HclParser);
+registerParserForExtension('.hcl', HclParser);
+registerParserForExtension('Dockerfile', DockerfileParser);
+
+// Tier 3 — frontend/config (Phase 3)
+registerParserForExtension('.css', CssParser);
+registerParserForExtension('.scss', CssParser);
+registerParserForExtension('.html', HtmlParser);
+registerParserForExtension('.vue', VueParser);
+registerParserForExtension('.svelte', SvelteParser);
+registerParserForExtension('.toml', TomlParser);
+registerParserForExtension('.yaml', YamlParser);
+registerParserForExtension('.yml', YamlParser);
+registerParserForExtension('.json', JsonParser);
+registerParserForExtension('.json5', JsonParser);
+
 // Multi-modal parsers
 registerParserForExtension('.pdf', PdfParser);
 
@@ -85,6 +124,20 @@ export {
   ScalaParser,
   ElixirParser,
   HaskellParser,
+  SwiftParser,
+  DartParser,
+  LuaParser,
+  BashParser,
+  SqlParser,
+  HclParser,
+  DockerfileParser,
+  CssParser,
+  HtmlParser,
+  VueParser,
+  SvelteParser,
+  TomlParser,
+  YamlParser,
+  JsonParser,
   FallbackParser,
   PdfParser,
 };

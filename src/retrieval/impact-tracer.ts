@@ -148,8 +148,9 @@ export class ImpactTracer {
     const visited = new Set<string>([target.id]);
     const queue: Array<{ node: GraphNode; depth: number }> = [{ node: target, depth: 0 }];
 
-    while (queue.length > 0) {
-      const { node, depth } = queue.shift()!;
+    let _head = 0;
+    while (_head < queue.length) {
+      const { node, depth } = queue[_head++];
 
       if (depth >= maxDepth) continue;
 
@@ -346,8 +347,9 @@ export class ImpactTracer {
     ];
     const visited = new Set<string>([sourceId]);
 
-    while (queue.length > 0) {
-      const { node, path } = queue.shift()!;
+    let _head = 0;
+    while (_head < queue.length) {
+      const { node, path } = queue[_head++];
 
       if (node.id === targetId) {
         return path;
