@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "fs";
 import { ConfigManager } from "../../config/index.js";
 import { QueryEngine } from "../../retrieval/query.js";
 import { ExportEngine } from "../../retrieval/export.js";
@@ -14,8 +15,11 @@ export async function exportCommand(
   maxTokens?: number,
   top?: number,
   model?: string,
+  full?: boolean,
+  outputFile?: string,
+  stdout?: boolean,
 ): Promise<string> {
-  logger.info(`Exporting code-brain graph (format: ${format}${model ? `, model: ${model}` : ''})`);
+  logger.info(`Exporting code-brain graph (format: ${format}${model ? `, model: ${model}` : ''}${full ? ', full graph' : ''})`);
 
   let storage: SQLiteStorage | null = null;
 
@@ -23,6 +27,14 @@ export async function exportCommand(
     // Load config
     const configManager = new ConfigManager(projectRoot);
     const config = configManager.getConfig();
+    
+    // Generate default filename based on project name
+    const projectName = path.basename(projectRoot);
+    const fileExtension = format === "yaml" ? "yaml" : "json";
+    const defaultFilename = `${projectName}-export.${fileExtension}`;
+    
+    // Determine output file: use provided outputFile, or default filename, or null if stdout
+    const finalOutputFile = stdout ? undefined : (outputFile || defaultFilename);
 
     storage = new SQLiteStorage(getDbPath(projectRoot));
     const graph = storage.loadGraph(projectRoot);
@@ -47,7 +59,15 @@ export async function exportCommand(
     const queryEngine = new QueryEngine(graph, storage, projectRoot);
     let queryResult;
 
-    if (focus) {
+    if (full) {
+      // Export all nodes and edges without filtering
+      logger.info('Exporting full graph (all nodes and edges)');
+      queryResult = {
+        nodes: graph.getNodes(),
+        edges: graph.getEdges(),
+        truncated: false,
+      };
+    } else if (focus) {
       const focusNode = queryEngine.resolveFocus(focus);
       if (!focusNode) {
         logger.warn(`No nodes found matching focus: ${focus}`);
@@ -139,6 +159,17 @@ export async function exportCommand(
     }
 
     logger.success("Export complete");
+    
+    // Save to file by default (unless noSave is true)
+    if (finalOutputFile) {
+      const absolutePath = path.isAbsolute(finalOutputFile) 
+        ? finalOutputFile 
+        : path.join(projectRoot, finalOutputFile);
+      
+      fs.writeFileSync(absolutePath, output, 'utf-8');
+      logger.success(`Export saved to: ${absolutePath}`);
+    }
+    
     return output;
   } catch (error) {
     logger.error("Export failed", error);

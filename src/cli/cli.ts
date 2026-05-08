@@ -108,14 +108,17 @@ export function setupCLI(): Command {
     .command("export")
     .description("Export the code graph in various formats")
     .option("-p, --path <path>", "Project root path", process.cwd())
-    .option("--format <format>", "Export format: json, yaml, ai", "json")
+    .option("--format <format>", "Export format: json, yaml, ai, cbv2", "json")
     .option("--focus <module>", "Focus on specific module or symbol")
     .option("--max-tokens <number>", "Maximum tokens for AI export (optional)")
     .option("--top <number>", "Export only the top N most important AI nodes")
     .option("--model <model>", "Target AI model (gpt-4, claude-3-opus, gemini-1.5-pro, etc.)")
+    .option("--full", "Export all nodes and edges without filtering")
+    .option("-o, --output <file>", "Custom output filename (default: <project-name>-export.json)")
+    .option("--stdout", "Print to stdout instead of saving to file")
     .action(async (options) => {
       try {
-        const validFormats = ["json", "yaml", "ai"];
+        const validFormats = ["json", "yaml", "ai", "cbv2"];
         if (!validFormats.includes(options.format)) {
           logger.error(
             `Invalid format: ${options.format}. Valid formats: ${validFormats.join(", ")}`,
@@ -148,8 +151,15 @@ export function setupCLI(): Command {
           maxTokens,
           top,
           options.model,
+          options.full,
+          options.output,
+          options.stdout,
         );
-        console.log(output);
+        
+        // Print to console if --stdout is used
+        if (options.stdout) {
+          console.log(output);
+        }
       } catch (error) {
         logger.error("Command failed", error);
         process.exit(1);
