@@ -4,12 +4,12 @@
   "description": "Multi-language codebase intelligence system with AST-based parsing, knowledge graphs, and AI-optimized exports. Supports TypeScript, JavaScript, Java, Python, Go, Rust, C#, C, C++, Ruby, PHP, Kotlin, Scala, Elixir, and Haskell with fallback coverage for many more languages.",
   "main": "dist/index.js",
   "bin": {
-    "code-brain": "dist/cli/cli.js"
+    "code-brain": "dist/index.js"
   },
   "type": "module",
   "scripts": {
     "build": "npm run build:server && npm run typecheck:ui && npm run build:ui",
-    "build:server": "tsc",
+    "build:server": "tsc && chmod +x dist/index.js",
     "build:ui": "vite build --config ui/vite.config.ts",
     "typecheck:ui": "tsc -p ui/tsconfig.json",
     "start": "node dist/index.js",
