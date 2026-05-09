@@ -10,7 +10,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:server && npm run typecheck:ui && npm run build:ui",
-    "build:server": "tsc && chmod +x dist/index.js",
+    "build:server": "tsc && node -e \"if(process.platform!=='win32'){require('fs').chmodSync('dist/index.js',0o755)}\"",
     "build:ui": "vite build --config ui/vite.config.ts",
     "build:extension": "cd vscode-extension && npm install && npm run build",
     "package:extension": "cd vscode-extension && npm run package",

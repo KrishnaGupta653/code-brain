@@ -18,6 +18,14 @@ class GraphVisualizer {
     this.pathSourceNode = null;
     this.pathTargetNode = null;
     this.ws = null;
+    // RAF batching state
+    this._rafPending = false;
+    this._needsFullRender = true;
+    this._minimapFrameCount = 0;
+    // Offscreen canvas cache — full render writes here; hover blits from here
+    this._offscreen = document.createElement('canvas');
+    this._offscreenCtx = this._offscreen.getContext('2d');
+    this._offscreenValid = false;
     // Visual layering state
     this.hoverNode = null;
     this.communities = [];
@@ -242,11 +250,76 @@ class GraphVisualizer {
     ctx.strokeRect(viewMinX, viewMinY, viewWidth, viewHeight);
   }
 
+  // ── Full render scheduler (simulation ticks, zoom/pan, select, filter) ──
+  scheduleRender() {
+    this._needsFullRender = true;
+    if (this._rafPending) return; // already queued; flag will upgrade it to full
+    this._rafPending = true;
+    requestAnimationFrame(() => {
+      this._rafPending = false;
+      if (this._needsFullRender) {
+        this._needsFullRender = false;
+        this.render();
+      } else {
+        this._renderHoverOverlay();
+      }
+    });
+  }
+
+  // ── Hover-only scheduler — blits cached frame + draws hover ring ──
+  scheduleHoverRender() {
+    if (this._rafPending) return;
+    this._rafPending = true;
+    requestAnimationFrame(() => {
+      this._rafPending = false;
+      if (this._needsFullRender) {
+        this._needsFullRender = false;
+        this.render();
+      } else {
+        this._renderHoverOverlay();
+      }
+    });
+  }
+
+  // ── Fast path: blit offscreen cache then draw hover ring on top ──
+  _renderHoverOverlay() {
+    if (!this._offscreenValid) { this.render(); return; }
+    const w = this.canvas.width / window.devicePixelRatio;
+    const h = this.canvas.height / window.devicePixelRatio;
+    this.ctx.clearRect(0, 0, w, h);
+    this.ctx.drawImage(this._offscreen, 0, 0, w, h);
+    this._drawHoverRing(this.ctx);
+  }
+
+  // ── Draw just the hover ring on top of whatever is already on ctx ──
+  _drawHoverRing(ctx) {
+    if (!this.hoverNode) return;
+    const node = this.nodeMap.get(this.hoverNode);
+    if (!node || node.visible === false) return;
+    const radius = this.getNodeRadius(node);
+    ctx.save();
+    ctx.translate(this.offsetX, this.offsetY);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#58a6ff';
+    ctx.lineWidth = 2 / this.zoom;
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   setupCanvas() {
     const resize = () => {
       const rect = this.canvas.getBoundingClientRect();
-      this.canvas.width = rect.width * window.devicePixelRatio;
-      this.canvas.height = rect.height * window.devicePixelRatio;
+      const newW = Math.round(rect.width * window.devicePixelRatio);
+      const newH = Math.round(rect.height * window.devicePixelRatio);
+      // Skip if dimensions are unchanged — tooltip reflows can fire resize
+      // events without actually changing the canvas size, which would clear
+      // the canvas contents unnecessarily (causing the hover flash).
+      if (this.canvas.width === newW && this.canvas.height === newH) return;
+      this.canvas.width = newW;
+      this.canvas.height = newH;
       this.ctx.setTransform(
         window.devicePixelRatio,
         0,
@@ -255,6 +328,9 @@ class GraphVisualizer {
         0,
         0,
       );
+      // Offscreen cache is now wrong size — force full redraw
+      this._offscreenValid = false;
+      this.scheduleRender();
     };
 
     resize();
@@ -487,18 +563,17 @@ class GraphVisualizer {
     this.fitToView();
     
     // Then animate remaining ticks, and auto-fit when done
-    this.simulation.on('tick', () => this.draw());
+    this.simulation.on('tick', () => this.scheduleRender());
     this.simulation.on('end', () => this.fitToView());
     this.simulation.restart();
   }
 
   animate() {
-    this.render();
-    requestAnimationFrame(() => this.animate());
+    this.scheduleRender();
   }
 
   draw() {
-    this.render();
+    this.scheduleRender();
   }
 
   updateLayout() {
@@ -509,11 +584,21 @@ class GraphVisualizer {
   render() {
     const width = this.canvas.width / window.devicePixelRatio;
     const height = this.canvas.height / window.devicePixelRatio;
-    this.ctx.clearRect(0, 0, width, height);
-    this.ctx.save();
-    this.ctx.translate(this.offsetX, this.offsetY);
-    this.ctx.scale(this.zoom, this.zoom);
-    const ctx = this.ctx;
+
+    // Sync offscreen canvas size
+    if (this._offscreen.width !== this.canvas.width || this._offscreen.height !== this.canvas.height) {
+      this._offscreen.width = this.canvas.width;
+      this._offscreen.height = this.canvas.height;
+      this._offscreenCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    }
+
+    // All drawing goes to offscreen — avoids any mid-frame blank-canvas flash
+    const offCtx = this._offscreenCtx;
+    offCtx.clearRect(0, 0, width, height);
+    offCtx.save();
+    offCtx.translate(this.offsetX, this.offsetY);
+    offCtx.scale(this.zoom, this.zoom);
+    const ctx = offCtx;
 
     // ── 1. Community hull backgrounds ──
     this.drawCommunityHulls(ctx);
@@ -660,16 +745,14 @@ class GraphVisualizer {
       ctx.arc(node.x, node.y, greyedOut ? Math.max(2, radius * 0.6) : radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Selection / path / hover ring
-      if (!greyedOut && (this.selectedNode === node.id || isPathNode || isHovered)) {
-        ctx.strokeStyle = isPathNode ? "#ff5722" : isHovered ? "#58a6ff" : "#ffffff";
-        ctx.lineWidth = (isHovered ? 2 : 2.5) / this.zoom;
+      // Selection / path ring (hover ring is drawn as overlay on main canvas)
+      if (!greyedOut && (this.selectedNode === node.id || isPathNode)) {
+        ctx.strokeStyle = isPathNode ? "#ff5722" : "#ffffff";
+        ctx.lineWidth = 2.5 / this.zoom;
         ctx.stroke();
-      }
-
-      // Structural node type ring (file, class, module get a subtle border)
-      if (!greyedOut && !isPathNode && !isHovered && this.selectedNode !== node.id &&
+      } else if (!greyedOut && !isPathNode && this.selectedNode !== node.id &&
           ['file', 'class', 'module', 'project'].includes(node.type)) {
+        // Structural node type ring
         ctx.strokeStyle = fill + "60";
         ctx.lineWidth = 1 / this.zoom;
         ctx.stroke();
@@ -682,8 +765,19 @@ class GraphVisualizer {
     ctx.restore();
     ctx.globalAlpha = 1;
 
-    // Render minimap
-    this.renderMinimap();
+    // Offscreen is now up to date — blit to main canvas
+    this._offscreenValid = true;
+    this.ctx.clearRect(0, 0, width, height);
+    this.ctx.drawImage(this._offscreen, 0, 0, width, height);
+
+    // Draw hover ring on main canvas (not cached, changes every hover)
+    this._drawHoverRing(this.ctx);
+
+    // Throttle minimap: only redraw every 6 frames to reduce per-frame cost
+    this._minimapFrameCount = (this._minimapFrameCount + 1) % 6;
+    if (this._minimapFrameCount === 0) {
+      this.renderMinimap();
+    }
   }
 
   onMouseDown(event) {
@@ -736,7 +830,8 @@ class GraphVisualizer {
       } else {
         this.hideTooltip();
       }
-      if (!this.dragging) this.render();
+      // Hover change — use fast overlay path, not a full redraw
+      if (!this.dragging) this.scheduleHoverRender();
     } else if (hoveredId && this.tooltip) {
       // Update tooltip position as mouse moves
       const rect = this.canvas.getBoundingClientRect();
@@ -767,6 +862,7 @@ class GraphVisualizer {
       }
       this.offsetX += dx;
       this.offsetY += dy;
+      this.scheduleRender();
     }
   }
 
@@ -790,8 +886,12 @@ class GraphVisualizer {
 
   onWheel(event) {
     event.preventDefault();
-    const factor = event.deltaY > 0 ? 1 / 1.1 : 1.1;
+    // Clamp delta to avoid massive jumps from trackpad momentum
+    const raw = Math.sign(event.deltaY) * Math.min(Math.abs(event.deltaY), 120);
+    const factor = raw > 0 ? 1 / 1.1 : 1.1;
     this.zoomBy(factor, event);
+    // Always schedule a render — sim may be stopped so tick won't fire
+    this.scheduleRender();
   }
 
   zoomBy(factor, event = null) {
@@ -814,7 +914,7 @@ class GraphVisualizer {
     document.getElementById("nodeTitle").textContent = "Select a node";
     document.getElementById("nodeDetails").innerHTML = "";
     document.getElementById("nodeRelations").innerHTML = "";
-    this.render();
+    this.scheduleRender();
   }
 
   deselectNode() {
@@ -827,7 +927,7 @@ class GraphVisualizer {
     document.getElementById("nodeRelations").innerHTML = "";
     const codeSection = document.getElementById("codeViewerSection");
     if (codeSection) codeSection.style.display = "none";
-    this.render();
+    this.scheduleRender();
   }
 
   resetLayout() {
@@ -855,7 +955,7 @@ class GraphVisualizer {
     const centerY = (bounds.minY + bounds.maxY) / 2;
     this.offsetX = rect.width / 2 - centerX * this.zoom;
     this.offsetY = rect.height / 2 - centerY * this.zoom;
-    this.render();
+    this.scheduleRender();
   }
 
   toGraphPoint(event) {
@@ -891,6 +991,7 @@ class GraphVisualizer {
       ...node.outgoing.map((edge) => edge.to),
       ...node.incoming.map((edge) => edge.from),
     ]);
+    this.scheduleRender();
 
     document.getElementById("nodeTitle").textContent =
       `${node.name} (${node.type})`;
@@ -1135,7 +1236,7 @@ class GraphVisualizer {
       
       if (data.path && data.path.length > 0) {
         this.pathHighlight = data.path.map(n => n.id);
-        this.render();
+        this.scheduleRender();
         
         // Show path info
         const pathInfo = document.getElementById("pathInfo");
@@ -1158,7 +1259,7 @@ class GraphVisualizer {
     this.pathHighlight = [];
     this.pathSourceNode = null;
     this.pathTargetNode = null;
-    this.render();
+    this.scheduleRender();
     
     const pathInfo = document.getElementById("pathInfo");
     if (pathInfo) {

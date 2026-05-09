@@ -595,82 +595,76 @@ function GraphStage({
     };
   }, [payload, onSelect, onHover, projectSphere, communityLookup]);
 
-  useEffect(() => {
-    const graph = graphRef.current;
-    const sigma = sigmaRef.current;
-    if (!graph || !sigma) return;
+  // Track last applied focus so we can undo it cheaply on the next hover
+  const lastFocusRef = useRef<{ focusId: string | null; neighbors: Set<string> }>({
+    focusId: null,
+    neighbors: new Set(),
+  });
+  const hoverRafRef = useRef<number | null>(null);
 
-    const selectedNeighbors = new Set<string>();
-    const focusId = hoveredId || selectedId;
+  // Helper: apply dim/highlight state for a given focusId to only affected nodes
+  const applyFocusState = useCallback((
+    graph: any,
+    focusId: string | null,
+    activeTypes: Set<string>,
+    selectedId: string | null,
+  ) => {
+    const neighbors = new Set<string>();
     if (focusId && graph.hasNode(focusId)) {
-      selectedNeighbors.add(focusId);
-      graph.forEachNeighbor(focusId, (neighbor: string) => selectedNeighbors.add(neighbor));
+      neighbors.add(focusId);
+      graph.forEachNeighbor(focusId, (n: string) => neighbors.add(n));
     }
+    lastFocusRef.current = { focusId, neighbors };
 
     graph.forEachNode((id: string, attrs: NodeAttributes) => {
       const node = nodeLookup.get(id);
       const visibleByType = node ? activeTypes.has(node.type) : true;
-      const related = !focusId || selectedNeighbors.has(id);
+      const related = !focusId || neighbors.has(id);
       const baseSize = Number(attrs.baseSize ?? attrs.size ?? (node ? nodeSize(node) : 4));
 
       graph.setNodeAttribute(id, "hidden", !visibleByType);
-      
-      // When a node is selected, make unrelated nodes much more transparent
       const opacity = related ? 1.0 : (focusId ? 0.15 : 0.44);
       graph.setNodeAttribute(
-        id,
-        "color",
+        id, "color",
         related
-          ? attrs.baseColor || attrs.color
+          ? (attrs.baseColor || attrs.color)
           : hexToRgba(String(attrs.baseColor || attrs.color || "#e2e8f0"), opacity),
       );
-      graph.setNodeAttribute(id, "highlighted", id === selectedId || id === hoveredId);
-      graph.setNodeAttribute(id, "forceLabel", id === selectedId || id === hoveredId);
+      graph.setNodeAttribute(id, "highlighted", id === selectedId || id === focusId);
+      graph.setNodeAttribute(id, "forceLabel", id === selectedId || id === focusId);
       graph.setNodeAttribute(id, "zIndex", id === selectedId ? 10 : related ? 2 : 0);
-      graph.setNodeAttribute(
-        id,
-        "size",
-        baseSize * (id === selectedId ? 1.3 : related ? 1.05 : 0.7),
-      );
+      graph.setNodeAttribute(id, "size", baseSize * (id === selectedId ? 1.3 : related ? 1.05 : 0.7));
     });
 
     graph.forEachEdge((edgeId: string, attrs: EdgeAttributes, source: string, target: string) => {
       const sourceVisible = !graph.getNodeAttribute(source, "hidden");
       const targetVisible = !graph.getNodeAttribute(target, "hidden");
-      const related =
-        !focusId || selectedNeighbors.has(source) || selectedNeighbors.has(target);
+      const related = !focusId || neighbors.has(source) || neighbors.has(target);
       const baseColor = String(attrs.baseColor || attrs.color || "#64748b");
-      
-      // Hide unrelated edges completely when a node is selected
       const edgeHidden = focusId ? !related : false;
       const edgeOpacity = related ? 1.0 : (focusId ? 0.05 : 0.34);
-      
       graph.setEdgeAttribute(edgeId, "hidden", edgeHidden);
-      graph.setEdgeAttribute(
-        edgeId,
-        "color",
-        related ? baseColor : hexToRgba(baseColor, edgeOpacity),
-      );
-      graph.setEdgeAttribute(
-        edgeId,
-        "size",
-        sourceVisible && targetVisible ? (related ? 2.2 : 0.5) : 0.3,
-      );
+      graph.setEdgeAttribute(edgeId, "color", related ? baseColor : hexToRgba(baseColor, edgeOpacity));
+      graph.setEdgeAttribute(edgeId, "size", sourceVisible && targetVisible ? (related ? 2.2 : 0.5) : 0.3);
     });
+  }, [nodeLookup]);
 
-    // Only animate camera if not locked and node is far from current view
+  // Selection effect: runs on click, camera animation, type filter — NOT on hover
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+
+    applyFocusState(graph, selectedId, activeTypes, selectedId);
+
     if (selectedId && graph.hasNode(selectedId) && !cameraLocked) {
       const position = sigma.getNodeDisplayData(selectedId);
       const camera = sigma.getCamera();
       const currentState = camera.getState();
-
       if (position) {
-        // Calculate distance from current camera position
         const dx = position.x - currentState.x;
         const dy = position.y - currentState.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-
-        // Only animate if node is far away (outside current viewport)
         const viewportRadius = 1 / currentState.ratio;
         if (distance > viewportRadius * 0.6) {
           sigma.getCamera().animate(
@@ -680,12 +674,37 @@ function GraphStage({
         }
       }
     }
-    
-    // Use requestAnimationFrame to batch refresh and prevent flashing
-    requestAnimationFrame(() => {
+
+    requestAnimationFrame(() => { sigma.refresh(); });
+  }, [activeTypes, selectedId, cameraLocked, applyFocusState]);
+
+  // Hover effect: debounced via RAF so rapid node-to-node movement doesn't
+  // trigger a full O(n+e) loop on every single mouse-enter event.
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+
+    // Cancel any pending hover RAF
+    if (hoverRafRef.current !== null) {
+      cancelAnimationFrame(hoverRafRef.current);
+    }
+
+    hoverRafRef.current = requestAnimationFrame(() => {
+      hoverRafRef.current = null;
+      // If a selectedId is active, don't let hover override the selection dim state
+      const effectiveFocus = hoveredId || selectedId;
+      applyFocusState(graph, effectiveFocus, activeTypes, selectedId);
       sigma.refresh();
     });
-  }, [activeTypes, hoveredId, nodeLookup, selectedId, cameraLocked]);
+
+    return () => {
+      if (hoverRafRef.current !== null) {
+        cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = null;
+      }
+    };
+  }, [hoveredId, activeTypes, selectedId, applyFocusState]);
 
   // View mode effect: recolor nodes based on selected visualization mode
   useEffect(() => {
