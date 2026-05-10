@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   CircleDot,
   Code2,
+  Download,
   ExternalLink,
   FileSearch,
   Filter,
@@ -29,6 +30,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import * as d3 from "d3";
 import {
   GraphEdge,
   GraphNode,
@@ -104,6 +106,79 @@ const EDGE_COLORS: Record<string, string> = {
   REFERENCES: "#22d3ee",
   ENTRY_POINT: "#facc15",
 };
+
+type ViewMode = 'type' | 'importance' | 'dead' | 'bridge' | 'folder' | 'layer';
+type LayoutMode = 'force' | 'radial' | 'hierarchical' | 'grid';
+type VizType = 'graph' | 'treemap';
+
+const FOLDER_PALETTE = [
+  '#4d9fff',
+  '#22d3ee',
+  '#a78bfa',
+  '#00ff9d',
+  '#ff9f43',
+  '#ec4899',
+  '#f59e0b',
+  '#22c55e',
+  '#f87171',
+  '#38bdf8',
+];
+
+const LAYER_MAP: Record<string, string> = {
+  utils: '#f59e0b',
+  util: '#f59e0b',
+  services: '#a78bfa',
+  service: '#a78bfa',
+  components: '#4d9fff',
+  component: '#4d9fff',
+  controllers: '#22d3ee',
+  controller: '#22d3ee',
+  models: '#ff9f43',
+  model: '#ff9f43',
+  lib: '#22c55e',
+  libs: '#22c55e',
+  tests: '#ec4899',
+  test: '#ec4899',
+  __tests__: '#ec4899',
+  config: '#94a3b8',
+};
+
+function pathParts(file?: string): string[] {
+  return String(file || '').replace(/\\/g, '/').split('/').filter(Boolean);
+}
+
+function topFolder(file?: string): string {
+  return pathParts(file)[0] ?? 'root';
+}
+
+function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode): string {
+  if (viewMode === 'importance') {
+    const importance = (nodeData as any).importance ?? nodeData.rank?.score ?? 0;
+    const red = Math.round(255 * Math.min(1, importance * 2));
+    const green = Math.round(255 * Math.min(1, (1 - importance) * 2));
+    return `rgb(${red},${green},40)`;
+  }
+
+  if (viewMode === 'dead') {
+    return nodeData.metadata?.isDead ? '#ef4444' : 'rgba(71,85,105,0.5)';
+  }
+
+  if (viewMode === 'bridge') {
+    return nodeData.metadata?.isBridge ? '#f59e0b' : 'rgba(71,85,105,0.5)';
+  }
+
+  if (viewMode === 'folder') {
+    const folder = topFolder(nodeData.file);
+    return FOLDER_PALETTE[stableNumber(folder) % FOLDER_PALETTE.length];
+  }
+
+  if (viewMode === 'layer') {
+    const layer = pathParts(nodeData.file).map((part) => part.toLowerCase()).find((part) => LAYER_MAP[part]);
+    return layer ? LAYER_MAP[layer] : '#64748b';
+  }
+
+  return NODE_COLORS[nodeData.type] ?? '#94a3b8';
+}
 
 function nodeSize(node: GraphNode): number {
   const rankBoost = node.rank ? Math.min(10, node.rank.score * 14) : 0;
@@ -235,6 +310,40 @@ function edgeWeight(type: string, resolved: boolean): number {
     CALLS_UNRESOLVED: 0.8,
   };
   return (base[type] || 1.2) * (resolved ? 1 : 0.55);
+}
+
+function HealthRing({ score }: { score: number }) {
+  const roundedScore = Math.max(0, Math.min(100, Math.round(score)));
+  const radius = 20;
+  const circumference = 2 * Math.PI * radius;
+  const fill = (roundedScore / 100) * circumference;
+  const grade = roundedScore >= 90 ? 'A' : roundedScore >= 80 ? 'B' : roundedScore >= 70 ? 'C' : roundedScore >= 60 ? 'D' : 'F';
+  const color = roundedScore >= 80 ? '#10b981' : roundedScore >= 60 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div className="health-ring">
+      <svg width={48} height={48} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+        <circle cx={24} cy={24} r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={5} />
+        <circle
+          cx={24}
+          cy={24}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={5}
+          strokeDasharray={`${fill} ${circumference}`}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dasharray 800ms cubic-bezier(0.4,0,0.2,1)' }}
+        />
+      </svg>
+      <div>
+        <div className="health-ring-score" style={{ color }}>
+          {roundedScore}<span>/100</span>
+        </div>
+        <div className="health-ring-label">Health - Grade {grade}</div>
+      </div>
+    </div>
+  );
 }
 
 function useGraphData() {
@@ -375,6 +484,15 @@ function GraphStage({
   onToggleCameraLock,
   viewMode,
   onViewModeChange,
+  layoutMode,
+  onLayoutModeChange,
+  vizType,
+  onVizTypeChange,
+  blastNodes,
+  blastSourceId,
+  pathNodes,
+  pathSourceId,
+  onClearPath,
   onContextMenu,
   searchQuery,
 }: {
@@ -387,14 +505,26 @@ function GraphStage({
   onExpandCluster?: (communityId: number) => void;
   cameraLocked?: boolean;
   onToggleCameraLock?: () => void;
-  viewMode: 'type' | 'importance' | 'dead' | 'bridge';
-  onViewModeChange: (mode: 'type' | 'importance' | 'dead' | 'bridge') => void;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+  layoutMode: LayoutMode;
+  onLayoutModeChange: (mode: LayoutMode) => void;
+  vizType: VizType;
+  onVizTypeChange: (type: VizType) => void;
+  blastNodes: Set<string>;
+  blastSourceId: string | null;
+  pathNodes: Set<string>;
+  pathSourceId: string | null;
+  onClearPath: () => void;
   onContextMenu: (x: number, y: number, nodeId: string, nodeName: string) => void;
   searchQuery: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const treemapRef = useRef<HTMLDivElement | null>(null);
+  const miniMapRef = useRef<HTMLCanvasElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<any>(null);
+  const prevNodeCount = useRef(0);
   const rotationRef = useRef({ x: -0.18, y: 0.42 });
   const dragRef = useRef<{
     pointerId: number;
@@ -408,6 +538,12 @@ function GraphStage({
     [payload.nodes],
   );
   const communityLookup = useMemo(() => buildCommunityLookup(payload), [payload]);
+  const hasGraphOverlay = blastNodes.size > 0 || pathNodes.size > 0;
+  const hasGraphOverlayRef = useRef(false);
+
+  useEffect(() => {
+    hasGraphOverlayRef.current = hasGraphOverlay;
+  }, [hasGraphOverlay]);
 
   const projectSphere = useCallback(() => {
     const graph = graphRef.current;
@@ -494,16 +630,30 @@ function GraphStage({
       }
     });
 
+    const snapshotBasePositions = () => {
+      graph.forEachNode((id: string, attrs: NodeAttributes) => {
+        graph.setNodeAttribute(id, "baseX", attrs.x);
+        graph.setNodeAttribute(id, "baseY", attrs.y);
+        graph.setNodeAttribute(id, "baseZ", attrs.z ?? 0);
+      });
+    };
+
+    const isExpansion = prevNodeCount.current > 0 && graph.order > prevNodeCount.current;
+    prevNodeCount.current = graph.order;
+
     // Community-seeded ForceAtlas2: fast, stable, and readable for architecture maps.
     // For very large graphs we keep the seeded LOD layout and let cluster expansion refine locally.
     // Use setTimeout to make layout non-blocking (prevents UI freeze)
     if (graph.order > 2 && graph.order < 1800) {
       const inferred = forceAtlas2.inferSettings(graph);
+      const iterations = isExpansion
+        ? Math.min(80, graph.order)
+        : Math.min(260, Math.max(70, graph.order * 2.4));
       
       // Run layout in chunks to avoid blocking the main thread
       setTimeout(() => {
         forceAtlas2.assign(graph, {
-          iterations: Math.min(260, Math.max(70, graph.order * 2.4)),
+          iterations,
           settings: {
             ...inferred,
             gravity: 0.05,
@@ -516,27 +666,21 @@ function GraphStage({
           },
         });
         
-        // Snapshot final positions as base after layout completes
-        graph.forEachNode((id: string, attrs: NodeAttributes) => {
-          graph.setNodeAttribute(id, 'baseX', attrs.x);
-          graph.setNodeAttribute(id, 'baseY', attrs.y);
-          graph.setNodeAttribute(id, 'baseZ', attrs.z ?? 0);
-        });
+        // Snapshot final positions as base after layout completes.
+        snapshotBasePositions();
         
         // Refresh sigma to show updated positions
         if (sigmaRef.current) {
           sigmaRef.current.refresh();
+          projectSphere();
         }
       }, 0);
     } else if (graph.order >= 1800) {
       console.info(`Large graph detected (${graph.order} nodes), using optimized layout`);
+      snapshotBasePositions();
+    } else {
+      snapshotBasePositions();
     }
-
-    graph.forEachNode((id: string, attrs: NodeAttributes) => {
-      graph.setNodeAttribute(id, "baseX", attrs.x);
-      graph.setNodeAttribute(id, "baseY", attrs.y);
-      graph.setNodeAttribute(id, "baseZ", attrs.z ?? 0);
-    });
 
     const sigma = new Sigma(graph, containerRef.current, {
       allowInvalidContainer: true,
@@ -583,6 +727,59 @@ function GraphStage({
     });
     sigma.on("rightClickStage", () => onContextMenu(0, 0, '', ''));
     sigma.on("clickStage", () => onContextMenu(0, 0, '', ''));
+
+    sigma.on("afterRender", () => {
+      const miniMap = miniMapRef.current;
+      if (!miniMap) return;
+      const context = miniMap.getContext("2d");
+      if (!context) return;
+
+      context.clearRect(0, 0, miniMap.width, miniMap.height);
+      context.fillStyle = 'rgba(10,14,23,0.84)';
+      context.fillRect(0, 0, miniMap.width, miniMap.height);
+
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      graph.forEachNode((id: string, attrs: NodeAttributes) => {
+        if (attrs.hidden) return;
+        minX = Math.min(minX, Number(attrs.x));
+        maxX = Math.max(maxX, Number(attrs.x));
+        minY = Math.min(minY, Number(attrs.y));
+        maxY = Math.max(maxY, Number(attrs.y));
+      });
+
+      if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
+
+      const pad = 8;
+      const rangeX = maxX - minX || 1;
+      const rangeY = maxY - minY || 1;
+      const width = miniMap.width - pad * 2;
+      const height = miniMap.height - pad * 2;
+
+      graph.forEachNode((id: string, attrs: NodeAttributes) => {
+        if (attrs.hidden) return;
+        const x = pad + ((Number(attrs.x) - minX) / rangeX) * width;
+        const y = pad + ((Number(attrs.y) - minY) / rangeY) * height;
+        context.fillStyle = attrs.color ?? '#64748b';
+        context.beginPath();
+        context.arc(x, y, Math.max(1, Math.min(2.2, Number(attrs.size ?? 2) / 5)), 0, Math.PI * 2);
+        context.fill();
+      });
+
+      const cameraState = sigma.getCamera().getState();
+      const viewportWidth = (1 / cameraState.ratio) * rangeX * 0.38;
+      const viewportHeight = (1 / cameraState.ratio) * rangeY * 0.38;
+      const viewportX = pad + ((cameraState.x - viewportWidth / 2 - minX) / rangeX) * width;
+      const viewportY = pad + ((cameraState.y - viewportHeight / 2 - minY) / rangeY) * height;
+      const viewportW = (viewportWidth / rangeX) * width;
+      const viewportH = (viewportHeight / rangeY) * height;
+
+      context.strokeStyle = '#22d3ee';
+      context.lineWidth = 1.5;
+      context.strokeRect(viewportX, viewportY, viewportW, viewportH);
+    });
     
     sigmaRef.current = sigma;
     graphRef.current = graph;
@@ -649,11 +846,12 @@ function GraphStage({
     });
   }, [nodeLookup]);
 
-  // Selection effect: runs on click, camera animation, type filter — NOT on hover
+  // Selection effect: runs on click, camera animation, type filter â€” NOT on hover
   useEffect(() => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
+    if (hasGraphOverlay) return;
 
     applyFocusState(graph, selectedId, activeTypes, selectedId);
 
@@ -676,7 +874,7 @@ function GraphStage({
     }
 
     requestAnimationFrame(() => { sigma.refresh(); });
-  }, [activeTypes, selectedId, cameraLocked, applyFocusState]);
+  }, [activeTypes, selectedId, cameraLocked, applyFocusState, hasGraphOverlay]);
 
   // Hover effect: debounced via RAF so rapid node-to-node movement doesn't
   // trigger a full O(n+e) loop on every single mouse-enter event.
@@ -684,6 +882,7 @@ function GraphStage({
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
+    if (hasGraphOverlay) return;
 
     // Cancel any pending hover RAF
     if (hoverRafRef.current !== null) {
@@ -704,13 +903,14 @@ function GraphStage({
         hoverRafRef.current = null;
       }
     };
-  }, [hoveredId, activeTypes, selectedId, applyFocusState]);
+  }, [hoveredId, activeTypes, selectedId, applyFocusState, hasGraphOverlay]);
 
   // View mode effect: recolor nodes based on selected visualization mode
   useEffect(() => {
     const sigma = sigmaRef.current;
     const graph = graphRef.current;
     if (!sigma || !graph) return;
+    if (hasGraphOverlay) return;
 
     graph.forEachNode((id: string) => {
       const nodeData = nodeLookup.get(id);
@@ -719,7 +919,7 @@ function GraphStage({
       let color: string;
       if (viewMode === 'importance') {
         const imp = (nodeData as any).importance ?? nodeData.rank?.score ?? 0;
-        // green (low) → amber (mid) → red (high)
+        // green (low) â†’ amber (mid) â†’ red (high)
         const r = Math.round(255 * Math.min(1, imp * 2));
         const g = Math.round(255 * Math.min(1, (1 - imp) * 2));
         color = `rgb(${r},${g},40)`;
@@ -727,6 +927,8 @@ function GraphStage({
         color = nodeData.metadata?.isDead ? '#ef4444' : 'rgba(71,85,105,0.5)';
       } else if (viewMode === 'bridge') {
         color = nodeData.metadata?.isBridge ? '#f59e0b' : 'rgba(71,85,105,0.5)';
+      } else if (viewMode === 'folder' || viewMode === 'layer') {
+        color = colorForViewMode(nodeData, viewMode);
       } else {
         color = NODE_COLORS[nodeData.type] ?? '#94a3b8';
       }
@@ -739,26 +941,32 @@ function GraphStage({
     requestAnimationFrame(() => {
       sigma.refresh();
     });
-  }, [viewMode, nodeLookup]);
+  }, [viewMode, nodeLookup, hasGraphOverlay]);
 
   // Search dimming effect: dim non-matching nodes as user types
   useEffect(() => {
     const sigma = sigmaRef.current;
     const graph = graphRef.current;
-    if (!sigma || !graph || searchQuery.length < 2) {
-      // Restore all colors if search is cleared
-      if (sigma && graph && searchQuery.length === 0) {
-        graph.forEachNode((id: string) => {
-          const nodeData = nodeLookup.get(id);
-          if (!nodeData) return;
-          const color = NODE_COLORS[nodeData.type] ?? '#94a3b8';
-          graph.setNodeAttribute(id, 'color', color);
-          graph.setNodeAttribute(id, 'baseColor', color);
-        });
-        requestAnimationFrame(() => {
-          sigma.refresh();
-        });
-      }
+    if (!sigma || !graph) return;
+    if (hasGraphOverlay) return;
+
+    if (selectedId && searchQuery.length > 0) return;
+
+    if (searchQuery.length === 0) {
+      graph.forEachNode((id: string) => {
+        const nodeData = nodeLookup.get(id);
+        if (!nodeData) return;
+        const color = colorForViewMode(nodeData, viewMode);
+        graph.setNodeAttribute(id, 'color', color);
+        graph.setNodeAttribute(id, 'baseColor', color);
+      });
+      requestAnimationFrame(() => {
+        sigma.refresh();
+      });
+      return;
+    }
+
+    if (searchQuery.length < 2) {
       return;
     }
 
@@ -771,7 +979,7 @@ function GraphStage({
                       nodeData.fullName?.toLowerCase().includes(lower) ||
                       nodeData.file?.toLowerCase().includes(lower);
       
-      const baseColor = NODE_COLORS[nodeData.type] ?? '#94a3b8';
+      const baseColor = colorForViewMode(nodeData, viewMode);
       const color = matches ? baseColor : 'rgba(71,85,105,0.2)';
       graph.setNodeAttribute(id, 'color', color);
     });
@@ -780,7 +988,283 @@ function GraphStage({
     requestAnimationFrame(() => {
       sigma.refresh();
     });
-  }, [searchQuery, nodeLookup]);
+  }, [searchQuery, nodeLookup, selectedId, viewMode, hasGraphOverlay]);
+
+  const overlayWasActiveRef = useRef(false);
+
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+
+    const activeOverlay = pathNodes.size > 0 ? pathNodes : blastNodes;
+    const sourceId = pathNodes.size > 0 ? pathSourceId : blastSourceId;
+    const mode = pathNodes.size > 0 ? 'path' : 'blast';
+
+    if (activeOverlay.size === 0) {
+      if (overlayWasActiveRef.current) {
+        overlayWasActiveRef.current = false;
+        applyFocusState(graph, selectedId, activeTypes, selectedId);
+        requestAnimationFrame(() => sigma.refresh());
+      }
+      return;
+    }
+
+    overlayWasActiveRef.current = true;
+
+    graph.forEachNode((id: string, attrs: NodeAttributes) => {
+      const node = nodeLookup.get(id);
+      const visibleByType = node ? activeTypes.has(node.type) : true;
+      const baseSize = Number(attrs.baseSize ?? attrs.size ?? (node ? nodeSize(node) : 4));
+      const isSource = id === sourceId;
+      const isActive = activeOverlay.has(id);
+
+      graph.setNodeAttribute(id, 'hidden', !visibleByType);
+      graph.setNodeAttribute(id, 'forceLabel', isSource || isActive);
+      graph.setNodeAttribute(id, 'highlighted', isSource || isActive);
+      graph.setNodeAttribute(id, 'zIndex', isSource ? 20 : isActive ? 12 : 0);
+
+      if (mode === 'path') {
+        graph.setNodeAttribute(id, 'color', isActive ? '#22c55e' : 'rgba(71,85,105,0.12)');
+        graph.setNodeAttribute(id, 'size', isActive ? baseSize * (isSource ? 1.55 : 1.3) : baseSize * 0.5);
+      } else {
+        graph.setNodeAttribute(
+          id,
+          'color',
+          isSource ? '#ef4444' : isActive ? '#f97316' : 'rgba(71,85,105,0.12)',
+        );
+        graph.setNodeAttribute(
+          id,
+          'size',
+          isSource ? baseSize * 1.6 : isActive ? baseSize * 1.1 : baseSize * 0.6,
+        );
+      }
+    });
+
+    graph.forEachEdge((edgeId: string, attrs: EdgeAttributes, source: string, target: string) => {
+      const sourceActive = activeOverlay.has(source);
+      const targetActive = activeOverlay.has(target);
+      const related = sourceActive && targetActive;
+      graph.setEdgeAttribute(edgeId, 'hidden', false);
+      graph.setEdgeAttribute(edgeId, 'color', related ? (mode === 'path' ? '#22c55e' : '#f97316') : 'rgba(71,85,105,0.08)');
+      graph.setEdgeAttribute(edgeId, 'size', related ? 2.6 : 0.35);
+    });
+
+    requestAnimationFrame(() => sigma.refresh());
+  }, [
+    activeTypes,
+    applyFocusState,
+    blastNodes,
+    blastSourceId,
+    nodeLookup,
+    pathNodes,
+    pathSourceId,
+    selectedId,
+  ]);
+
+  const applyLayout = useCallback((mode: LayoutMode) => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    const container = containerRef.current;
+    if (!graph || !sigma || !container) return;
+    if (hasGraphOverlayRef.current) return;
+
+    const nodes = graph.nodes().map((id: string) => ({
+      id,
+      type: nodeLookup.get(id)?.type ?? 'file',
+      ...graph.getNodeAttributes(id),
+    }));
+    if (nodes.length === 0) return;
+
+    const width = Math.max(640, container.offsetWidth || 1);
+    const height = Math.max(480, container.offsetHeight || 1);
+
+    if (mode === 'radial') {
+      const radius = Math.min(width, height) * 0.35;
+      nodes.forEach((node: any, index: number) => {
+        const angle = (index / nodes.length) * 2 * Math.PI;
+        graph.setNodeAttribute(node.id, 'x', Math.cos(angle) * radius);
+        graph.setNodeAttribute(node.id, 'y', Math.sin(angle) * radius);
+      });
+    } else if (mode === 'hierarchical') {
+      const layerOrder: Record<string, number> = {
+        project: 0,
+        file: 1,
+        module: 2,
+        class: 3,
+        function: 4,
+        method: 5,
+        route: 6,
+        test: 7,
+        config: 8,
+      };
+      const groups = new Map<number, string[]>();
+      nodes.forEach((node: any) => {
+        const layer = layerOrder[node.type] ?? 4;
+        groups.set(layer, [...(groups.get(layer) ?? []), node.id]);
+      });
+      const ordered = [...groups.entries()].sort(([a], [b]) => a - b);
+      const graphWidth = Math.min(width * 0.78, ordered.length * 220);
+      const startX = -graphWidth / 2;
+      ordered.forEach(([, ids], layerIndex) => {
+        const x = startX + ((layerIndex + 0.5) / ordered.length) * graphWidth;
+        const layerHeight = Math.min(height * 0.78, Math.max(260, ids.length * 28));
+        ids.forEach((id, index) => {
+          graph.setNodeAttribute(id, 'x', x);
+          graph.setNodeAttribute(id, 'y', -layerHeight / 2 + ((index + 1) / (ids.length + 1)) * layerHeight);
+        });
+      });
+    } else if (mode === 'grid') {
+      const columns = Math.ceil(Math.sqrt(nodes.length));
+      const rows = Math.ceil(nodes.length / columns);
+      const cellWidth = Math.min(120, width / Math.max(1, columns));
+      const cellHeight = Math.min(90, height / Math.max(1, rows));
+      nodes.forEach((node: any, index: number) => {
+        graph.setNodeAttribute(node.id, 'x', (index % columns - (columns - 1) / 2) * cellWidth);
+        graph.setNodeAttribute(node.id, 'y', (Math.floor(index / columns) - (rows - 1) / 2) * cellHeight);
+      });
+    } else {
+      const inferred = forceAtlas2.inferSettings(graph);
+      forceAtlas2.assign(graph, {
+        iterations: Math.min(120, Math.max(40, graph.order)),
+        settings: { ...inferred, gravity: 0.05, scalingRatio: 18, adjustSizes: true },
+      });
+    }
+
+    graph.forEachNode((id: string, attrs: NodeAttributes) => {
+      graph.setNodeAttribute(id, 'baseX', attrs.x);
+      graph.setNodeAttribute(id, 'baseY', attrs.y);
+      graph.setNodeAttribute(id, 'baseZ', attrs.z ?? 0);
+    });
+    sigma.getCamera().animatedReset({ duration: 400 });
+    projectSphere();
+    sigma.refresh();
+  }, [nodeLookup, projectSphere]);
+
+  useEffect(() => {
+    applyLayout(layoutMode);
+  }, [applyLayout, layoutMode]);
+
+  const exportPNG = () => {
+    const sigma = sigmaRef.current;
+    if (!sigma) return;
+    const canvas = sigma.getContainer().querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const output = document.createElement('canvas');
+    output.width = canvas.width;
+    output.height = canvas.height;
+    const context = output.getContext('2d');
+    if (!context) return;
+    context.fillStyle = '#0a0e17';
+    context.fillRect(0, 0, output.width, output.height);
+    context.drawImage(canvas, 0, 0);
+    const link = document.createElement('a');
+    link.download = 'code-brain-graph.png';
+    link.href = output.toDataURL('image/png');
+    link.click();
+  };
+
+  const treemapData = useMemo(() => {
+    const children = payload.nodes
+      .filter((node) => (node.degree ?? 0) > 0)
+      .map((node) => ({
+        name: node.name,
+        value: Math.max(1, node.degree ?? 1),
+        type: node.type,
+        id: node.id,
+        folder: pathParts(node.file).slice(-3, -1).join('/') || topFolder(node.file),
+      }));
+    const folders = new Map<string, typeof children>();
+    children.forEach((child) => {
+      const folderChildren = folders.get(child.folder) ?? [];
+      folderChildren.push(child);
+      folders.set(child.folder, folderChildren);
+    });
+    return {
+      name: 'root',
+      children: [...folders.entries()].map(([name, folderChildren]) => ({ name, children: folderChildren })),
+    };
+  }, [payload.nodes]);
+
+  useEffect(() => {
+    const container = treemapRef.current;
+    if (!container || vizType !== 'treemap') return;
+
+    const rect = container.getBoundingClientRect();
+    const width = Math.max(320, rect.width);
+    const height = Math.max(240, rect.height);
+    container.innerHTML = '';
+
+    const svg = d3
+      .select(container)
+      .append('svg')
+      .attr('width', width)
+      .attr('height', height)
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img');
+
+    const root = d3
+      .hierarchy<any>(treemapData)
+      .sum((datum) => datum.value ?? 0)
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+    const treemapRoot = d3.treemap<any>()
+      .size([width, height])
+      .paddingOuter(14)
+      .paddingTop(24)
+      .paddingInner(3)
+      .round(true)(root) as d3.HierarchyRectangularNode<any>;
+
+    const folders = svg
+      .selectAll('g.treemap-folder')
+      .data(treemapRoot.children ?? [])
+      .join('g')
+      .attr('class', 'treemap-folder');
+
+    folders
+      .append('text')
+      .attr('x', (datum) => datum.x0 + 8)
+      .attr('y', (datum) => datum.y0 + 16)
+      .attr('fill', '#94a3b8')
+      .attr('font-size', 11)
+      .attr('font-weight', 700)
+      .text((datum) => datum.data.name);
+
+    const leaves = svg
+      .selectAll('g.treemap-cell')
+      .data(treemapRoot.leaves())
+      .join('g')
+      .attr('class', 'treemap-cell')
+      .attr('transform', (datum) => `translate(${datum.x0},${datum.y0})`)
+      .style('cursor', 'pointer')
+      .on('click', (_event, datum) => onSelect(datum.data.id));
+
+    leaves
+      .append('rect')
+      .attr('width', (datum) => Math.max(0, datum.x1 - datum.x0))
+      .attr('height', (datum) => Math.max(0, datum.y1 - datum.y0))
+      .attr('rx', 5)
+      .attr('fill', (datum) => colorForViewMode(nodeLookup.get(datum.data.id) ?? datum.data, viewMode))
+      .attr('fill-opacity', 0.72)
+      .attr('stroke', 'rgba(255,255,255,0.18)');
+
+    leaves
+      .append('text')
+      .attr('x', 6)
+      .attr('y', 16)
+      .attr('fill', '#f8fafc')
+      .attr('font-size', 11)
+      .attr('font-weight', 700)
+      .text((datum) => {
+        const width = datum.x1 - datum.x0;
+        const maxChars = Math.max(4, Math.floor(width / 7));
+        return String(datum.data.name).slice(0, maxChars);
+      });
+
+    leaves
+      .append('title')
+      .text((datum) => `${datum.data.name} - degree ${datum.data.value}`);
+  }, [nodeLookup, onSelect, treemapData, viewMode, vizType]);
 
   const zoom = (factor: number) => {
     const sigma = sigmaRef.current;
@@ -799,13 +1283,14 @@ function GraphStage({
   };
 
   const resetSphere = () => {
+    if (hasGraphOverlay) return;
     rotationRef.current = { x: -0.18, y: 0.42 };
     projectSphere();
     resetCamera();
   };
 
   const startSphereDrag = (event: React.PointerEvent<HTMLElement>) => {
-    if ((event.target as HTMLElement).closest(".graph-actions")) return;
+    if ((event.target as HTMLElement).closest(".graph-actions, .graph-toolbar, .treemap-overlay, .minimap-overlay")) return;
     if (!event.shiftKey && !event.altKey && event.button !== 1) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -819,6 +1304,7 @@ function GraphStage({
   };
 
   const rotateSphere = (event: React.PointerEvent<HTMLElement>) => {
+    if (hasGraphOverlay) return;
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.startX;
@@ -847,7 +1333,19 @@ function GraphStage({
       onPointerUp={stopSphereDrag}
       onPointerCancel={stopSphereDrag}
     >
-      <div ref={containerRef} className="sigma-stage" />
+      <div
+        ref={containerRef}
+        className="sigma-stage"
+        style={{ opacity: vizType === 'graph' ? 1 : 0, pointerEvents: vizType === 'graph' ? 'auto' : 'none' }}
+      />
+      <div
+        ref={treemapRef}
+        className="treemap-overlay"
+        style={{ display: vizType === 'treemap' ? 'block' : 'none' }}
+      />
+      {vizType === 'graph' && (
+        <canvas ref={miniMapRef} className="minimap-overlay" width={160} height={100} />
+      )}
       <div className="graph-actions" aria-label="Graph controls">
         <button type="button" title="Zoom in" onClick={() => zoom(0.72)}>
           <ZoomIn size={18} />
@@ -870,17 +1368,25 @@ function GraphStage({
         <button type="button" title="Reset sphere" onClick={resetSphere}>
           <Maximize2 size={18} />
         </button>
+        <button type="button" title="Export PNG" onClick={exportPNG}>
+          <Download size={18} />
+        </button>
+        {pathNodes.size > 0 && (
+          <button type="button" title="Clear path" onClick={onClearPath}>
+            <X size={18} />
+          </button>
+        )}
       </div>
 
       {/* View mode toggle bar */}
-      <div style={{
+      <div className="graph-toolbar" style={{
         position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)',
         display: 'flex', gap: '3px', background: 'rgba(10,14,23,0.88)',
         border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
         padding: '3px', zIndex: 20, backdropFilter: 'blur(16px)',
         boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
       }}>
-        {(['type', 'importance', 'dead', 'bridge'] as const).map(mode => (
+        {(['type', 'importance', 'dead', 'bridge', 'folder', 'layer'] as const).map(mode => (
           <button key={mode} type="button"
             onClick={() => onViewModeChange(mode)}
             style={{
@@ -890,7 +1396,51 @@ function GraphStage({
               color: viewMode === mode ? '#22d3ee' : '#64748b',
               letterSpacing: '0.03em',
             }}>
-            {mode === 'type' ? 'By Type' : mode === 'importance' ? '⚡ Heatmap' : mode === 'dead' ? '🪦 Dead' : '🌉 Bridges'}
+            {mode === 'type' ? 'By Type' : mode === 'importance' ? 'Heatmap' : mode === 'dead' ? 'Dead' : mode === 'bridge' ? 'Bridges' : mode === 'folder' ? 'Folder' : 'Layer'}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onVizTypeChange(vizType === 'graph' ? 'treemap' : 'graph')}
+          style={{
+            padding: '5px 14px',
+            borderRadius: '7px',
+            border: 'none',
+            fontSize: '11px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 150ms',
+            background: vizType === 'treemap' ? 'rgba(6,182,212,0.2)' : 'transparent',
+            color: vizType === 'treemap' ? '#22d3ee' : '#64748b',
+            letterSpacing: '0.03em',
+          }}
+        >
+          Treemap
+        </button>
+      </div>
+      <div className="graph-toolbar" style={{
+        position: 'absolute', top: 56, left: '50%', transform: 'translateX(-50%)',
+        display: 'flex', gap: '3px', background: 'rgba(10,14,23,0.82)',
+        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
+        padding: '3px', zIndex: 20, backdropFilter: 'blur(16px)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
+      }}>
+        {(['force', 'radial', 'hierarchical', 'grid'] as const).map(mode => (
+          <button key={mode} type="button"
+            onClick={() => onLayoutModeChange(mode)}
+            disabled={vizType === 'treemap'}
+            style={{
+              padding: '5px 12px',
+              borderRadius: '7px',
+              border: 'none',
+              background: layoutMode === mode ? 'rgba(6,182,212,0.2)' : 'transparent',
+              color: layoutMode === mode ? '#22d3ee' : '#64748b',
+              fontSize: '10px',
+              fontWeight: 600,
+              cursor: vizType === 'treemap' ? 'not-allowed' : 'pointer',
+              opacity: vizType === 'treemap' ? 0.45 : 1,
+            }}>
+            {mode === 'force' ? 'Force' : mode === 'radial' ? 'Radial' : mode === 'hierarchical' ? 'Layers' : 'Grid'}
           </button>
         ))}
       </div>
@@ -916,7 +1466,14 @@ function App() {
   const [isInspectorPinned, setIsInspectorPinned] = useState(false);
   const [isCameraLocked, setIsCameraLocked] = useState(false);
   const [compareNode, setCompareNode] = useState<GraphNode | null>(null);
-  const [viewMode, setViewMode] = useState<'type' | 'importance' | 'dead' | 'bridge'>('type');
+  const [viewMode, setViewMode] = useState<ViewMode>('type');
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
+  const [vizType, setVizType] = useState<VizType>('graph');
+  const [blastNodes, setBlastNodes] = useState<Set<string>>(new Set());
+  const [blastSourceId, setBlastSourceId] = useState<string | null>(null);
+  const [pathMode, setPathMode] = useState<{ source: string | null }>({ source: null });
+  const [pathNodes, setPathNodes] = useState<Set<string>>(new Set());
+  const [pathSourceId, setPathSourceId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string; nodeName: string } | null>(null);
   const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
     typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:relationshipsHeight") || 300) : 300,
@@ -954,6 +1511,16 @@ function App() {
     if (payload) {
       setActiveTypes(new Set(Object.keys(payload.stats.nodesByType)));
     }
+  }, [payload]);
+
+  useEffect(() => {
+    if (!payload) return;
+    fetch('/api/analyze/invariants')
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (data) setInvariants(data);
+      })
+      .catch(() => {});
   }, [payload]);
 
   useEffect(() => {
@@ -1299,6 +1866,55 @@ function App() {
     }
   };
 
+  const analyzeImpact = async (nodeId: string, nodeName: string) => {
+    try {
+      const res = await fetch(`/api/query/impact-full?target=${encodeURIComponent(nodeName)}`);
+      const data = await res.json();
+      const affectedSet = new Set<string>(
+        (data.results ?? []).map((node: any) => node.id ?? node.nodeId).filter(Boolean),
+      );
+      affectedSet.add(nodeId);
+      setBlastSourceId(nodeId);
+      setBlastNodes(affectedSet);
+      setPathNodes(new Set());
+      setPathSourceId(null);
+    } catch (err) {
+      console.error('Impact analysis failed:', err);
+    }
+  };
+
+  const clearBlast = () => {
+    setBlastNodes(new Set());
+    setBlastSourceId(null);
+  };
+
+  const clearPath = () => {
+    setPathMode({ source: null });
+    setPathNodes(new Set());
+    setPathSourceId(null);
+  };
+
+  const findPath = async (from: string, to: string) => {
+    try {
+      const res = await fetch(`/api/path?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      const data = await res.json();
+      const pathSet = new Set<string>((data.path ?? []).map((node: any) => node.id ?? node.nodeId ?? node).filter(Boolean));
+      if (pathSet.size === 0) {
+        pathSet.add(from);
+        pathSet.add(to);
+      }
+      setPathSourceId(from);
+      setPathNodes(pathSet);
+      setBlastNodes(new Set());
+      setBlastSourceId(null);
+    } catch (err) {
+      console.error('Path search failed:', err);
+    } finally {
+      setPathMode({ source: null });
+      setContextMenu(null);
+    }
+  };
+
   const runPatternQuery = async () => {
     if (!patternQuery.trim()) return;
     setPatternLoading(true);
@@ -1306,7 +1922,7 @@ function App() {
     try {
       const params = new URLSearchParams({ limit: '25' });
       for (const part of patternQuery.trim().split(/\s+/)) {
-        if (part.startsWith('type:')) params.set('types', part.slice(5));
+        if (part.startsWith('type:')) params.append('types', part.slice(5));
         else if (part.startsWith('no-edge:')) {
           const [, t, d] = part.split(':');
           params.set('not_edge', t);
@@ -1410,7 +2026,7 @@ function App() {
                   <strong>{node.name}</strong>
                   <em>{node.type}</em>
                 </span>
-                <small>{relativeLabel(node.fullName || node.file)} · degree {node.degree}</small>
+                <small>{relativeLabel(node.fullName || node.file)} Â· degree {node.degree}</small>
               </button>
             ))}
             {query.trim() && visibleSearchResults.length === 0 && (
@@ -1580,10 +2196,10 @@ function App() {
               Check
             </button>
           </h2>
+          {invariants && <HealthRing score={Number(invariants.healthScore ?? 0)} />}
           {showInvariants && invariants && (
             <div style={{ fontSize: '12px' }}>
               <div style={{ padding: '8px', borderBottom: '1px solid var(--line)' }}>
-                <div>Health Score: <strong>{invariants.healthScore?.toFixed(1)}%</strong></div>
                 <div style={{ marginTop: '4px', color: '#64748b' }}>
                   {invariants.errors?.length || 0} errors, {invariants.warnings?.length || 0} warnings
                 </div>
@@ -1622,7 +2238,7 @@ function App() {
               style={{ fontSize: '12px' }}
             />
             <button type="button" onClick={runPatternQuery} disabled={patternLoading}>
-              {patternLoading ? '…' : 'Run'}
+              {patternLoading ? 'â€¦' : 'Run'}
             </button>
           </div>
           {patternError && <div style={{ fontSize: '11px', color: 'var(--muted)', padding: '4px 0' }}>{patternError}</div>}
@@ -1659,6 +2275,15 @@ function App() {
         onToggleCameraLock={() => setIsCameraLocked(!isCameraLocked)}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        layoutMode={layoutMode}
+        onLayoutModeChange={setLayoutMode}
+        vizType={vizType}
+        onVizTypeChange={setVizType}
+        blastNodes={blastNodes}
+        blastSourceId={blastSourceId}
+        pathNodes={pathNodes}
+        pathSourceId={pathSourceId}
+        onClearPath={clearPath}
         onContextMenu={(x, y, nodeId, nodeName) => {
           if (nodeId) setContextMenu({ x, y, nodeId, nodeName });
           else setContextMenu(null);
@@ -1681,20 +2306,14 @@ function App() {
             <strong style={{ color: 'var(--text)' }}>{contextMenu.nodeName}</strong>
           </div>
           {[
-            { label: '🔍 Focus & expand', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); } },
-            { label: '💥 Analyze impact', action: async () => {
-              setContextMenu(null);
-              try {
-                const res = await fetch(`/api/query/impact-full?target=${encodeURIComponent(contextMenu.nodeName)}`);
-                const data = await res.json();
-                // Could show results in a modal or highlight affected nodes
-                console.log('Impact analysis:', data);
-              } catch (e) {
-                console.error('Impact analysis failed:', e);
-              }
-            }},
-            { label: '📞 Find callers', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); }},
-            { label: '🔗 Copy node ID', action: () => { navigator.clipboard.writeText(contextMenu.nodeId); setContextMenu(null); }},
+            { label: 'Focus and expand', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); } },
+            { label: 'Analyze impact', action: () => { analyzeImpact(contextMenu.nodeId, contextMenu.nodeName); setContextMenu(null); } },
+            { label: 'Set as path source', action: () => { setPathMode({ source: contextMenu.nodeId }); setPathSourceId(contextMenu.nodeId); setContextMenu(null); } },
+            ...(pathMode.source && pathMode.source !== contextMenu.nodeId
+              ? [{ label: 'Find path from source', action: () => findPath(pathMode.source!, contextMenu.nodeId) }]
+              : []),
+            { label: 'Find callers', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); }},
+            { label: 'Copy node ID', action: () => { navigator.clipboard.writeText(contextMenu.nodeId); setContextMenu(null); }},
           ].map(item => (
             <button key={item.label} type="button" onClick={item.action}
               style={{
@@ -1746,6 +2365,27 @@ function App() {
             )}
           </div>
         </section>
+
+        {blastNodes.size > 0 && (
+          <div className="blast-banner">
+            <span>{Math.max(0, blastNodes.size - 1)} nodes affected by this node</span>
+            <button type="button" onClick={clearBlast}>Clear</button>
+          </div>
+        )}
+
+        {pathMode.source && pathNodes.size === 0 && (
+          <div className="path-banner">
+            <span>Path source set. Right-click a target node.</span>
+            <button type="button" onClick={clearPath}>Clear</button>
+          </div>
+        )}
+
+        {pathNodes.size > 0 && (
+          <div className="path-banner">
+            <span>{pathNodes.size} nodes on shortest path</span>
+            <button type="button" onClick={clearPath}>Clear</button>
+          </div>
+        )}
 
         {selectedNode ? (
           <>
@@ -1940,7 +2580,7 @@ function App() {
                     fontSize: '1.2rem',
                     fontWeight: '700'
                   }}>
-                    ▼
+                    â–¼
                   </span>
                 </div>
                 {showRelationships && (
@@ -2139,7 +2779,7 @@ function App() {
                   fontSize: '1.2rem',
                   fontWeight: '700'
                 }}>
-                  ▼
+                  â–¼
                 </span>
               </div>
 
@@ -2497,7 +3137,7 @@ function App() {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
           code-brain
         </span>
-        <span>{payload?.stats.nodeCount ?? 0} nodes · {payload?.stats.edgeCount ?? 0} edges</span>
+        <span>{payload?.stats.nodeCount ?? 0} nodes Â· {payload?.stats.edgeCount ?? 0} edges</span>
         {payload?.analytics?.health && (
           <span>Health: <strong style={{ color: (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) < 0.1 ? '#10b981' : '#f59e0b' }}>
             {(100 - (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) * 100).toFixed(0)}%
@@ -2505,7 +3145,7 @@ function App() {
         )}
         <span>View: <strong style={{ color: 'var(--accent)' }}>{viewMode}</strong></span>
         {lastUpdate && <span style={{ opacity: 0.7 }}>Updated: {lastUpdate}</span>}
-        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>⌘K for commands · Right-click nodes for actions</span>
+        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>âŒ˜K for commands Â· Right-click nodes for actions</span>
       </footer>
     </main>
   );

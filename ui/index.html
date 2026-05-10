@@ -6,6 +6,53 @@
     <title>code-brain graph</title>
   </head>
   <body>
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        var errDiv = document.createElement('div');
+        errDiv.style.position = 'fixed';
+        errDiv.style.top = '0';
+        errDiv.style.left = '0';
+        errDiv.style.zIndex = '999999';
+        errDiv.style.background = 'red';
+        errDiv.style.color = 'white';
+        errDiv.style.padding = '20px';
+        errDiv.style.whiteSpace = 'pre-wrap';
+        errDiv.style.width = '100vw';
+        errDiv.innerHTML = '<h2>Global Error</h2>' + msg + '<br/>' + (error && error.stack ? error.stack : '');
+        document.body.appendChild(errDiv);
+      };
+      window.addEventListener('unhandledrejection', function(event) {
+        var errDiv = document.createElement('div');
+        errDiv.style.position = 'fixed';
+        errDiv.style.top = '100px';
+        errDiv.style.left = '0';
+        errDiv.style.zIndex = '999999';
+        errDiv.style.background = 'orange';
+        errDiv.style.color = 'black';
+        errDiv.style.padding = '20px';
+        errDiv.style.whiteSpace = 'pre-wrap';
+        errDiv.style.width = '100vw';
+        errDiv.innerHTML = '<h2>Unhandled Rejection</h2>' + (event.reason && event.reason.stack ? event.reason.stack : event.reason);
+        document.body.appendChild(errDiv);
+      });
+      
+      const originalConsoleError = console.error;
+      console.error = function(...args) {
+        originalConsoleError.apply(console, args);
+        var errDiv = document.createElement('div');
+        errDiv.style.position = 'fixed';
+        errDiv.style.bottom = '0';
+        errDiv.style.left = '0';
+        errDiv.style.zIndex = '999999';
+        errDiv.style.background = 'darkred';
+        errDiv.style.color = 'white';
+        errDiv.style.padding = '20px';
+        errDiv.style.whiteSpace = 'pre-wrap';
+        errDiv.style.width = '100vw';
+        errDiv.innerHTML = '<h2>Console Error</h2>' + args.map(a => typeof a === 'object' && a ? (a.stack || JSON.stringify(a)) : String(a)).join(' ');
+        document.body.appendChild(errDiv);
+      };
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

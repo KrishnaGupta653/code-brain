@@ -1,15 +1,21 @@
 #!/bin/bash
 
 # Script to safely reset code-brain database
+# Works on macOS, Linux, and Windows (Git Bash/WSL)
 # Usage: ./reset-codebrain-db.sh [project-path]
 
+set -e  # Exit on error
+
 PROJECT_PATH="${1:-.}"
+# Normalize path for consistency
+PROJECT_PATH="$(cd "$PROJECT_PATH" 2>/dev/null && pwd || echo "$PROJECT_PATH")"
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║         Code-Brain Database Reset Utility                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Project: $PROJECT_PATH"
+echo "OS: $(uname -s)"
 echo ""
 
 # Check if .codebrain exists
@@ -38,17 +44,13 @@ fi
 # Remove old database
 echo ""
 echo "🗑️  Removing old database..."
-if rm -rf "$PROJECT_PATH/.codebrain"; then
-    echo "✓ Database removed"
-else
-    echo "✗ Failed to remove database"
-    exit 1
-fi
+rm -rf "$PROJECT_PATH/.codebrain"
+echo "✓ Database removed"
 
 # Re-initialize
 echo ""
 echo "🔧 Re-initializing..."
-if node dist/index.js init --path "$PROJECT_PATH" > /dev/null 2>&1; then
+if node dist/index.js init --path "$PROJECT_PATH"; then
     echo "✓ Initialized"
 else
     echo "✗ Initialization failed"

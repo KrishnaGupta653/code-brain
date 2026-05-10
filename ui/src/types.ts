@@ -68,6 +68,22 @@ export interface GraphPayload {
   };
 }
 
+export interface InvariantViolation {
+  nodeId?: string;
+  nodeName?: string;
+  message: string;
+}
+
+export interface InvariantsPayload {
+  healthScore?: number;
+  errors?: InvariantViolation[];
+  warnings?: InvariantViolation[];
+}
+
+export interface ImpactPayload {
+  results?: Array<GraphNode | { id?: string; nodeId?: string }>;
+}
+
 export interface NodeDetails extends GraphNode {
   relationSummary?: {
     outgoing: Record<string, number>;
