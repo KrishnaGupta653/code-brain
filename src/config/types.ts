@@ -88,7 +88,7 @@ export const DEFAULT_CONFIG: CodeBrainConfig = {
     '.env'
   ],
   languages: ['typescript', 'javascript', 'java', 'python', 'go', 'rust', 'csharp', 'c', 'cpp', 'ruby', 'php', 'kotlin', 'scala', 'elixir', 'haskell'],
-  enableAnalytics: false,
+  enableAnalytics: true,
   maxTokensExport: 8000,
   parserPlugins: []
 };

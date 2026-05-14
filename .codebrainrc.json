@@ -29,6 +29,6 @@
     "elixir",
     "haskell"
   ],
-  "enableAnalytics": false,
+  "enableAnalytics": true,
   "maxTokensExport": 8000
 }

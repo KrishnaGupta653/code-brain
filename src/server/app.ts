@@ -11,7 +11,7 @@ import { ImpactTracer } from "../retrieval/impact-tracer.js";
 import { PatternQueryEngine } from "../retrieval/pattern-query.js";
 import { InvariantDetector } from "../graph/invariants.js";
 import { ContextAssembler } from "../retrieval/context-assembler.js";
-import { logger, getDbPath, stableId } from "../utils/index.js";
+import { logger, getDbPath, stableId, normalizeProjectRoot } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
 import { GraphEdge, GraphNode, RankingScore, SourceSpan } from "../types/models.js";
 
@@ -296,6 +296,115 @@ function findCycles(
   return cycles;
 }
 
+type SecuritySeverity = "high" | "medium" | "low";
+
+interface SecurityIssue {
+  id: string;
+  title: string;
+  severity: SecuritySeverity;
+  path: string;
+  line: number;
+  snippet: string;
+  description: string;
+  suggestion: string;
+}
+
+const SECURITY_PATTERNS: Array<{
+  title: string;
+  severity: SecuritySeverity;
+  pattern: RegExp;
+  description: string;
+  suggestion: string;
+}> = [
+  {
+    title: "Possible hardcoded secret",
+    severity: "high",
+    pattern: /\b(?:api[_-]?key|secret|token|password|private[_-]?key)\b\s*[:=]\s*["'][^"'\n]{12,}["']/i,
+    description: "A credential-like value appears to be assigned directly in source.",
+    suggestion: "Move secrets to environment variables or a secret manager and rotate exposed values.",
+  },
+  {
+    title: "Dynamic code execution",
+    severity: "high",
+    pattern: /\b(?:eval|Function)\s*\(/,
+    description: "Dynamic execution can run attacker-controlled input.",
+    suggestion: "Replace dynamic execution with a parser, lookup table, or explicit command dispatch.",
+  },
+  {
+    title: "Raw HTML assignment",
+    severity: "medium",
+    pattern: /\.innerHTML\s*=|dangerouslySetInnerHTML/,
+    description: "Raw HTML insertion can introduce cross-site scripting when content is not trusted.",
+    suggestion: "Use text content, React escaping, or a vetted sanitizer for trusted HTML fragments.",
+  },
+  {
+    title: "Likely SQL string concatenation",
+    severity: "medium",
+    pattern: /\b(?:SELECT|INSERT|UPDATE|DELETE)\b[\s\S]{0,80}(?:\+|\$\{)/i,
+    description: "SQL assembled through string interpolation can bypass parameterization.",
+    suggestion: "Use prepared statements or query builder parameters for all external values.",
+  },
+  {
+    title: "Debugger statement",
+    severity: "low",
+    pattern: /\bdebugger\b/,
+    description: "Debugger statements can pause production execution and leak inspection context.",
+    suggestion: "Remove debugger statements before shipping.",
+  },
+];
+
+function scanSecurityIssues(
+  projectRoot: string,
+  graph: ReturnType<SQLiteStorage["loadGraph"]>,
+): SecurityIssue[] {
+  const sourceFiles = new Set<string>();
+  graph.getNodes().forEach((node) => {
+    const file = node.location?.file;
+    if (file && isInsideRoot(projectRoot, file)) {
+      sourceFiles.add(file);
+    }
+  });
+
+  const issues: SecurityIssue[] = [];
+  for (const file of sourceFiles) {
+    if (!fs.existsSync(file)) continue;
+    const ext = path.extname(file).toLowerCase();
+    if ([".png", ".jpg", ".jpeg", ".gif", ".ico", ".db", ".wasm"].includes(ext)) continue;
+
+    let text = "";
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+
+    text.split(/\r?\n/).forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) return;
+      SECURITY_PATTERNS.forEach((check) => {
+        if (!check.pattern.test(trimmed)) return;
+        issues.push({
+          id: stableId("security", file, String(index + 1), check.title, trimmed),
+          title: check.title,
+          severity: check.severity,
+          path: file,
+          line: index + 1,
+          snippet: trimmed.slice(0, 220),
+          description: check.description,
+          suggestion: check.suggestion,
+        });
+      });
+    });
+  }
+
+  const severityRank: Record<SecuritySeverity, number> = { high: 3, medium: 2, low: 1 };
+  return issues.sort((a, b) =>
+    severityRank[b.severity] - severityRank[a.severity] ||
+    a.path.localeCompare(b.path) ||
+    a.line - b.line,
+  );
+}
+
 export async function createGraphServer(
   projectRoot: string,
   port: number = 3000,
@@ -350,14 +459,15 @@ export async function createGraphServer(
   logger.info(`UI dist exists: ${fs.existsSync(uiDist)}`);
   app.use(express.static(staticDir));
 
+  const resolvedProjectRoot = normalizeProjectRoot(projectRoot);
   logger.info(`Server starting for projectRoot: ${projectRoot}`);
-  logger.info(`Resolved to: ${path.resolve(projectRoot)}`);
+  logger.info(`Resolved to: ${resolvedProjectRoot}`);
 
-  const storage = new SQLiteStorage(getDbPath(projectRoot));
+  const storage = new SQLiteStorage(getDbPath(resolvedProjectRoot));
   
   // Use lazy loading for large projects (> 5000 nodes)
   // This prevents OOM errors and speeds up server startup
-  const projectId = stableId('project', path.resolve(projectRoot));
+  const projectId = storage.getProjectId(resolvedProjectRoot);
   const nodeCountResult = storage['db'].prepare('SELECT COUNT(*) as count FROM nodes WHERE project_id = ?').get(projectId) as { count: number } | undefined;
   const nodeCount = nodeCountResult?.count ?? 0;
   const useLazyLoading = nodeCount > 5000;
@@ -365,16 +475,16 @@ export async function createGraphServer(
   let graph: ReturnType<typeof storage.loadGraph>;
   if (useLazyLoading) {
     logger.info(`Large project detected (${nodeCount} nodes), using lazy loading (level 0)`);
-    graph = storage.loadGraphLevel(projectRoot, 0);
+    graph = storage.loadGraphLevel(resolvedProjectRoot, 0);
   } else {
     logger.info(`Loading full graph (${nodeCount} nodes)`);
-    graph = storage.loadGraph(projectRoot);
+    graph = storage.loadGraph(resolvedProjectRoot);
   }
   
-  const queryEngine = new QueryEngine(graph, storage, projectRoot);
+  const queryEngine = new QueryEngine(graph, storage, resolvedProjectRoot);
   const graphStats = graph.getStats();
   const analytics = computeAnalytics(graph);
-  let rankingScores = storage.getRankingScores(projectRoot);
+  let rankingScores = storage.getRankingScores(resolvedProjectRoot);
   if (rankingScores.length === 0) {
     rankingScores = Object.entries(analytics.importance).map(([nodeId, score]) => ({
       nodeId,
@@ -384,7 +494,7 @@ export async function createGraphServer(
         centrality: Number(analytics.centrality[nodeId] || 0),
       },
     }));
-    storage.saveRankingScores(projectRoot, rankingScores);
+    storage.saveRankingScores(resolvedProjectRoot, rankingScores);
   }
   const rankingByNode = new Map(rankingScores.map((score) => [score.nodeId, score]));
 
@@ -404,7 +514,7 @@ export async function createGraphServer(
     }
     
     try {
-      const nodes = storage.loadNodesByNamespace(projectRoot, ns);
+      const nodes = storage.loadNodesByNamespace(resolvedProjectRoot, ns);
       res.json({
         namespace: ns,
         count: nodes.length,
@@ -786,9 +896,9 @@ export async function createGraphServer(
     if (node.location?.file) {
       const resolvedFile = path.isAbsolute(node.location.file)
         ? path.resolve(node.location.file)
-        : path.resolve(projectRoot, node.location.file);
-      
-      if (!isInsideRoot(projectRoot, resolvedFile)) {
+        : path.resolve(resolvedProjectRoot, node.location.file);
+
+      if (!isInsideRoot(resolvedProjectRoot, resolvedFile)) {
         res.status(403).json({ error: "Source file must be inside project root" });
         return;
       }
@@ -891,8 +1001,8 @@ export async function createGraphServer(
 
     const resolvedFile = path.isAbsolute(file)
       ? path.resolve(file)
-      : path.resolve(projectRoot, file);
-    if (!isInsideRoot(projectRoot, resolvedFile)) {
+      : path.resolve(resolvedProjectRoot, file);
+    if (!isInsideRoot(resolvedProjectRoot, resolvedFile)) {
       res.status(403).json({ error: "Source file must be inside project root" });
       return;
     }
@@ -915,7 +1025,7 @@ export async function createGraphServer(
 
     res.json({
       file: resolvedFile,
-      relativeFile: path.relative(projectRoot, resolvedFile),
+      relativeFile: path.relative(resolvedProjectRoot, resolvedFile),
       startLine,
       endLine,
       requestedStartLine: requestedStart,
@@ -1117,6 +1227,24 @@ export async function createGraphServer(
         .map(n => ({ id: n.id, name: n.name, type: n.type, file: n.location?.file, importance: n.importance }))
         .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
       res.json({ total: bridgeNodes.length, nodes: bridgeNodes });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Security signal endpoint: lightweight static checks inspired by CodeFlow's browser scanner.
+  app.get('/api/analyze/security', (_req, res) => {
+    try {
+      const issues = scanSecurityIssues(resolvedProjectRoot, graph);
+      const bySeverity = issues.reduce<Record<string, number>>((acc, issue) => {
+        acc[issue.severity] = (acc[issue.severity] || 0) + 1;
+        return acc;
+      }, {});
+      res.json({
+        total: issues.length,
+        bySeverity,
+        issues: issues.slice(0, 100),
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

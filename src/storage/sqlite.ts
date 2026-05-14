@@ -13,7 +13,7 @@ import {
   GraphNode,
 } from "../types/models.js";
 import { SCHEMA } from "./schema.js";
-import { logger, StorageError, stableId } from "../utils/index.js";
+import { logger, normalizeProjectRoot, StorageError, stableId } from "../utils/index.js";
 import { createGraphNode, createGraphEdge } from "../graph/index.js";
 import { GraphModel } from "../graph/index.js";
 import { runMigrations } from "./migrations.js";
@@ -21,6 +21,18 @@ import { runMigrations } from "./migrations.js";
 interface StoredFileHash {
   path: string;
   hash: string;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+  root: string;
+  language: string;
+  version: string;
+  description: string;
+  entry_points: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export class SQLiteStorage {
@@ -142,23 +154,39 @@ export class SQLiteStorage {
   }
 
   getProjectId(projectRoot: string): string {
-    // Normalize to absolute path to ensure consistent projectId
-    const absolutePath = path.resolve(projectRoot);
-    return stableId("project", absolutePath);
+    const normalizedRoot = normalizeProjectRoot(projectRoot);
+    const existing = this.findProjectRow(normalizedRoot);
+    return existing?.id ?? stableId("project", normalizedRoot);
+  }
+
+  private findProjectRow(projectRoot: string): ProjectRow | undefined {
+    const normalizedRoot = normalizeProjectRoot(projectRoot);
+    const exact = this.db
+      .prepare("SELECT * FROM projects WHERE root = ?")
+      .get(normalizedRoot) as ProjectRow | undefined;
+
+    if (exact || process.platform !== "win32") {
+      return exact;
+    }
+
+    return this.db
+      .prepare("SELECT * FROM projects WHERE lower(root) = lower(?) ORDER BY updated_at DESC LIMIT 1")
+      .get(normalizedRoot) as ProjectRow | undefined;
   }
 
   saveProject(metadata: ProjectMetadata): string {
     try {
-      // Normalize to absolute path for consistency
-      const absoluteRoot = path.resolve(metadata.root);
-      const projectId = this.getProjectId(absoluteRoot);
+      const normalizedRoot = normalizeProjectRoot(metadata.root);
+      const existing = this.findProjectRow(normalizedRoot);
+      const projectId = existing?.id ?? stableId("project", normalizedRoot);
       const now = Date.now();
       const stmt = this.db.prepare(`
         INSERT INTO projects
         (id, name, root, language, version, description, entry_points, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(root) DO UPDATE SET
+        ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
+          root = excluded.root,
           language = excluded.language,
           version = excluded.version,
           description = excluded.description,
@@ -169,12 +197,12 @@ export class SQLiteStorage {
       stmt.run(
         projectId,
         metadata.name,
-        absoluteRoot,
+        normalizedRoot,
         metadata.language,
         metadata.version || "",
         metadata.description || "",
         metadata.entryPoints ? JSON.stringify(metadata.entryPoints) : "[]",
-        metadata.createdAt || now,
+        existing?.created_at || metadata.createdAt || now,
         metadata.updatedAt || now,
       );
 
@@ -186,23 +214,7 @@ export class SQLiteStorage {
 
   getProject(projectRoot: string): ProjectMetadata | null {
     try {
-      // Normalize to absolute path for consistency
-      const absoluteRoot = path.resolve(projectRoot);
-      const row = this.db
-        .prepare("SELECT * FROM projects WHERE root = ?")
-        .get(absoluteRoot) as
-        | {
-            name: string;
-            root: string;
-            language: string;
-            version: string;
-            description: string;
-            entry_points: string;
-            created_at: number;
-            updated_at: number;
-            id: string;
-          }
-        | undefined;
+      const row = this.findProjectRow(projectRoot);
 
       if (!row) return null;
 

@@ -12,6 +12,7 @@ export {
   getProjectRoot,
   getCodeBrainDir,
   getDbPath,
+  normalizeProjectRoot,
   getPythonDir,
   getPythonScript,
   normalizePath,

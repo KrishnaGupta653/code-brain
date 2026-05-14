@@ -5,16 +5,15 @@
  * and micro-animations that make the interface feel polished.
  */
 
-/* Smooth scrolling */
-.live-node-inspector,
-.live-node-inspector * {
+/* Smooth scrolling - but NOT on all children (causes micro-reflow storms on hover) */
+.live-node-inspector {
   scroll-behavior: smooth;
 }
 
-/* Smooth transitions for all interactive elements */
-.live-node-inspector * {
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* NOTE: Removed global transition-timing-function from * selector.
+   This was applying animations to EVERY property change,
+   causing expensive reflow storms on hover/interaction.
+   Individual elements can opt-in to specific transitions as needed. */
 
 /* Custom scrollbar for dark theme */
 .live-node-inspector ::-webkit-scrollbar,
@@ -48,9 +47,9 @@
   scrollbar-color: rgba(107, 114, 128, 0.5) rgba(17, 24, 39, 0.5);
 }
 
-/* Backdrop blur for modal overlay */
+/* Modal overlay - removed backdrop-filter for stability */
 .live-node-inspector-overlay {
-  backdrop-filter: blur(8px);
+  background: rgba(10, 14, 23, 0.7);
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -86,7 +85,7 @@
 }
 
 .relationship-item::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   top: 0;
@@ -106,7 +105,8 @@
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -116,7 +116,7 @@
 
 /* Code block syntax highlighting (basic) */
 .code-preview {
-  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-family: "Fira Code", "Consolas", "Monaco", monospace;
   font-size: 13px;
   line-height: 1.6;
   tab-size: 2;
@@ -186,7 +186,7 @@
 }
 
 .badge-shimmer::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
@@ -319,7 +319,7 @@
     border-radius: 0;
     max-height: 100vh;
   }
-  
+
   .action-group {
     flex-direction: column;
   }
@@ -330,12 +330,12 @@
   .live-node-inspector-overlay {
     background: white;
   }
-  
+
   .live-node-inspector-modal {
     box-shadow: none;
     border: 1px solid #000;
   }
-  
+
   button {
     display: none;
   }
@@ -346,7 +346,7 @@
   .live-node-inspector {
     border-width: 2px;
   }
-  
+
   .relationship-item {
     border-width: 2px;
   }

@@ -14,8 +14,7 @@ import { PatternQueryEngine } from '../retrieval/pattern-query.js';
 import { InvariantDetector } from '../graph/invariants.js';
 import { ContextAssembler } from '../retrieval/context-assembler.js';
 import { QueryResult } from '../types/models.js';
-import { logger } from '../utils/index.js';
-import path from 'path';
+import { getDbPath, logger, normalizeProjectRoot } from '../utils/index.js';
 
 // Zod schemas for tool inputs
 const GetGraphExportSchema = z.object({
@@ -385,53 +384,61 @@ export class CodeBrainMCPServer {
   }
 
   private async initStorage(projectPath: string): Promise<SQLiteStorage> {
+    const normalizedProjectPath = normalizeProjectRoot(projectPath);
+
     // Check cache first
-    const cached = this.storageCache.get(projectPath);
+    const cached = this.storageCache.get(normalizedProjectPath);
     if (cached) {
       return cached;
     }
 
     // Create new storage instance
-    this.projectRoot = projectPath;
-    const dbPath = path.join(projectPath, '.codebrain', 'graph.db');
+    this.projectRoot = normalizedProjectPath;
+    const dbPath = getDbPath(normalizedProjectPath);
     const storage = new SQLiteStorage(dbPath);
     
     // Cache it
-    this.storageCache.set(projectPath, storage);
+    this.storageCache.set(normalizedProjectPath, storage);
     
     return storage;
   }
 
   // Get cached graph or load from storage
   private getCachedGraph(projectPath: string, storage: SQLiteStorage): any {
-    const state = storage.getIndexState(projectPath);
+    const normalizedProjectPath = normalizeProjectRoot(projectPath);
+    const state = storage.getIndexState(normalizedProjectPath);
     const lastIndexedAt = state?.lastIndexedAt ?? 0;
-    const cacheKey = `${projectPath}:${lastIndexedAt}`;
+    const cacheKey = `${normalizedProjectPath}:${lastIndexedAt}`;
     
     const cached = this.graphCache.get(cacheKey);
     if (cached && Date.now() - cached.loadedAt < this.GRAPH_CACHE_TTL) {
-      logger.debug(`Using cached graph for ${projectPath} (indexed at ${lastIndexedAt})`);
+      logger.debug(`Using cached graph for ${normalizedProjectPath} (indexed at ${lastIndexedAt})`);
       return cached.graph;
     }
 
     // Evict all stale entries for this project path
     for (const key of this.graphCache.keys()) {
-      if (key.startsWith(projectPath + ':')) {
+      if (key.startsWith(normalizedProjectPath + ':')) {
         this.graphCache.delete(key);
       }
     }
 
-    logger.debug(`Loading graph from storage for ${projectPath}`);
-    const graph = storage.loadGraph(projectPath);
+    logger.debug(`Loading graph from storage for ${normalizedProjectPath}`);
+    const graph = storage.loadGraph(normalizedProjectPath);
     this.graphCache.set(cacheKey, { graph, loadedAt: Date.now() });
     return graph;
   }
 
   // Invalidate cache when graph is updated
   private invalidateCache(projectPath: string): void {
-    this.storageCache.delete(projectPath);
-    this.graphCache.delete(projectPath);
-    logger.debug(`Invalidated cache for ${projectPath}`);
+    const normalizedProjectPath = normalizeProjectRoot(projectPath);
+    this.storageCache.delete(normalizedProjectPath);
+    for (const key of this.graphCache.keys()) {
+      if (key.startsWith(normalizedProjectPath + ':')) {
+        this.graphCache.delete(key);
+      }
+    }
+    logger.debug(`Invalidated cache for ${normalizedProjectPath}`);
   }
 
   private async handleGetGraphExport(args: unknown) {

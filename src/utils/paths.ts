@@ -9,11 +9,24 @@ export function getProjectRoot(): string {
   return path.resolve(__dirname, '../../');
 }
 
+export function normalizeProjectRoot(projectRoot: string): string {
+  const resolved = path.resolve(projectRoot);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    try {
+      return fs.realpathSync(resolved);
+    } catch {
+      return path.normalize(resolved);
+    }
+  }
+}
+
 export function getCodeBrainDir(projectRoot: string, customDbPath?: string): string {
   if (customDbPath) {
     return path.dirname(customDbPath);
   }
-  return path.join(projectRoot, '.codebrain');
+  return path.join(normalizeProjectRoot(projectRoot), '.codebrain');
 }
 
 export function getDbPath(projectRoot: string, customDbPath?: string): string {
@@ -21,9 +34,11 @@ export function getDbPath(projectRoot: string, customDbPath?: string): string {
     // If custom path is provided, use it
     return customDbPath;
   }
+
+  const normalizedRoot = normalizeProjectRoot(projectRoot);
   
   // Check if .codebrainrc.json exists in project directory and has a dbPath
-  const configPath = path.join(projectRoot, '.codebrainrc.json');
+  const configPath = path.join(normalizedRoot, '.codebrainrc.json');
   if (fs.existsSync(configPath)) {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -36,7 +51,7 @@ export function getDbPath(projectRoot: string, customDbPath?: string): string {
   }
   
   // Check fallback config location (next to default db location)
-  const defaultDbPath = path.join(projectRoot, '.codebrain', 'graph.db');
+  const defaultDbPath = path.join(normalizedRoot, '.codebrain', 'graph.db');
   const fallbackConfigPath = path.join(path.dirname(defaultDbPath), 'config.json');
   if (fs.existsSync(fallbackConfigPath)) {
     try {

@@ -64,12 +64,15 @@ export function GraphMinimap({
             y: (y - minY) * scale + padding,
         });
 
+        // PERFORMANCE FIX: Create node lookup map to avoid O(n²) lookups in edge rendering
+        const nodeMap = new Map(payload.nodes.map(n => [n.id, n]));
+
         // Draw edges (simplified)
         ctx.strokeStyle = "rgba(100, 116, 139, 0.3)";
         ctx.lineWidth = 0.5;
         payload.edges.slice(0, 500).forEach((edge) => {
-            const fromNode = payload.nodes.find((n) => n.id === edge.from);
-            const toNode = payload.nodes.find((n) => n.id === edge.to);
+            const fromNode = nodeMap.get(edge.from);
+            const toNode = nodeMap.get(edge.to);
             if (!fromNode || !toNode) return;
 
             const from = transform((fromNode.metadata?.x as number) || 0, (fromNode.metadata?.y as number) || 0);
