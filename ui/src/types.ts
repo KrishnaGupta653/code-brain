@@ -1,3 +1,7 @@
+export type ViewMode = 'type' | 'importance' | 'dead' | 'bridge' | 'folder' | 'layer' | 'churn';
+export type LayoutMode = 'force' | 'radial' | 'hierarchical' | 'grid';
+export type VizType = 'vector' | 'graph' | 'vein' | 'treemap' | 'matrix' | 'tree' | 'flow' | 'cluster' | 'bundle' | 'symbols';
+
 export interface SourceSpan {
   file: string;
   startLine: number;
@@ -65,6 +69,8 @@ export interface GraphPayload {
       nodeIds: string[];
       size: number;
     }>;
+    /** Circular dependency chains detected by the builder */
+    cycles?: string[][];
   };
 }
 

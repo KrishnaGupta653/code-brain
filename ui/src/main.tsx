@@ -13,16 +13,20 @@ import {
   CheckCircle2,
   CircleDot,
   Code2,
+  Columns,
   Download,
   ExternalLink,
   FileSearch,
   Filter,
+  Folder,
   GitBranch,
   GitCompare,
   Keyboard,
   LocateFixed,
   Maximize2,
+  Layers,
   Network,
+  Palette,
   Pin,
   Route,
   Search,
@@ -37,7 +41,13 @@ import {
   GraphPayload,
   NodeDetails,
   SourcePayload,
+  ViewMode,
+  LayoutMode,
+  VizType,
 } from "./types";
+import { github } from "./lib/github-api";
+import { GraphToolbar } from "./components/GraphToolbar";
+import { GraphLegend } from "./components/GraphLegend";
 // @ts-ignore - CSS side-effect import is handled by the bundler
 import "./styles.css";
 
@@ -71,7 +81,7 @@ interface EdgeAttributes {
   hidden?: boolean;
 }
 
-const NODE_COLORS: Record<string, string> = {
+export const NODE_COLORS: Record<string, string> = {
   project: "#f5c542",
   file: "#4cc9f0",
   module: "#8bd3ff",
@@ -107,9 +117,7 @@ const EDGE_COLORS: Record<string, string> = {
   ENTRY_POINT: "#facc15",
 };
 
-type ViewMode = 'type' | 'importance' | 'dead' | 'bridge' | 'folder' | 'layer';
-type LayoutMode = 'force' | 'radial' | 'hierarchical' | 'grid';
-type VizType = 'vector' | 'graph' | 'treemap' | 'matrix' | 'tree' | 'flow' | 'cluster' | 'bundle' | 'symbols';
+// Exported from types.ts
 
 const FOLDER_PALETTE = [
   '#4d9fff',
@@ -166,7 +174,7 @@ function pathParts(file?: string): string[] {
  * Only uses node.name when it contains a path separator — bare module names like "path"
  * or "fs" are not paths and should fall through to the absolute-path heuristic.
  */
-function topFolder(fileOrNode?: string | Pick<GraphNode, 'file' | 'location' | 'type' | 'fullName' | 'name'>): string {
+export function topFolder(fileOrNode?: string | Pick<GraphNode, 'file' | 'location' | 'type' | 'fullName' | 'name'>): string {
   if (fileOrNode && typeof fileOrNode !== 'string') {
     const name = fileOrNode.name || '';
     // Only use node.name as path if it has a directory separator (is a relative file path)
@@ -185,7 +193,7 @@ function topFolder(fileOrNode?: string | Pick<GraphNode, 'file' | 'location' | '
   return parts[0] ?? 'root';
 }
 
-function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode): string {
+function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode, churnData?: Record<string, { changes: number; authors: number; hotspot: boolean }> | null): string {
   if (viewMode === 'importance') {
     const importance = (nodeData as any).importance ?? nodeData.rank?.score ?? 0;
     const red = Math.round(255 * Math.min(1, importance * 2));
@@ -209,6 +217,19 @@ function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode): string {
   if (viewMode === 'layer') {
     const layer = pathParts(nodeFilePath(nodeData)).map((part) => part.toLowerCase()).find((part) => LAYER_MAP[part]);
     return layer ? LAYER_MAP[layer] : '#64748b';
+  }
+
+  if (viewMode === 'churn') {
+    if (!churnData) return '#94a3b8'; // Default loading color
+    const file = nodeFilePath(nodeData);
+    const stats = churnData[file];
+    if (!stats) return 'rgba(71,85,105,0.3)'; // Untouched file
+    if (stats.hotspot) return '#ef4444'; // Red for hotspots
+    // Heatmap from cold blue to warm orange
+    if (stats.changes === 0) return '#3b82f6';
+    if (stats.changes < 3) return '#06b6d4';
+    if (stats.changes < 8) return '#eab308';
+    return '#f97316';
   }
 
   return NODE_COLORS[nodeData.type] ?? '#94a3b8';
@@ -340,7 +361,7 @@ function truncateMiddle(value: string, maxLength = 18): string {
   return `${value.slice(0, keep)}...${value.slice(-keep)}`;
 }
 
-function folderColor(folder: string, opacity = 1): string {
+export function folderColor(folder: string, opacity = 1): string {
   const color = FOLDER_PALETTE[stableNumber(folder) % FOLDER_PALETTE.length];
   return opacity >= 1 ? color : hexToRgba(color, opacity);
 }
@@ -351,6 +372,32 @@ function folderLabel(node: GraphNode): string {
   const parts = relativeParts.length > 0 ? relativeParts : pathParts(nodeFilePath(node));
   if (parts.length <= 1) return 'root';
   return parts.slice(0, Math.min(3, parts.length - 1)).join('/');
+}
+
+function flowGroupLabel(node: GraphNode): string {
+  const relativeNameParts = node.name && /[\\/]/.test(node.name) ? pathParts(node.name) : [];
+  const fullNameParts = node.fullName && /[\\/]/.test(node.fullName) ? pathParts(node.fullName) : [];
+  const rawParts = relativeNameParts.length > 1
+    ? relativeNameParts
+    : fullNameParts.length > 1
+      ? fullNameParts
+      : pathParts(nodeFilePath(node));
+  const projectMarkers = ['src', 'ui', 'lib', 'app', 'packages', 'dist', 'tests', 'test-languages', 'python', 'vscode-extension'];
+  const markerIndex = rawParts.findIndex((part) => projectMarkers.includes(part.toLowerCase()));
+  const parts = markerIndex >= 0 ? rawParts.slice(markerIndex) : rawParts;
+
+  if (parts.length === 0) return topFolder(node);
+  if (parts.length === 1) return parts[0];
+
+  const [first, second] = parts;
+  if (!second || /\.[A-Za-z0-9]+$/.test(second)) return first;
+
+  const third = parts[2];
+  if (first === 'ui' && second === 'src' && third && !/\.[A-Za-z0-9]+$/.test(third)) {
+    return `${first}/${second}/${third}`;
+  }
+
+  return `${first}/${second}`;
 }
 
 function fileWeight(node: GraphNode): number {
@@ -631,7 +678,7 @@ function useGraphData() {
     }
   };
 
-  return { payload, error, level, expandCommunity, lastUpdate };
+  return { payload, setPayload, error, level, expandCommunity, lastUpdate };
 }
 
 function GraphStage({
@@ -657,6 +704,9 @@ function GraphStage({
   onClearPath,
   onContextMenu,
   searchQuery,
+  churnData,
+  showSidebars,
+  setShowSidebars,
 }: {
   payload: GraphPayload;
   selectedId: string | null;
@@ -680,13 +730,22 @@ function GraphStage({
   onClearPath: () => void;
   onContextMenu: (x: number, y: number, nodeId: string, nodeName: string) => void;
   searchQuery: string;
+  churnData?: Record<string, { changes: number; authors: number; hotspot: boolean }> | null;
+  showSidebars?: boolean;
+  setShowSidebars?: (show: boolean) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const d3StageRef = useRef<HTMLDivElement | null>(null);
+  const d3ZoomRef = useRef<any>(null);
+  const d3SvgRef = useRef<any>(null);
+  const d3NodesRef = useRef<any[]>([]);
   const treemapRef = useRef<HTMLDivElement | null>(null);
   const miniMapRef = useRef<HTMLCanvasElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<any>(null);
+  const graphInstanceRef = useRef(0);
+  const lastAppliedLayoutRef = useRef<LayoutMode | null>(null);
+  const refreshRafRef = useRef<number | null>(null);
   const prevNodeCount = useRef(0);
   const rotationRef = useRef({ x: -0.18, y: 0.42 });
   const dragRef = useRef<{
@@ -755,10 +814,38 @@ function GraphStage({
   useEffect(() => {
     if (!containerRef.current || (vizType !== 'symbols' && vizType !== 'vector')) return;
 
+    const instanceId = graphInstanceRef.current + 1;
+    graphInstanceRef.current = instanceId;
+    let cancelled = false;
+
+    const scheduleSigmaRefresh = () => {
+      if (refreshRafRef.current !== null) return;
+      refreshRafRef.current = requestAnimationFrame(() => {
+        refreshRafRef.current = null;
+        if (!cancelled && graphInstanceRef.current === instanceId) {
+          sigmaRef.current?.refresh();
+        }
+      });
+    };
+
     const graph: any = new Graph({ multi: true, type: "directed" });
     const radius = Math.max(12, Math.sqrt(visualPayload.nodes.length) * 3.5);
     const communityCount = Math.max(1, visualPayload.analytics?.communities?.length || 1);
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const importantNodeIds = new Set(
+      [...visualPayload.nodes]
+        .sort((a, b) =>
+          ((b.rank?.score ?? 0) - (a.rank?.score ?? 0)) ||
+          ((b.degree ?? 0) - (a.degree ?? 0)),
+        )
+        .slice(0, Math.min(28, Math.max(10, Math.floor(visualPayload.nodes.length * 0.05))))
+        .map((node) => node.id),
+    );
+    const displayLabelFor = (node: GraphNode): string => {
+      if (node.type === 'file') return truncateMiddle(relativeLabel(node.fullName || node.file || node.name), 24);
+      if (node.type === 'module' && String(node.metadata?.external) === 'true') return truncateMiddle(node.name, 20);
+      return truncateMiddle(node.name, 24);
+    };
 
     visualPayload.nodes.forEach((node, index) => {
       const fileSeed = nodeFilePath(node) || node.type;
@@ -771,10 +858,10 @@ function GraphStage({
       const rankScore = node.rank?.score ?? 0;
       const depthAngle = localAngle * 1.7 + communityAngle;
       const baseSize = nodeSize(node);
-      const baseColor = colorForViewMode(node, viewMode);
+      const baseColor = colorForViewMode(node, viewMode, churnData);
       graph.addNode(node.id, {
         type: "circle",
-        label: node.name,
+        label: displayLabelFor(node),
         x: Math.cos(communityAngle) * communityRadius + Math.cos(localAngle) * localRadius,
         y: Math.sin(communityAngle) * communityRadius + Math.sin(localAngle) * localRadius,
         z: Math.sin(depthAngle) * radius * (0.65 + rankScore * 0.8),
@@ -785,6 +872,8 @@ function GraphStage({
         semanticType: node.type,
         community,
         rankScore,
+        forceLabel: node.type === 'project' || importantNodeIds.has(node.id),
+        labelPriority: importantNodeIds.has(node.id) ? 1 : 0,
       });
     });
 
@@ -792,9 +881,12 @@ function GraphStage({
       if (graph.hasNode(edge.from) && graph.hasNode(edge.to) && !graph.hasEdge(edge.id)) {
         graph.addDirectedEdgeWithKey(edge.id, edge.from, edge.to, {
           label: edge.type,
-          size: edge.resolved ? 1.2 : 0.8,
-          color: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
+          size: edge.resolved ? 0.8 : 0.55,
+          color: edge.resolved
+            ? hexToRgba(EDGE_COLORS[edge.type] || "#64748b", 0.34)
+            : "rgba(245, 158, 11, 0.42)",
           baseColor: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
+          baseSize: edge.resolved ? 0.8 : 0.55,
           weight: edgeWeight(edge.type, edge.resolved),
           type: "arrow",
         });
@@ -812,40 +904,51 @@ function GraphStage({
     const isExpansion = prevNodeCount.current > 0 && graph.order > prevNodeCount.current;
     prevNodeCount.current = graph.order;
 
-    // Community-seeded ForceAtlas2: fast, stable, and readable for architecture maps.
-    // For very large graphs we keep the seeded LOD layout and let cluster expansion refine locally.
-    // Use setTimeout to make layout non-blocking (prevents UI freeze)
+    // Community-seeded ForceAtlas2 with MessageChannel chunked rendering.
+    // MessageChannel is a browser-native microtask queue — it yields between
+    // every chunk, allowing the browser to paint and keep the UI responsive.
     if (graph.order > 2 && graph.order < 1800) {
       const inferred = forceAtlas2.inferSettings(graph);
-      const iterations = isExpansion
+      const totalIterations = isExpansion
         ? Math.min(80, graph.order)
         : Math.min(260, Math.max(70, graph.order * 2.4));
-      
-      // Run layout in chunks to avoid blocking the main thread
-      setTimeout(() => {
-        forceAtlas2.assign(graph, {
-          iterations,
-          settings: {
-            ...inferred,
-            gravity: 0.05,
-            scalingRatio: graph.order > 600 ? 28 : 18,
-            strongGravityMode: false,
-            adjustSizes: true,
-            barnesHutOptimize: graph.order > 250,
-            edgeWeightInfluence: 0.6,
-            slowDown: 3.2,
-          },
-        });
-        
-        // Snapshot final positions as base after layout completes.
+      const chunkSize = graph.order > 600 ? 20 : 40;
+      const fa2Settings = {
+        ...inferred,
+        gravity: vizType === 'vector' ? 0.035 : 0.05,
+        scalingRatio: graph.order > 600 ? (vizType === 'vector' ? 40 : 28) : (vizType === 'vector' ? 26 : 18),
+        strongGravityMode: false,
+        adjustSizes: true,
+        barnesHutOptimize: graph.order > 250,
+        edgeWeightInfluence: vizType === 'vector' ? 0.38 : 0.6,
+        slowDown: vizType === 'vector' ? 4.2 : 3.2,
+      };
+
+      // Yield between chunks via MessageChannel (more reliable than setTimeout(0))
+      const yieldToMain = () => new Promise<void>(resolve => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => resolve();
+        channel.port2.postMessage(null);
+      });
+
+      (async () => {
+        let remaining = totalIterations;
+        while (remaining > 0) {
+          if (cancelled || graphInstanceRef.current !== instanceId) return;
+          const batch = Math.min(chunkSize, remaining);
+          forceAtlas2.assign(graph, { iterations: batch, settings: fa2Settings });
+          remaining -= batch;
+          scheduleSigmaRefresh();
+          await yieldToMain();
+        }
+        if (cancelled || graphInstanceRef.current !== instanceId) return;
+        // Final snapshot and render once layout has converged
         snapshotBasePositions();
-        
-        // Refresh sigma to show updated positions
-        if (sigmaRef.current) {
-          sigmaRef.current.refresh();
+        if (sigmaRef.current && graphRef.current === graph) {
+          scheduleSigmaRefresh();
           projectSphere();
         }
-      }, 0);
+      })();
     } else if (graph.order >= 1800) {
       console.info(`Large graph detected (${graph.order} nodes), using optimized layout`);
       snapshotBasePositions();
@@ -859,30 +962,32 @@ function GraphStage({
       defaultEdgeType: "arrow",
       labelColor: { color: "#dbeafe" },
       labelSize: 11,
-      labelWeight: "500",
-      labelDensity: 0.008,            // Reduced from 0.04 - show only important nodes
-      labelGridCellSize: 240,         // Increased from 120 - more space between labels
-      labelRenderedSizeThreshold: 16,
+      labelWeight: "650",
+      labelDensity: vizType === 'vector' ? 0.004 : 0.008,
+      labelGridCellSize: vizType === 'vector' ? 300 : 240,
+      labelRenderedSizeThreshold: vizType === 'vector' ? 18 : 16,
       defaultDrawNodeLabel: drawCleanNodeLabel,
       defaultDrawNodeHover: drawCleanNodeHover,
       minCameraRatio: 0.08,
       maxCameraRatio: 4,
-      // Performance optimizations - eliminates lag during pan/zoom
-      hideEdgesOnMove: true,          // Single biggest performance win - no edge rendering during pan
+      // Keep edges visible during movement. Hiding them is faster, but it makes
+      // the vector graph feel broken on dense repos because pan/zoom can leave
+      // users looking at nodes only until the next render.
+      hideEdgesOnMove: false,
       hideLabelsOnMove: true,         // No label rendering during zoom - reduces flashing
       enableEdgeEvents: false,        // Disables all edge events (click, hover, wheel)
       zIndex: true,                   // Important nodes render on top
       defaultEdgeColor: "#334155",    // Fast rendering without lookup
     });
 
-    // Fix for edges disappearing on zoom/pan: restore edges after movement completes
+    // Coalesce movement refreshes into a single render frame.
     let moveTimeout: NodeJS.Timeout | null = null;
     const scheduleRefresh = () => {
       if (moveTimeout) clearTimeout(moveTimeout);
       moveTimeout = setTimeout(() => {
-        sigma.refresh();
+        scheduleSigmaRefresh();
         moveTimeout = null;
-      }, 150);
+      }, 80);
     };
 
     // Restore edges after zoom/wheel events
@@ -905,7 +1010,19 @@ function GraphStage({
     });
     sigma.on("enterNode", ({ node }) => onHover(node));
     sigma.on("leaveNode", () => onHover(null));
-    
+
+    // Hover dimming: applied directly on graph attributes inside the Sigma event
+    // handlers to avoid triggering React re-renders on every mousemove.
+    // Uses a ref snapshot of applyFocusState so the closure is always fresh.
+    const applyHoverRef = { fn: null as null | ((id: string | null) => void) };
+    const hoverDimHandler = (hoverId: string | null) => {
+      if (applyHoverRef.fn) applyHoverRef.fn(hoverId);
+    };
+    sigma.on('enterNode', ({ node }) => hoverDimHandler(node));
+    sigma.on('leaveNode', () => hoverDimHandler(null));
+    // Expose setter so the applyFocusState callback can be injected after mount
+    (sigma as any)._hoverApplyRef = applyHoverRef;
+
     // Context menu on right-click
     sigma.on("rightClickNode", ({ node, event }) => {
       event.original.preventDefault();
@@ -967,17 +1084,49 @@ function GraphStage({
       context.lineWidth = 1.5;
       context.strokeRect(viewportX, viewportY, viewportW, viewportH);
     });
-    
+
     sigmaRef.current = sigma;
     graphRef.current = graph;
+    lastAppliedLayoutRef.current = layoutMode;
     projectSphere();
 
     return () => {
+      cancelled = true;
+      if (refreshRafRef.current !== null) {
+        cancelAnimationFrame(refreshRafRef.current);
+        refreshRafRef.current = null;
+      }
+      if (moveTimeout) clearTimeout(moveTimeout);
       sigma.kill();
       sigmaRef.current = null;
       graphRef.current = null;
     };
   }, [visualPayload, vizType, viewMode, onSelect, onHover, projectSphere, communityLookup]);
+
+  // Wire global keyboard zoom/fit shortcuts into the Sigma camera via custom events
+  // (App-level keyboard handler doesn't have access to sigmaRef, so we use DOM events)
+  useEffect(() => {
+    const handleZoom = (event: Event) => {
+      const sigma = sigmaRef.current;
+      if (!sigma) return;
+      const direction = (event as CustomEvent).detail?.direction;
+      const camera = sigma.getCamera();
+      const state = camera.getState();
+      const factor = direction === 'in' ? 0.72 : 1.38;
+      camera.animate({ ratio: state.ratio * factor }, { duration: 200 });
+    };
+    const handleFit = () => {
+      const sigma = sigmaRef.current;
+      if (!sigma) return;
+      sigma.getCamera().animatedReset({ duration: 350 });
+    };
+    window.addEventListener('codebrain:zoom', handleZoom);
+    window.addEventListener('codebrain:fit', handleFit);
+    return () => {
+      window.removeEventListener('codebrain:zoom', handleZoom);
+      window.removeEventListener('codebrain:fit', handleFit);
+    };
+  }, []); // stable — no deps, reads via ref
 
   // Track last applied focus so we can undo it cheaply on the next hover
   const lastFocusRef = useRef<{ focusId: string | null; neighbors: Set<string> }>({
@@ -1025,15 +1174,15 @@ function GraphStage({
       const targetVisible = !graph.getNodeAttribute(target, "hidden");
       const related = !focusId || neighbors.has(source) || neighbors.has(target);
       const baseColor = String(attrs.baseColor || attrs.color || "#64748b");
-      const edgeHidden = focusId ? !related : false;
-      const edgeOpacity = related ? 1.0 : (focusId ? 0.05 : 0.34);
-      graph.setEdgeAttribute(edgeId, "hidden", edgeHidden);
-      graph.setEdgeAttribute(edgeId, "color", related ? baseColor : hexToRgba(baseColor, edgeOpacity));
-      graph.setEdgeAttribute(edgeId, "size", sourceVisible && targetVisible ? (related ? 2.2 : 0.5) : 0.3);
+      const baseSize = Number((attrs as any).baseSize ?? attrs.size ?? 0.8);
+      const edgeOpacity = focusId ? (related ? 0.9 : 0.05) : 0.24;
+      graph.setEdgeAttribute(edgeId, "hidden", !(sourceVisible && targetVisible));
+      graph.setEdgeAttribute(edgeId, "color", hexToRgba(baseColor, edgeOpacity));
+      graph.setEdgeAttribute(edgeId, "size", sourceVisible && targetVisible ? (focusId ? (related ? 2.2 : 0.35) : baseSize) : 0.25);
     });
   }, [nodeLookup]);
 
-  // Selection effect: runs on click, camera animation, type filter â€” NOT on hover
+  // Selection effect: runs on click, camera animation, and type filter, but not hover.
   useEffect(() => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
@@ -1063,38 +1212,29 @@ function GraphStage({
     requestAnimationFrame(() => { sigma.refresh(); });
   }, [activeTypes, selectedId, cameraLocked, applyFocusState, hasGraphOverlay]);
 
-  // Hover effect: debounced via RAF so rapid node-to-node movement doesn't
-  // trigger a full O(n+e) loop on every single mouse-enter event.
+  // Hover effect: wired directly into Sigma events (not React state) to avoid
+  // re-renders on every mousemove. We inject applyFocusState into the sigma
+  // hover ref so the event handler always calls the latest closure.
   useEffect(() => {
-    const graph = graphRef.current;
     const sigma = sigmaRef.current;
-    if (!graph || !sigma) return;
-    if (hasGraphOverlay) return;
+    const graph = graphRef.current;
+    if (!sigma || !graph) return;
+    const applyHoverRef = (sigma as any)._hoverApplyRef;
+    if (!applyHoverRef) return;
 
-    // Cancel any pending hover RAF
-    if (hoverRafRef.current !== null) {
-      cancelAnimationFrame(hoverRafRef.current);
-    }
-
-    const ENABLE_HOVER_EFFECT = false; // Disabled for now as it makes the graph appear to move rapidly
-
-    hoverRafRef.current = requestAnimationFrame(() => {
-      hoverRafRef.current = null;
-      // CRITICAL: hoveredId is intentionally NOT used here
-      // Keeping it out of effects prevents rerenders on mousemove
-      // Sigma handles hover visualization natively (enterNode/leaveNode events)
-      const effectiveFocus = selectedId; // Always use selection focus, never hover
+    applyHoverRef.fn = (hoverId: string | null) => {
+      if (hasGraphOverlayRef.current) return;
+      // When hovering a node: dim everything except it and its neighbors.
+      // When leaving: restore to selection focus (or no focus).
+      const effectiveFocus = hoverId ?? selectedId;
       applyFocusState(graph, effectiveFocus, activeTypes, selectedId);
       sigma.refresh();
-    });
+    };
 
     return () => {
-      if (hoverRafRef.current !== null) {
-        cancelAnimationFrame(hoverRafRef.current);
-        hoverRafRef.current = null;
-      }
+      if (applyHoverRef) applyHoverRef.fn = null;
     };
-  }, [activeTypes, selectedId, applyFocusState, hasGraphOverlay]); // Removed hoveredId dependency
+  }, [activeTypes, selectedId, applyFocusState]);
 
   // View mode effect: recolor nodes based on selected visualization mode
   useEffect(() => {
@@ -1112,7 +1252,7 @@ function GraphStage({
         color = colorForViewMode(nodeData, 'folder');
       } else if (viewMode === 'importance') {
         const imp = (nodeData as any).importance ?? nodeData.rank?.score ?? 0;
-        // green (low) â†’ amber (mid) â†’ red (high)
+        // green (low) to amber (mid) to red (high)
         const r = Math.round(255 * Math.min(1, imp * 2));
         const g = Math.round(255 * Math.min(1, (1 - imp) * 2));
         color = `rgb(${r},${g},40)`;
@@ -1120,12 +1260,12 @@ function GraphStage({
         color = nodeData.metadata?.isDead ? '#ef4444' : 'rgba(71,85,105,0.5)';
       } else if (viewMode === 'bridge') {
         color = nodeData.metadata?.isBridge ? '#f59e0b' : 'rgba(71,85,105,0.5)';
-      } else if (viewMode === 'folder' || viewMode === 'layer') {
-        color = colorForViewMode(nodeData, viewMode);
+      } else if (viewMode === 'folder' || viewMode === 'layer' || viewMode === 'churn') {
+        color = colorForViewMode(nodeData, viewMode, churnData);
       } else {
         color = NODE_COLORS[nodeData.type] ?? '#94a3b8';
       }
-      
+
       graph.setNodeAttribute(id, 'color', color);
       graph.setNodeAttribute(id, 'baseColor', color);
     });
@@ -1134,7 +1274,7 @@ function GraphStage({
     requestAnimationFrame(() => {
       sigma.refresh();
     });
-  }, [viewMode, vizType, nodeLookup, hasGraphOverlay]);
+  }, [viewMode, vizType, nodeLookup, hasGraphOverlay, churnData]);
 
   // Search dimming effect: dim non-matching nodes as user types
   useEffect(() => {
@@ -1149,7 +1289,7 @@ function GraphStage({
       graph.forEachNode((id: string) => {
         const nodeData = nodeLookup.get(id);
         if (!nodeData) return;
-        const color = colorForViewMode(nodeData, viewMode);
+        const color = colorForViewMode(nodeData, viewMode, churnData);
         graph.setNodeAttribute(id, 'color', color);
         graph.setNodeAttribute(id, 'baseColor', color);
       });
@@ -1167,12 +1307,12 @@ function GraphStage({
     graph.forEachNode((id: string) => {
       const nodeData = nodeLookup.get(id);
       if (!nodeData) return;
-      
+
       const matches = nodeData.name?.toLowerCase().includes(lower) ||
-                      nodeData.fullName?.toLowerCase().includes(lower) ||
-                      nodeFilePath(nodeData).toLowerCase().includes(lower);
-      
-      const baseColor = colorForViewMode(nodeData, viewMode);
+        nodeData.fullName?.toLowerCase().includes(lower) ||
+        nodeFilePath(nodeData).toLowerCase().includes(lower);
+
+      const baseColor = colorForViewMode(nodeData, viewMode, churnData);
       const color = matches ? baseColor : 'rgba(71,85,105,0.2)';
       graph.setNodeAttribute(id, 'color', color);
     });
@@ -1181,7 +1321,7 @@ function GraphStage({
     requestAnimationFrame(() => {
       sigma.refresh();
     });
-  }, [searchQuery, nodeLookup, selectedId, viewMode, hasGraphOverlay]);
+  }, [searchQuery, nodeLookup, selectedId, viewMode, hasGraphOverlay, churnData]);
 
   const overlayWasActiveRef = useRef(false);
 
@@ -1221,15 +1361,16 @@ function GraphStage({
         graph.setNodeAttribute(id, 'color', isActive ? '#22c55e' : 'rgba(71,85,105,0.12)');
         graph.setNodeAttribute(id, 'size', isActive ? baseSize * (isSource ? 1.55 : 1.3) : baseSize * 0.5);
       } else {
+        // Blast radius: source = gold (the changed file), affected = orange, rest = dimmed
         graph.setNodeAttribute(
           id,
           'color',
-          isSource ? '#ef4444' : isActive ? '#f97316' : 'rgba(71,85,105,0.12)',
+          isSource ? '#fbbf24' : isActive ? '#f97316' : 'rgba(71,85,105,0.12)',
         );
         graph.setNodeAttribute(
           id,
           'size',
-          isSource ? baseSize * 1.6 : isActive ? baseSize * 1.1 : baseSize * 0.6,
+          isSource ? baseSize * 1.7 : isActive ? baseSize * 1.15 : baseSize * 0.55,
         );
       }
     });
@@ -1335,26 +1476,156 @@ function GraphStage({
   }, [nodeLookup, projectSphere]);
 
   useEffect(() => {
+    if (lastAppliedLayoutRef.current === layoutMode) return;
+    lastAppliedLayoutRef.current = layoutMode;
     applyLayout(layoutMode);
   }, [applyLayout, layoutMode]);
 
   const exportPNG = () => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return;
-    const canvas = sigma.getContainer().querySelector('canvas') as HTMLCanvasElement | null;
-    if (!canvas) return;
-    const output = document.createElement('canvas');
-    output.width = canvas.width;
-    output.height = canvas.height;
-    const context = output.getContext('2d');
-    if (!context) return;
-    context.fillStyle = '#0a0e17';
-    context.fillRect(0, 0, output.width, output.height);
-    context.drawImage(canvas, 0, 0);
+    if (vizType === 'symbols' || vizType === 'vector') {
+      const sigma = sigmaRef.current;
+      if (!sigma) return;
+      const canvas = sigma.getContainer().querySelector('canvas') as HTMLCanvasElement | null;
+      if (!canvas) return;
+      const output = document.createElement('canvas');
+      output.width = canvas.width;
+      output.height = canvas.height;
+      const context = output.getContext('2d');
+      if (!context) return;
+      context.fillStyle = '#0a0e17';
+      context.fillRect(0, 0, output.width, output.height);
+      context.drawImage(canvas, 0, 0);
+      const link = document.createElement('a');
+      link.download = `code-brain-${vizType}.png`;
+      link.href = output.toDataURL('image/png');
+      link.click();
+    } else {
+      const container = d3StageRef.current;
+      if (!container) return;
+      const svg = container.querySelector('svg');
+      if (!svg) return;
+      const serializer = new XMLSerializer();
+      let svgStr = serializer.serializeToString(svg);
+      
+      if (!svgStr.includes('background-color')) {
+        svgStr = svgStr.replace('<svg ', '<svg style="background-color:#0a0e17;" ');
+      }
+
+      const img = new Image();
+      const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      
+      img.onload = () => {
+        const output = document.createElement('canvas');
+        output.width = svg.clientWidth || 1920;
+        output.height = svg.clientHeight || 1080;
+        const context = output.getContext('2d');
+        if (!context) return;
+        context.fillStyle = '#0a0e17';
+        context.fillRect(0, 0, output.width, output.height);
+        context.drawImage(img, 0, 0);
+        
+        const link = document.createElement('a');
+        link.download = `code-brain-${vizType}.png`;
+        link.href = output.toDataURL('image/png');
+        link.click();
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    }
+  };
+
+  const exportJSON = () => {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      vizType,
+      nodes: visualPayload.nodes.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        file: n.file,
+        degree: n.degree,
+        rank: n.rank?.score,
+        folder: topFolder(n),
+        isDead: n.metadata?.isDead,
+        isBridge: n.metadata?.isBridge,
+      })),
+      edges: visualPayload.edges.map(e => ({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        type: e.type,
+        resolved: e.resolved,
+      })),
+      stats: visualPayload.stats,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
-    link.download = 'code-brain-graph.png';
-    link.href = output.toDataURL('image/png');
+    link.download = 'code-brain-graph.json';
+    link.href = URL.createObjectURL(blob);
     link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const exportMarkdown = () => {
+    const nodes = visualPayload.nodes;
+    const topHubs = [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0)).slice(0, 15);
+    const deadNodes = nodes.filter(n => n.metadata?.isDead);
+    const bridgeNodes = nodes.filter(n => n.metadata?.isBridge);
+    const cycles = visualPayload.analytics?.cycles ?? [];
+
+    const lines = [
+      `# Code-Brain Graph Report`,
+      ``,
+      `> Generated: ${new Date().toLocaleString()}`,
+      ``,
+      `## Overview`,
+      ``,
+      `| Metric | Value |`,
+      `|--------|-------|`,
+      `| Nodes | ${nodes.length} |`,
+      `| Edges | ${visualPayload.edges.length} |`,
+      `| Clusters | ${visualPayload.analytics?.communities?.length ?? 0} |`,
+      `| Unresolved Edges | ${visualPayload.analytics?.health?.unresolvedEdges ?? 0} |`,
+      ``,
+      `## Top Signal Hubs (by degree)`,
+      ``,
+      ...topHubs.map(n => `- **${n.name}** (${n.type}) — degree ${n.degree}, rank ${n.rank?.score?.toFixed(3) ?? 'n/a'}`),
+      ``,
+      deadNodes.length > 0 ? `## Dead Code (${deadNodes.length} nodes)` : '',
+      deadNodes.length > 0 ? `` : '',
+      ...deadNodes.slice(0, 20).map(n => `- ${n.name} (${n.file ?? 'unknown'})`),
+      deadNodes.length > 0 ? `` : '',
+      bridgeNodes.length > 0 ? `## Bridge Nodes (${bridgeNodes.length} critical connectors)` : '',
+      bridgeNodes.length > 0 ? `` : '',
+      ...bridgeNodes.slice(0, 10).map(n => `- **${n.name}** — removing this breaks graph connectivity`),
+      bridgeNodes.length > 0 ? `` : '',
+      cycles.length > 0 ? `## Circular Dependencies (${cycles.length})` : '',
+      cycles.length > 0 ? `` : '',
+      ...cycles.slice(0, 10).map((cycle: string[], i: number) => `${i + 1}. ${cycle.join(' → ')}`),
+    ].filter(l => l !== undefined);
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const link = document.createElement('a');
+    link.download = 'code-brain-report.md';
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const exportSVG = () => {
+    const container = d3StageRef.current;
+    if (!container) return;
+    const svg = container.querySelector('svg');
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svg);
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+    const link = document.createElement('a');
+    link.download = `code-brain-${vizType}.svg`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
   useEffect(() => {
@@ -1397,10 +1668,14 @@ function GraphStage({
       .scaleExtent([0.12, 8])
       .on('zoom', (event) => rootLayer.attr('transform', event.transform));
     svg.call(zoom as any);
+    d3ZoomRef.current = zoom;
+    d3SvgRef.current = svg;
+    d3NodesRef.current = nodes;
 
     const selectNode = (node: GraphNode) => onSelect(selectSourceNodeId(node));
 
     const drawForceGraph = () => {
+      const isVein = vizType === 'vein';
       const linkLayer = rootLayer.append('g').attr('class', 'codeflow-links');
       const hullLayer = rootLayer.append('g').attr('class', 'codeflow-hulls');
       const nodeLayer = rootLayer.append('g').attr('class', 'codeflow-nodes');
@@ -1421,14 +1696,16 @@ function GraphStage({
         .attr('stroke-width', (edge) => Math.max(0.8, Math.min(3.5, Math.sqrt(edge.weight))))
         .attr('stroke-opacity', 0.52);
 
+      const getRadius = (node: any) => isVein ? Math.max(4, Math.min(18, node.radius * 0.6)) : node.radius;
+
       const nodeSelection = nodeLayer
         .selectAll('circle')
         .data(nodes)
         .join('circle')
-        .attr('r', (node) => node.radius)
+        .attr('r', getRadius)
         .attr('fill', (node) => folderColor(node.folder, 0.95))
         .attr('stroke', '#071018')
-        .attr('stroke-width', 2.4)
+        .attr('stroke-width', isVein ? 1.5 : 2.4)
         .style('cursor', 'pointer')
         .on('click', (_event, node) => selectNode(node));
 
@@ -1436,38 +1713,76 @@ function GraphStage({
 
       const labels = labelLayer
         .selectAll('text')
-        .data(nodes.filter((node) => node.radius > 11 || (node.degree ?? 0) > 2))
+        .data(nodes.filter((node) => getRadius(node) > (isVein ? 8 : 11) || (node.degree ?? 0) > 2))
         .join('text')
-        .attr('fill', '#e5edf9')
-        .attr('font-size', (node) => node.radius > 20 ? 14 : 11)
-        .attr('font-weight', 700)
+        .attr('fill', isVein ? '#eee' : '#e5edf9')
+        .attr('font-size', (node) => isVein ? Math.max(6, Math.min(10, getRadius(node) * 0.6)) : (getRadius(node) > 20 ? 14 : 11))
+        .attr('font-weight', isVein ? 500 : 700)
         .attr('paint-order', 'stroke')
-        .attr('stroke', 'rgba(2,6,23,0.8)')
-        .attr('stroke-width', 3)
+        .attr('stroke', isVein ? 'none' : 'rgba(2,6,23,0.8)')
+        .attr('stroke-width', isVein ? 0 : 3)
         .attr('text-anchor', 'middle')
         .attr('pointer-events', 'none')
-        .text((node) => truncateMiddle(node.name, node.radius > 18 ? 18 : 12));
+        .text((node) => {
+          const name = node.name.replace(/\.[^.]+$/, '');
+          return isVein ? (name.length > Math.max(4, Math.floor(getRadius(node) / 2)) + 1 ? name.slice(0, Math.max(4, Math.floor(getRadius(node) / 2))) + '…' : name) : truncateMiddle(node.name, getRadius(node) > 18 ? 18 : 12);
+        });
+
+      const getClusterKey = (node: any) => {
+        if (!isVein) return node.folderPath || 'root';
+        
+        if (viewMode === 'layer') return node.layer || 'Unknown Layer';
+        if (viewMode === 'type') {
+          const name = node.name || '';
+          return name.includes('.') ? name.split('.').pop() : 'folder';
+        }
+        if (viewMode === 'dead') return node.degree === 0 ? 'Dead' : 'Active';
+        if (viewMode === 'bridge') return (node.degree || 0) > 10 ? 'Hub' : 'Node';
+        
+        // For 'folder', 'importance', or default: group by physical folder structure
+        const fullPath = nodeFilePath(node);
+        if (fullPath) {
+          const parts = fullPath.split(/[\\/]/).filter(Boolean);
+          if (parts.length > 1) return parts.slice(0, -1).join('/');
+        }
+        return 'root';
+      };
 
       const drawHulls = () => {
-        const grouped = d3.group(nodes, (node) => node.folderPath);
+        const grouped = d3.group(nodes, getClusterKey);
+        // Enhanced styling for vein graph
+        const pad = isVein ? 40 : 30;
+        const fillOpacity = isVein ? 0.08 : 0.04;
+        const strokeOpacity = isVein ? 0.5 : 0.25;
+        const strokeWidth = isVein ? 2.5 : 2;
+        const fontSize = isVein ? 11 : 10;
+        const fontWeight = isVein ? 700 : 600;
+
         const hulls = [...grouped.entries()]
-          .filter(([, groupNodes]) => groupNodes.length > 1)
-          .map(([folder, groupNodes]) => {
-            const pad = 42;
+          .map(([clusterKey, groupNodes]) => {
             const points: [number, number][] = [];
             groupNodes.forEach((node: any) => {
-              points.push(
-                [node.x - pad, node.y - pad],
-                [node.x + pad, node.y - pad],
-                [node.x + pad, node.y + pad],
-                [node.x - pad, node.y + pad],
-              );
+              if (isVein) {
+                // Circular point distribution for softer organic boundaries
+                for(let i = 0; i < 8; i++) {
+                  const angle = (i / 8) * Math.PI * 2;
+                  points.push([node.x + Math.cos(angle) * pad, node.y + Math.sin(angle) * pad]);
+                }
+              } else {
+                points.push(
+                  [node.x - pad, node.y - pad],
+                  [node.x + pad, node.y - pad],
+                  [node.x + pad, node.y + pad],
+                  [node.x - pad, node.y + pad],
+                );
+              }
             });
             const hull = d3.polygonHull(points);
             if (!hull) return null;
             const cx = d3.mean(groupNodes, (node: any) => node.x) ?? 0;
-            const cy = d3.mean(groupNodes, (node: any) => node.y) ?? 0;
-            return { folder, hull, cx, cy, color: folderColor(folder) };
+            // Position label at TOP of hull (like codeflow), not center
+            const cy = d3.min(groupNodes, (node: any) => node.y) ?? 0;
+            return { folder: clusterKey, hull, cx, cy, color: folderColor(clusterKey) };
           })
           .filter(Boolean) as Array<{ folder: string; hull: [number, number][]; cx: number; cy: number; color: string }>;
 
@@ -1476,33 +1791,127 @@ function GraphStage({
           .selectAll('path')
           .data((datum) => [datum])
           .join('path')
-          .attr('d', (datum) => `${d3.line<[number, number]>()(datum.hull)}Z`)
-          .attr('fill', (datum) => hexToRgba(datum.color, 0.08))
-          .attr('stroke', (datum) => hexToRgba(datum.color, 0.48))
-          .attr('stroke-width', 2.5);
+          .attr('d', (datum) => isVein ? `${d3.line<[number, number]>().curve(d3.curveCatmullRomClosed)(datum.hull)}` : `${d3.line<[number, number]>()(datum.hull)}Z`)
+          .attr('fill', (datum) => hexToRgba(datum.color, fillOpacity))
+          .attr('stroke', (datum) => hexToRgba(datum.color, strokeOpacity))
+          .attr('stroke-width', strokeWidth)
+          .attr('filter', isVein ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : null);
+          
         hullGroup
           .selectAll('text')
           .data((datum) => [datum])
           .join('text')
           .attr('x', (datum) => datum.cx)
-          .attr('y', (datum) => datum.cy - 52)
+          .attr('y', (datum) => datum.cy - pad - (isVein ? 12 : 8))
           .attr('fill', (datum) => datum.color)
-          .attr('font-size', 15)
-          .attr('font-weight', 800)
+          .attr('font-size', fontSize)
+          .attr('font-weight', fontWeight)
           .attr('text-anchor', 'middle')
           .attr('paint-order', 'stroke')
-          .attr('stroke', 'rgba(2,6,23,0.82)')
-          .attr('stroke-width', 4)
-          .text((datum) => truncateMiddle(datum.folder, 42));
+          .attr('stroke', 'rgba(2,6,23,0.85)')
+          .attr('stroke-width', isVein ? 5 : 4)
+          .attr('style', `font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: ${isVein ? '0.08em' : '0'}; text-transform: uppercase;`)
+          .text((datum) => {
+            const label = datum.folder === 'root' ? 'ROOT' : datum.folder.split(/[\\\/]/).pop() || datum.folder;
+            return truncateMiddle(label, 28);
+          });
       };
 
+
+      const folderGroups = [...new Set(nodes.map(n => getClusterKey(n)))];
+      const cols = Math.max(2, Math.ceil(Math.sqrt(folderGroups.length)));
+      const cw = width / (cols + 1);
+      const ch = height / (Math.ceil(folderGroups.length / cols) + 1);
+      const centers: Record<string, { x: number; y: number }> = {};
+      folderGroups.forEach((f, i) => {
+        centers[f] = { x: (i % cols + 1) * cw, y: (Math.floor(i / cols) + 1) * ch };
+      });
+
+      let forceLinkDist: any = (edge: any) => isVein ? 90 : (80 + Math.min(80, edge.weight * 8));
+      let forceLinkStrength = isVein ? 0.3 : 0.28;
+      let forceCharge = isVein ? -350 : -210;
+      let forceChargeMax = isVein ? 500 : 1000;
+      let collideRadius: any = (node: any) => node.radius + (isVein ? 20 : 13);
+      
+      let xForce = d3.forceX<any>((node) => isVein && centers[getClusterKey(node)] ? centers[getClusterKey(node)].x : width * (0.2 + (stableNumber(node.folderPath) % 600) / 1000)).strength(isVein ? 0.18 : 0.035);
+      let yForce = d3.forceY<any>((node) => isVein && centers[getClusterKey(node)] ? centers[getClusterKey(node)].y : height * (0.18 + (stableNumber(`${node.folderPath}:y`) % 640) / 1000)).strength(isVein ? 0.18 : 0.035);
+
+      if (layoutMode === 'radial') {
+        const r = Math.min(width, height) * 0.35;
+        nodes.forEach((n: any, i: number) => {
+          const angle = (i / nodes.length) * 2 * Math.PI;
+          n.targetX = width / 2 + Math.cos(angle) * r;
+          n.targetY = height / 2 + Math.sin(angle) * r;
+        });
+        forceLinkDist = () => isVein ? 45 : 40;
+        forceLinkStrength = 0.05;
+        forceCharge = isVein ? -100 : -60;
+        collideRadius = (node: any) => node.radius + 8;
+        xForce = d3.forceX<any>((node) => node.targetX).strength(0.8);
+        yForce = d3.forceY<any>((node) => node.targetY).strength(0.8);
+      } else if (layoutMode === 'hierarchical') {
+        const clusters = [...new Set(nodes.map(n => getClusterKey(n)))].sort((a, b) => a.localeCompare(b));
+        const numCols = Math.max(3, Math.ceil(Math.sqrt(clusters.length / 1.5)));
+        const colW = width / (numCols + 1);
+        
+        const clusterNodes: Record<string, any[]> = {};
+        nodes.forEach((n: any) => {
+          const c = getClusterKey(n);
+          if (!clusterNodes[c]) clusterNodes[c] = [];
+          clusterNodes[c].push(n);
+        });
+
+        const clustersInCol: string[][] = Array.from({ length: numCols }, () => []);
+        clusters.forEach((c, i) => clustersInCol[i % numCols].push(c));
+
+        clustersInCol.forEach((colClusters, colIndex) => {
+          const targetX = (colIndex + 1) * colW;
+          let currentY = 100;
+          
+          colClusters.forEach((c) => {
+            const g = clusterNodes[c];
+            const clusterHeight = g.length * 30;
+            const clusterCenterY = currentY + clusterHeight / 2;
+            
+            g.forEach((n: any, ni: number) => {
+              n.targetX = targetX;
+              const yOffset = (ni - g.length / 2) * 25; 
+              n.targetY = clusterCenterY + yOffset;
+            });
+            
+            currentY += clusterHeight + 100; // Gap between clusters
+          });
+        });
+
+        forceLinkDist = () => isVein ? 30 : 40;
+        forceLinkStrength = 0.15;
+        forceCharge = isVein ? -120 : -80;
+        forceChargeMax = 300;
+        collideRadius = (node: any) => node.radius + 15;
+        xForce = d3.forceX<any>((node) => node.targetX || width / 2).strength(0.85);
+        yForce = d3.forceY<any>((node) => node.targetY || height / 2).strength(0.7);
+      } else if (layoutMode === 'grid') {
+        const gridCols = Math.ceil(Math.sqrt(nodes.length));
+        const cellW = width / (gridCols + 1);
+        const cellH = height / (Math.ceil(nodes.length / gridCols) + 1);
+        nodes.forEach((n: any, i: number) => {
+          n.targetX = (i % gridCols + 1) * cellW;
+          n.targetY = (Math.floor(i / gridCols) + 1) * cellH;
+        });
+        forceLinkDist = () => isVein ? 135 : 120;
+        forceLinkStrength = 0.02;
+        collideRadius = (node: any) => node.radius + 15;
+        xForce = d3.forceX<any>((node) => node.targetX).strength(1);
+        yForce = d3.forceY<any>((node) => node.targetY).strength(1);
+      }
+
       simulation = d3.forceSimulation(nodes as any[])
-        .force('link', d3.forceLink(graphLinks as any[]).id((datum: any) => datum.id).distance((edge: any) => 80 + Math.min(80, edge.weight * 8)).strength(0.28))
-        .force('charge', d3.forceManyBody().strength(-210))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collide', d3.forceCollide<any>((node) => node.radius + 13))
-        .force('folderX', d3.forceX<any>((node) => width * (0.2 + (stableNumber(node.folder) % 600) / 1000)).strength(0.035))
-        .force('folderY', d3.forceY<any>((node) => height * (0.18 + (stableNumber(`${node.folder}:y`) % 640) / 1000)).strength(0.035))
+        .force('link', d3.forceLink(graphLinks as any[]).id((datum: any) => datum.id).distance(forceLinkDist).strength(forceLinkStrength))
+        .force('charge', d3.forceManyBody().strength(forceCharge).distanceMax(forceChargeMax))
+        .force('center', layoutMode === 'force' && !isVein ? d3.forceCenter(width / 2, height / 2) : null)
+        .force('collide', d3.forceCollide<any>(collideRadius))
+        .force('x', xForce)
+        .force('y', yForce)
         .on('tick', () => {
           linkSelection.attr('d', (edge: any) => {
             const sx = edge.source.x;
@@ -1586,25 +1995,74 @@ function GraphStage({
         parent.children ??= [];
         let child = parent.children.find((item: any) => item.name === name);
         if (!child) {
-          child = { name, path, children: [] };
+          child = { name, path, children: [], omitted: 0 };
           parent.children.push(child);
         }
         return child;
       };
+
+      const toProjectParts = (node: GraphNode): string[] => {
+        const relativeNameParts = node.name && /[\\/]/.test(node.name) ? pathParts(node.name) : [];
+        const fullNameParts = node.fullName && /[\\/]/.test(node.fullName) ? pathParts(node.fullName) : [];
+        const rawParts = relativeNameParts.length > 1 ? relativeNameParts : (fullNameParts.length > 1 ? fullNameParts : pathParts(nodeFilePath(node)));
+        const markers = ['src', 'ui', 'api', 'python', 'tests', 'test-languages', 'vscode-extension', 'docs', 'templates', 'dist'];
+        const markerIndex = rawParts.findIndex((part) => markers.includes(part.toLowerCase()));
+        if (markerIndex >= 0) return rawParts.slice(markerIndex).slice(0, 5);
+
+        const repoIndex = rawParts.findIndex((part) => part.toLowerCase() === 'code-brain');
+        if (repoIndex >= 0 && repoIndex < rawParts.length - 1) return rawParts.slice(repoIndex + 1).slice(0, 5);
+
+        return rawParts.slice(-3).slice(0, 5);
+      };
+
+      const maxRenderedFiles = Math.min(nodes.length, width < 1100 ? 36 : 64);
+      const visibleFiles = new Set(
+        [...nodes]
+          .sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0))
+          .slice(0, maxRenderedFiles)
+          .map((node) => node.id),
+      );
+
       nodes.forEach((node) => {
-        const parts = pathParts(nodeFilePath(node));
+        const parts = toProjectParts(node);
+        if (parts.length === 0) return;
         let cursor = root;
-        parts.forEach((part, index) => {
+
+        const folderParts = visibleFiles.has(node.id) ? parts : parts.slice(0, Math.max(1, parts.length - 1));
+        folderParts.forEach((part, index) => {
           cursor = ensureChild(cursor, part, parts.slice(0, index + 1).join('/'));
         });
-        cursor.node = node;
-        delete cursor.children;
+
+        if (visibleFiles.has(node.id)) {
+          cursor.node = node;
+          delete cursor.children;
+        } else {
+          cursor.omitted = (cursor.omitted || 0) + 1;
+        }
       });
 
-      const hierarchy = d3.hierarchy(root);
-      const tree = d3.tree<any>().size([height - 120, width - 260]);
+      const hierarchy = d3.hierarchy(root, (datum: any) => {
+        const children = [...(datum.children || [])]
+          .sort((a: any, b: any) => (b.omitted || 0) - (a.omitted || 0) || a.name.localeCompare(b.name));
+        if (datum.omitted > 0 && children.length === 0) {
+          return [{ name: `+${datum.omitted} more`, path: `${datum.path}:more`, synthetic: true }];
+        }
+        if (datum.omitted > 0 && datum.path !== 'root') {
+          children.push({ name: `+${datum.omitted} more`, path: `${datum.path}:more`, synthetic: true });
+        }
+        return children;
+      });
+
+      const tree = d3.tree<any>()
+        .nodeSize([38, Math.max(170, Math.min(260, width / Math.max(3.4, hierarchy.height + 1)))])
+        .separation((a, b) => a.parent === b.parent ? 1.55 : 2.2);
       tree(hierarchy);
-      const group = rootLayer.append('g').attr('transform', 'translate(96,60)');
+      const allDesc = hierarchy.descendants();
+      const minX = d3.min(allDesc, (datum) => datum.x) ?? 0;
+      const maxX = d3.max(allDesc, (datum) => datum.x) ?? 0;
+      const contentHeight = Math.max(1, maxX - minX);
+      const initialScale = contentHeight > height - 140 ? 0.86 : 1;
+      const group = rootLayer.append('g').attr('transform', `translate(96,${Math.max(84, (height - contentHeight * initialScale) / 2) - minX * initialScale}) scale(${initialScale})`);
       const linkGen = d3.linkHorizontal<any, any>().x((datum) => datum.y).y((datum) => datum.x);
 
       group.selectAll('path')
@@ -1625,77 +2083,145 @@ function GraphStage({
         });
 
       treeNodes.append('circle')
-        .attr('r', (datum) => datum.data.node ? 10 : 7)
-        .attr('fill', (datum) => datum.data.node ? folderColor(topFolder(datum.data.node), 0.95) : 'rgba(10,14,23,0.9)')
+        .attr('r', (datum) => datum.data.synthetic ? 4 : datum.data.node ? 8 : 6)
+        .attr('fill', (datum) => datum.data.synthetic ? 'rgba(148,163,184,0.32)' : datum.data.node ? folderColor(topFolder(datum.data.node), 0.95) : 'rgba(10,14,23,0.9)')
         .attr('stroke', (datum) => datum.data.node ? '#071018' : 'rgba(148,163,184,0.55)')
         .attr('stroke-width', 2.4);
 
-      treeNodes.append('text')
+      const labels = treeNodes.filter((datum) =>
+        datum.depth <= 3 ||
+        datum.data.synthetic ||
+        Boolean(datum.data.node && ((datum.data.node.degree ?? 0) >= 2 || datum.depth <= 4)),
+      );
+
+      labels.append('text')
         .attr('x', (datum) => datum.children ? -14 : 14)
         .attr('dy', 4)
         .attr('text-anchor', (datum) => datum.children ? 'end' : 'start')
-        .attr('fill', '#cbd5e1')
-        .attr('font-size', 13)
+        .attr('fill', (datum) => datum.data.synthetic ? '#7d8594' : '#d8dee9')
+        .attr('font-size', (datum) => datum.depth <= 2 ? 12 : 10.5)
+        .attr('font-weight', (datum) => datum.depth <= 2 ? 750 : 620)
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'rgba(2,6,23,0.96)')
+        .attr('stroke-width', 4)
+        .text((datum) => truncateMiddle(datum.data.name, datum.depth <= 2 ? 24 : 16));
+
+      rootLayer
+        .append('text')
+        .attr('x', 18)
+        .attr('y', height - 18)
+        .attr('fill', '#7d8594')
+        .attr('font-size', 11)
         .attr('font-weight', 650)
-        .text((datum) => truncateMiddle(datum.data.name, 24));
+        .text(`Tree view shows top ${maxRenderedFiles} connected files. Scroll/drag to inspect more.`);
     };
 
     const drawFlow = () => {
-      const folderCounts = d3.rollups(nodes, (items) => items.length, (node) => node.folder)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 12);
-      const folders = folderCounts.map(([folder]) => folder);
+      const nodeGroup = new Map(nodes.map((node) => [node.id, flowGroupLabel(node)]));
+      const groupCounts = d3.rollups(nodes, (items) => items.length, (node) => nodeGroup.get(node.id) || node.folder);
+      const groupCountMap = new Map(groupCounts);
+      const linkGroups = links
+        .map((edge) => ({
+          source: nodeGroup.get(edge.sourceNode!.id) || edge.sourceNode!.folder,
+          target: nodeGroup.get(edge.targetNode!.id) || edge.targetNode!.folder,
+          value: edge.weight,
+        }))
+        .filter((edge) => edge.source && edge.target);
+
+      const activity = new Map<string, number>();
+      linkGroups.forEach((edge) => {
+        activity.set(edge.source, (activity.get(edge.source) || 0) + edge.value);
+        activity.set(edge.target, (activity.get(edge.target) || 0) + edge.value);
+      });
+
+      const maxGroups = Math.max(8, Math.min(16, Math.floor(height / 78)));
+      const groups = [...new Set([...activity.keys(), ...groupCountMap.keys()])]
+        .sort((a, b) => {
+          const activityDelta = (activity.get(b) || 0) - (activity.get(a) || 0);
+          if (activityDelta !== 0) return activityDelta;
+          return (groupCountMap.get(b) || 0) - (groupCountMap.get(a) || 0);
+        })
+        .slice(0, maxGroups);
+      const visibleGroups = new Set(groups);
+      const aggregated = d3.rollups(
+        linkGroups.filter((edge) => visibleGroups.has(edge.source) && visibleGroups.has(edge.target)),
+        (items) => d3.sum(items, (edge) => edge.value),
+        (edge) => edge.source,
+        (edge) => edge.target,
+      );
+
+      const flatLinks = aggregated
+        .flatMap(([source, targets]) => targets.map(([target, value]) => ({ source, target, value })))
+        .sort((a, b) => b.value - a.value);
       const sourceX = 80;
       const midX = width * 0.47;
       const targetX = width - 130;
       const yFor = (index: number, count: number) => 88 + (index / Math.max(1, count - 1)) * (height - 176);
-      const folderY = new Map(folders.map((folder, index) => [folder, yFor(index, folders.length)]));
-      const aggregated = d3.rollups(
-        links.filter((edge) => folders.includes(edge.sourceNode!.folder) && folders.includes(edge.targetNode!.folder)),
-        (items) => d3.sum(items, (edge) => edge.weight),
-        (edge) => edge.sourceNode!.folder,
-        (edge) => edge.targetNode!.folder,
-      );
+      const groupY = new Map(groups.map((group, index) => [group, yFor(index, groups.length)]));
 
-      const flatLinks = aggregated.flatMap(([source, targets]) =>
-        targets.map(([target, value]) => ({ source, target, value })),
-      ).filter((edge) => edge.source !== edge.target);
+      if (flatLinks.length === 0) {
+        rootLayer.append('text')
+          .attr('x', width / 2)
+          .attr('y', height / 2)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#9ca3af')
+          .attr('font-size', 15)
+          .attr('font-weight', 700)
+          .attr('paint-order', 'stroke')
+          .attr('stroke', 'rgba(2,6,23,0.9)')
+          .attr('stroke-width', 4)
+          .text('No dependency flow found between the visible groups');
+      }
 
-      rootLayer.selectAll('path.flow-link')
+      rootLayer.append('text')
+        .attr('x', 24)
+        .attr('y', 30)
+        .attr('fill', '#9ca3af')
+        .attr('font-size', 11)
+        .attr('font-weight', 700)
+        .text(`Top ${groups.length} active dependency groups by subfolder`);
+
+      const flowPaths = rootLayer.selectAll<SVGPathElement, { source: string; target: string; value: number }>('path.flow-link')
         .data(flatLinks)
         .join('path')
         .attr('class', 'flow-link')
         .attr('d', (edge) => {
-          const sy = folderY.get(edge.source) ?? height / 2;
-          const ty = folderY.get(edge.target) ?? height / 2;
-          return `M${sourceX + 10},${sy} C${midX},${sy} ${midX},${ty} ${targetX - 10},${ty}`;
+          const sy = groupY.get(edge.source) ?? height / 2;
+          const ty = groupY.get(edge.target) ?? height / 2;
+          const lift = edge.source === edge.target ? Math.max(26, Math.min(80, edge.value * 2.2)) : 0;
+          return `M${sourceX + 12},${sy} C${midX},${sy - lift} ${midX},${ty - lift} ${targetX - 12},${ty}`;
         })
         .attr('fill', 'none')
-        .attr('stroke', (edge) => folderColor(edge.source, 0.34))
-        .attr('stroke-width', (edge) => Math.max(6, Math.min(52, edge.value * 5)))
+        .attr('stroke', (edge) => edge.source === edge.target ? folderColor(edge.source, 0.26) : folderColor(edge.source, 0.38))
+        .attr('stroke-width', (edge) => Math.max(5, Math.min(42, Math.sqrt(edge.value) * 7)))
         .attr('stroke-linecap', 'round');
+      flowPaths.append('title')
+        .text((edge) => `${edge.source} -> ${edge.target}: ${edge.value} links`);
 
       const folderNodes = [
-        ...folders.map((folder, index) => ({ folder, x: sourceX, y: yFor(index, folders.length), side: 'source' })),
-        ...folders.map((folder, index) => ({ folder, x: targetX, y: yFor(index, folders.length), side: 'target' })),
+        ...groups.map((folder, index) => ({ folder, x: sourceX, y: yFor(index, groups.length), side: 'source' })),
+        ...groups.map((folder, index) => ({ folder, x: targetX, y: yFor(index, groups.length), side: 'target' })),
       ];
-      const groups = rootLayer.selectAll('g.flow-folder').data(folderNodes).join('g')
+      const folderGroups = rootLayer.selectAll('g.flow-folder').data(folderNodes).join('g')
         .attr('transform', (datum) => `translate(${datum.x},${datum.y})`);
-      groups.append('rect')
+      folderGroups.append('rect')
         .attr('x', -10)
         .attr('y', -34)
         .attr('width', 20)
         .attr('height', 68)
         .attr('rx', 5)
         .attr('fill', (datum) => folderColor(datum.folder, 0.95));
-      groups.append('text')
+      folderGroups.append('text')
         .attr('x', (datum) => datum.side === 'source' ? 20 : -20)
         .attr('y', 5)
         .attr('text-anchor', (datum) => datum.side === 'source' ? 'start' : 'end')
         .attr('fill', '#e5edf9')
         .attr('font-size', 15)
         .attr('font-weight', 750)
-        .text((datum) => `${truncateMiddle(datum.folder, 18)} (${folderCounts.find(([folder]) => folder === datum.folder)?.[1] ?? 0})`);
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'rgba(2,6,23,0.9)')
+        .attr('stroke-width', 4)
+        .text((datum) => `${truncateMiddle(datum.folder, 24)} (${groupCountMap.get(datum.folder) ?? 0})`);
     };
 
     const drawCluster = () => {
@@ -1817,6 +2343,7 @@ function GraphStage({
     };
 
     if (vizType === 'graph') drawForceGraph();
+    if (vizType === 'vein') drawForceGraph(); // Vein uses same rendering as graph with enhanced hulls
     if (vizType === 'matrix') drawMatrix();
     if (vizType === 'tree') drawTree();
     if (vizType === 'flow') drawFlow();
@@ -1912,7 +2439,7 @@ function GraphStage({
       .attr('width', (datum) => Math.max(0, datum.x1 - datum.x0))
       .attr('height', (datum) => Math.max(0, datum.y1 - datum.y0))
       .attr('rx', 5)
-      .attr('fill', (datum) => colorForViewMode(nodeLookup.get(datum.data.id) ?? datum.data, viewMode))
+      .attr('fill', (datum) => colorForViewMode(nodeLookup.get(datum.data.id) ?? datum.data, viewMode, churnData))
       .attr('fill-opacity', 0.72)
       .attr('stroke', 'rgba(255,255,255,0.18)');
 
@@ -1935,15 +2462,19 @@ function GraphStage({
   }, [nodeLookup, onSelect, treemapData, viewMode, vizType]);
 
   const zoom = (factor: number) => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return;
-    const camera = sigma.getCamera();
-    // Use instant zoom without animation to prevent flashing
-    const currentState = camera.getState();
-    camera.setState({ 
-      ...currentState, 
-      ratio: currentState.ratio * factor 
-    });
+    if (vizType === 'symbols' || vizType === 'vector') {
+      const sigma = sigmaRef.current;
+      if (!sigma) return;
+      const camera = sigma.getCamera();
+      const currentState = camera.getState();
+      camera.setState({
+        ...currentState,
+        ratio: currentState.ratio * factor
+      });
+    } else {
+      if (!d3SvgRef.current || !d3ZoomRef.current) return;
+      d3SvgRef.current.transition().duration(300).call(d3ZoomRef.current.scaleBy, 1 / factor);
+    }
   };
 
   const resetCamera = () => {
@@ -1951,10 +2482,15 @@ function GraphStage({
   };
 
   const resetSphere = () => {
-    if (hasGraphOverlay) return;
-    rotationRef.current = { x: -0.18, y: 0.42 };
-    projectSphere();
-    resetCamera();
+    if (vizType === 'symbols' || vizType === 'vector') {
+      if (hasGraphOverlay) return;
+      rotationRef.current = { x: -0.18, y: 0.42 };
+      projectSphere();
+      resetCamera();
+    } else {
+      if (!d3SvgRef.current || !d3ZoomRef.current) return;
+      d3SvgRef.current.transition().duration(500).call(d3ZoomRef.current.transform, d3.zoomIdentity);
+    }
   };
 
   const startSphereDrag = (event: React.PointerEvent<HTMLElement>) => {
@@ -1993,6 +2529,219 @@ function GraphStage({
     }
   };
 
+  const handleMinimapInteraction = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (event.buttons !== 1) return;
+    
+    const canvas = miniMapRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    if (vizType !== 'symbols' && vizType !== 'vector') {
+      if (!d3ZoomRef.current || !d3SvgRef.current || d3NodesRef.current.length === 0) return;
+      
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      d3NodesRef.current.forEach((n) => {
+        if (n.x === undefined || n.y === undefined) return;
+        minX = Math.min(minX, n.x);
+        maxX = Math.max(maxX, n.x);
+        minY = Math.min(minY, n.y);
+        maxY = Math.max(maxY, n.y);
+      });
+      if (minX === Infinity) return;
+      
+      const padding = 10;
+      const graphWidth = maxX - minX || 1;
+      const graphHeight = maxY - minY || 1;
+      const scaleX = (canvas.width - padding * 2) / graphWidth;
+      const scaleY = (canvas.height - padding * 2) / graphHeight;
+      const scale = Math.min(scaleX, scaleY);
+      
+      const offsetX = (canvas.width - graphWidth * scale) / 2 - minX * scale;
+      const offsetY = (canvas.height - graphHeight * scale) / 2 - minY * scale;
+      
+      const targetX = (x - offsetX) / scale;
+      const targetY = (y - offsetY) / scale;
+      
+      const svgElement = d3SvgRef.current.node() as SVGSVGElement;
+      const svgRect = svgElement.getBoundingClientRect();
+      const currentTransform = d3.zoomTransform(svgElement);
+      
+      const newX = svgRect.width / 2 - targetX * currentTransform.k;
+      const newY = svgRect.height / 2 - targetY * currentTransform.k;
+      
+      d3SvgRef.current.call(d3ZoomRef.current.transform, d3.zoomIdentity.translate(newX, newY).scale(currentTransform.k));
+    } else {
+      const sigma = sigmaRef.current;
+      if (!sigma) return;
+      const camera = sigma.getCamera();
+      
+      const graph = sigma.getGraph();
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      graph.forEachNode((_, attrs) => {
+        if (attrs.hidden) return;
+        minX = Math.min(minX, Number(attrs.x));
+        maxX = Math.max(maxX, Number(attrs.x));
+        minY = Math.min(minY, Number(attrs.y));
+        maxY = Math.max(maxY, Number(attrs.y));
+      });
+      if (minX === Infinity) return;
+      
+      const padding = 10;
+      const graphWidth = maxX - minX || 1;
+      const graphHeight = maxY - minY || 1;
+      const scaleX = (canvas.width - padding * 2) / graphWidth;
+      const scaleY = (canvas.height - padding * 2) / graphHeight;
+      const scale = Math.min(scaleX, scaleY);
+      
+      const offsetX = (canvas.width - graphWidth * scale) / 2 - minX * scale;
+      const offsetY = (canvas.height - graphHeight * scale) / 2 - minY * scale;
+      
+      const targetX = (x - offsetX) / scale;
+      const targetY = (y - offsetY) / scale;
+      
+      camera.setState({ x: targetX, y: targetY });
+    }
+  };
+
+  useEffect(() => {
+    if (vizType === 'vector' || vizType === 'treemap') return;
+    
+    let rafId: number;
+    const renderMiniMap = () => {
+      const miniMap = miniMapRef.current;
+      if (!miniMap) {
+        rafId = requestAnimationFrame(renderMiniMap);
+        return;
+      }
+      
+      const isSigma = vizType === 'symbols';
+      const sigma = sigmaRef.current;
+      const sigmaGraph = graphRef.current;
+      
+      if (isSigma && (!sigma || !sigmaGraph)) {
+        rafId = requestAnimationFrame(renderMiniMap);
+        return;
+      }
+      if (!isSigma && (!d3NodesRef.current.length || !d3ZoomRef.current)) {
+        rafId = requestAnimationFrame(renderMiniMap);
+        return;
+      }
+
+      const context = miniMap.getContext("2d");
+      if (!context) return;
+
+      context.clearRect(0, 0, miniMap.width, miniMap.height);
+      context.fillStyle = 'rgba(10,14,23,0.84)';
+      context.fillRect(0, 0, miniMap.width, miniMap.height);
+
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      
+      if (isSigma) {
+        sigmaGraph.forEachNode((id: string, attr: any) => {
+          if (attr.x === undefined || attr.y === undefined) return;
+          minX = Math.min(minX, attr.x);
+          maxX = Math.max(maxX, attr.x);
+          minY = Math.min(minY, attr.y);
+          maxY = Math.max(maxY, attr.y);
+        });
+      } else {
+        d3NodesRef.current.forEach((n) => {
+          if (n.x === undefined || n.y === undefined) return;
+          minX = Math.min(minX, n.x);
+          maxX = Math.max(maxX, n.x);
+          minY = Math.min(minY, n.y);
+          maxY = Math.max(maxY, n.y);
+        });
+      }
+
+      if (minX === Infinity) {
+        rafId = requestAnimationFrame(renderMiniMap);
+        return;
+      }
+
+      const padding = 10;
+      const graphWidth = maxX - minX || 1;
+      const graphHeight = maxY - minY || 1;
+      const scaleX = (miniMap.width - padding * 2) / graphWidth;
+      const scaleY = (miniMap.height - padding * 2) / graphHeight;
+      const scale = Math.min(scaleX, scaleY);
+
+      const offsetX = (miniMap.width - graphWidth * scale) / 2 - minX * scale;
+      const offsetY = (miniMap.height - graphHeight * scale) / 2 - minY * scale;
+
+      context.fillStyle = '#38bdf8';
+      context.beginPath();
+      
+      if (isSigma) {
+        sigmaGraph.forEachNode((id: string, attr: any) => {
+          if (attr.x === undefined || attr.y === undefined) return;
+          const x = attr.x * scale + offsetX;
+          const y = attr.y * scale + offsetY;
+          context.moveTo(x + 1, y);
+          context.arc(x, y, 1, 0, Math.PI * 2);
+        });
+      } else {
+        d3NodesRef.current.forEach((n) => {
+          if (n.x === undefined || n.y === undefined) return;
+          const x = n.x * scale + offsetX;
+          const y = n.y * scale + offsetY;
+          context.moveTo(x + 1, y);
+          context.arc(x, y, 1, 0, Math.PI * 2);
+        });
+      }
+      context.fill();
+
+      if (isSigma && sigma) {
+        const state = sigma.getCamera().getState();
+        const rect = sigma.getContainer().getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && state.ratio > 0) {
+          const vw = rect.width * state.ratio;
+          const vh = rect.height * state.ratio;
+          const vx = state.x - vw / 2;
+          const vy = state.y - vh / 2;
+          context.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+          context.lineWidth = 1;
+          context.strokeRect(
+            vx * scale + offsetX,
+            vy * scale + offsetY,
+            vw * scale,
+            vh * scale
+          );
+        }
+      } else if (!isSigma && d3SvgRef.current) {
+        const svgElement = d3SvgRef.current.node() as SVGSVGElement;
+        const rect = svgElement.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const transform = d3.zoomTransform(svgElement);
+          const vw = rect.width / transform.k;
+          const vh = rect.height / transform.k;
+          const vx = -transform.x / transform.k;
+          const vy = -transform.y / transform.k;
+
+          context.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+          context.lineWidth = 1;
+          context.strokeRect(
+            vx * scale + offsetX,
+            vy * scale + offsetY,
+            vw * scale,
+            vh * scale
+          );
+        }
+      }
+
+      rafId = requestAnimationFrame(renderMiniMap);
+    };
+    
+    rafId = requestAnimationFrame(renderMiniMap);
+    return () => cancelAnimationFrame(rafId);
+  }, [vizType]);
+
   return (
     <section
       className={`graph-stage codeflow-active codeflow-${vizType}`}
@@ -2016,8 +2765,18 @@ function GraphStage({
         className="treemap-overlay"
         style={{ display: vizType === 'treemap' ? 'block' : 'none' }}
       />
-      {(vizType === 'symbols' || vizType === 'vector') && (
-        <canvas ref={miniMapRef} className="minimap-overlay" width={160} height={100} />
+      {vizType !== 'treemap' && (
+        <canvas 
+          ref={miniMapRef} 
+          className="minimap-overlay" 
+          width={160} 
+          height={100} 
+          onPointerDown={handleMinimapInteraction as any}
+          onPointerMove={(e) => {
+            if (e.buttons === 1) handleMinimapInteraction(e as any);
+          }}
+          style={{ cursor: 'crosshair', touchAction: 'none' }}
+        />
       )}
       {vizType !== 'symbols' && vizType !== 'vector' && (
         <div className="flow-map-chip">
@@ -2025,12 +2784,12 @@ function GraphStage({
           <span>{visualPayload.nodes.length} files, {visualPayload.edges.length} dependency links</span>
         </div>
       )}
-      {(vizType === 'symbols' || vizType === 'vector') && (
+      {vizType !== 'treemap' && (
         <div className="graph-actions" aria-label="Graph controls">
-          <button type="button" title="Zoom in" onClick={() => zoom(0.72)}>
+          <button type="button" title="Zoom in (+)" onClick={() => zoom(0.72)}>
             <ZoomIn size={18} />
           </button>
-          <button type="button" title="Zoom out" onClick={() => zoom(1.28)}>
+          <button type="button" title="Zoom out (-)" onClick={() => zoom(1.28)}>
             <ZoomOut size={18} />
           </button>
           <button
@@ -2045,11 +2804,40 @@ function GraphStage({
           >
             {cameraLocked ? <LocateFixed size={18} /> : <Pin size={18} />}
           </button>
-          <button type="button" title="Reset sphere" onClick={resetSphere}>
+          <button type="button" title="Reset / Fit (f)" onClick={resetSphere}>
             <Maximize2 size={18} />
+          </button>
+          <button type="button" title={showSidebars ? "Hide Sidebars" : "Show Sidebars"} onClick={() => setShowSidebars && setShowSidebars(!showSidebars)}>
+            <Columns size={18} />
           </button>
           <button type="button" title="Export PNG" onClick={exportPNG}>
             <Download size={18} />
+          </button>
+          {vizType !== 'symbols' && vizType !== 'vector' && (
+            <button
+              type="button"
+              title="Export SVG"
+              onClick={exportSVG}
+              style={{ fontSize: '11px', fontWeight: 700, padding: '0 10px', letterSpacing: '0.04em' }}
+            >
+              SVG
+            </button>
+          )}
+          <button
+            type="button"
+            title="Export JSON"
+            onClick={exportJSON}
+            style={{ fontSize: '11px', fontWeight: 700, padding: '0 10px', letterSpacing: '0.04em' }}
+          >
+            JSON
+          </button>
+          <button
+            type="button"
+            title="Export Markdown report"
+            onClick={exportMarkdown}
+            style={{ fontSize: '11px', fontWeight: 700, padding: '0 10px', letterSpacing: '0.04em' }}
+          >
+            .md
           </button>
           {pathNodes.size > 0 && (
             <button type="button" title="Clear path" onClick={onClearPath}>
@@ -2060,103 +2848,20 @@ function GraphStage({
       )}
 
       {/* View mode toggle bar */}
-      <div className="graph-toolbar" style={{
-        position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: '5px', background: 'rgba(10,14,23,0.92)',
-        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
-        padding: '3px', zIndex: 20, backdropFilter: 'blur(16px)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-      }}>
-        {([
-          ['vector', LocateFixed, 'Vector Graph'],
-          ['graph', Network, 'Graph'],
-          ['treemap', BoxSelect, 'Treemap'],
-          ['matrix', Keyboard, 'Matrix'],
-          ['tree', GitBranch, 'Tree'],
-          ['flow', ArrowRight, 'Flow'],
-          ['cluster', Activity, 'Cluster'],
-          ['bundle', CircleDot, 'Bundle'],
-        ] as const).map(([type, Icon, label]) => (
-          <button
-            key={type}
-            type="button"
-            onClick={() => onVizTypeChange(type)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 7,
-              padding: '8px 16px',
-              borderRadius: '7px',
-              border: 'none',
-              fontSize: '12px',
-              fontWeight: 750,
-              cursor: 'pointer',
-              transition: 'all 150ms',
-              background: vizType === type ? 'rgba(34,197,94,0.16)' : 'transparent',
-              color: vizType === type ? '#6dff9d' : '#9ca3af',
-            }}
-          >
-            <Icon size={15} />
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="graph-toolbar" style={{
-        position: 'absolute', top: 56, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: '3px', background: 'rgba(10,14,23,0.82)',
-        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
-        padding: '3px', zIndex: 20, backdropFilter: 'blur(16px)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
-      }}>
-        {(['type', 'importance', 'dead', 'bridge', 'folder', 'layer'] as const).map(mode => (
-          <button key={mode} type="button"
-            onClick={() => onViewModeChange(mode)}
-            style={{
-              padding: '5px 12px',
-              borderRadius: '7px',
-              border: 'none',
-              background: viewMode === mode ? 'rgba(6,182,212,0.2)' : 'transparent',
-              color: viewMode === mode ? '#22d3ee' : '#64748b',
-              fontSize: '10px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}>
-            {mode === 'type' ? 'Type' : mode === 'importance' ? 'Heat' : mode === 'dead' ? 'Dead' : mode === 'bridge' ? 'Bridge' : mode === 'folder' ? 'Folder' : 'Layer'}
-          </button>
-        ))}
-      </div>
-      {(vizType === 'symbols' || vizType === 'vector') && (
-      <div className="graph-toolbar" style={{
-        position: 'absolute', top: 98, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: '3px', background: 'rgba(10,14,23,0.82)',
-        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
-        padding: '3px', zIndex: 20, backdropFilter: 'blur(16px)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
-      }}>
-        {(['force', 'radial', 'hierarchical', 'grid'] as const).map(mode => (
-          <button key={mode} type="button"
-            onClick={() => onLayoutModeChange(mode)}
-            style={{
-              padding: '5px 12px',
-              borderRadius: '7px',
-              border: 'none',
-              background: layoutMode === mode ? 'rgba(6,182,212,0.2)' : 'transparent',
-              color: layoutMode === mode ? '#22d3ee' : '#64748b',
-              fontSize: '10px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}>
-            {mode === 'force' ? 'Force' : mode === 'radial' ? 'Radial' : mode === 'hierarchical' ? 'Layers' : 'Grid'}
-          </button>
-        ))}
-      </div>
-      )}
+      <GraphToolbar
+        vizType={vizType}
+        onVizTypeChange={onVizTypeChange}
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+        layoutMode={layoutMode}
+        onLayoutModeChange={onLayoutModeChange}
+      />
     </section>
   );
 }
 
 function App() {
-  const { payload, error, level, expandCommunity, lastUpdate } = useGraphData();
+  const { payload, setPayload, error, level, expandCommunity, lastUpdate } = useGraphData();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GraphNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2177,17 +2882,28 @@ function App() {
   const [relationshipSearch, setRelationshipSearch] = useState("");
   const [expandedRelationships, setExpandedRelationships] = useState<Set<string>>(new Set());
   const [isInspectorPinned, setIsInspectorPinned] = useState(false);
+  const [showSidebars, setShowSidebars] = useState(true);
   const [isCameraLocked, setIsCameraLocked] = useState(false);
   const [compareNode, setCompareNode] = useState<GraphNode | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('type');
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
-  const [vizType, setVizType] = useState<VizType>('graph');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => 
+    (typeof window !== 'undefined' ? localStorage.getItem("codebrain:viewMode") as ViewMode : null) || 'type'
+  );
+  const [churnData, setChurnData] = useState<Record<string, { changes: number; authors: number; hotspot: boolean }> | null>(null);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => 
+    (typeof window !== 'undefined' ? localStorage.getItem("codebrain:layoutMode") as LayoutMode : null) || 'force'
+  );
+  const [vizType, setVizType] = useState<VizType>(() => 
+    (typeof window !== 'undefined' ? localStorage.getItem("codebrain:vizType") as VizType : null) || 'graph'
+  );
   const [blastNodes, setBlastNodes] = useState<Set<string>>(new Set());
   const [blastSourceId, setBlastSourceId] = useState<string | null>(null);
   const [pathMode, setPathMode] = useState<{ source: string | null }>({ source: null });
   const [pathNodes, setPathNodes] = useState<Set<string>>(new Set());
   const [pathSourceId, setPathSourceId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string; nodeName: string } | null>(null);
+  const [legendCollapsed, setLegendCollapsed] = useState(() => 
+    typeof window !== 'undefined' ? localStorage.getItem("codebrain:legendCollapsed") === "true" : false
+  );
   const [relationshipsHeight, setRelationshipsHeight] = useState(() =>
     typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:relationshipsHeight") || 300) : 300,
   );
@@ -2195,12 +2911,12 @@ function App() {
     typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:sourceCodeHeight") || 400) : 400,
   );
   const [leftWidth, setLeftWidth] = useState(() =>
-    typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:leftWidth") || 320) : 320,
+    typeof window !== 'undefined' ? clamp(Number(localStorage.getItem("codebrain:leftWidth") || 280), 240, 360) : 280,
   );
   const [rightWidth, setRightWidth] = useState(() =>
-    typeof window !== 'undefined' ? Number(localStorage.getItem("codebrain:rightWidth") || 420) : 420,
+    typeof window !== 'undefined' ? clamp(Number(localStorage.getItem("codebrain:rightWidth") || 360), 300, 460) : 360,
   );
-  
+
   // Analysis panels state
   const [deadCode, setDeadCode] = useState<any[]>([]);
   const [bridges, setBridges] = useState<any[]>([]);
@@ -2214,7 +2930,30 @@ function App() {
   const [patternResults, setPatternResults] = useState<any[]>([]);
   const [patternLoading, setPatternLoading] = useState(false);
   const [patternError, setPatternError] = useState('');
-  
+
+
+  // codeflow-style analysis state
+  const [complexity, setComplexity] = useState<any>(null);
+  const [showComplexity, setShowComplexity] = useState(false);
+  const [duplicates, setDuplicates] = useState<any>(null);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [layerViolations, setLayerViolations] = useState<any>(null);
+  const [showLayerViolations, setShowLayerViolations] = useState(false);
+  const [healthScore, setHealthScore] = useState<any>(null);
+  const [showHealthScore, setShowHealthScore] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [darkMode, setDarkMode] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('codebrain:darkMode') !== 'false' : true,
+  );
+
+  // GitHub repo input state
+  const [repoUrl, setRepoUrl] = useState('');
+  const [authMethod, setAuthMethod] = useState<'none' | 'pat' | 'github_app'>('none');
+  const [token, setToken] = useState('');
+  const [isAnalyzingGitHub, setIsAnalyzingGitHub] = useState(false);
+  const [isInitializingLocal, setIsInitializingLocal] = useState(false);
+
   const shellRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const relationshipSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -2229,13 +2968,22 @@ function App() {
   }, [payload]);
 
   useEffect(() => {
+    if (viewMode === 'churn' && !churnData) {
+      fetch('/api/churn')
+        .then(r => r.ok ? r.json() : { files: {} })
+        .then(d => setChurnData(d.files))
+        .catch(() => setChurnData({}));
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
     if (!payload) return;
     fetch('/api/analyze/invariants')
       .then((response) => response.ok ? response.json() : null)
       .then((data) => {
         if (data) setInvariants(data);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [payload]);
 
   useEffect(() => {
@@ -2254,9 +3002,34 @@ function App() {
     localStorage.setItem("codebrain:sourceCodeHeight", String(sourceCodeHeight));
   }, [sourceCodeHeight]);
 
+  useEffect(() => {
+    localStorage.setItem("codebrain:viewMode", viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:layoutMode", layoutMode);
+  }, [layoutMode]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:vizType", vizType);
+  }, [vizType]);
+
+  useEffect(() => {
+    localStorage.setItem("codebrain:legendCollapsed", String(legendCollapsed));
+  }, [legendCollapsed]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    localStorage.setItem('codebrain:darkMode', String(darkMode));
+  }, [darkMode]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't fire shortcuts when typing in an input or textarea
+      const tag = (event.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
       // Cmd/Ctrl + K: Focus search
       if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
         event.preventDefault();
@@ -2276,6 +3049,26 @@ function App() {
           setDetails(null);
           setSource(null);
         }
+      }
+      // + / = : Zoom in (no modifier needed)
+      if ((event.key === '+' || event.key === '=') && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        // Sigma zoom: handled via sigmaRef in GraphStage — emit a custom event
+        window.dispatchEvent(new CustomEvent('codebrain:zoom', { detail: { direction: 'in' } }));
+      }
+      // - : Zoom out
+      if (event.key === '-' && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        window.dispatchEvent(new CustomEvent('codebrain:zoom', { detail: { direction: 'out' } }));
+      }
+      // f : Fit graph / reset camera
+      if (event.key === 'f' && !event.metaKey && !event.ctrlKey) {
+        window.dispatchEvent(new CustomEvent('codebrain:fit'));
+      }
+      // b : Run blast radius on the currently selected node
+      if (event.key === 'b' && !event.metaKey && !event.ctrlKey && selectedId && payload) {
+        const node = payload.nodes.find(n => n.id === selectedId);
+        if (node) analyzeImpact(selectedId, node.name);
       }
     };
 
@@ -2358,6 +3151,100 @@ function App() {
         if (items[0]) selectNode(items[0].id);
       })
       .catch(() => setResults([]));
+  };
+
+  const analyzeGitHubRepo = async () => {
+    const parsed = github.parseRepoUrl(repoUrl);
+    if (!parsed) {
+      alert('Invalid URL. Use format: owner/repo or https://github.com/owner/repo');
+      return;
+    }
+
+    setIsAnalyzingGitHub(true);
+    try {
+      // Set authentication
+      github.setToken(authMethod === 'pat' ? token : null);
+
+      // Check rate limit
+      const rateLimit = await github.getRateLimit();
+      if (rateLimit.remaining < 50 && authMethod === 'none') {
+        const proceed = window.confirm(
+          `GitHub API rate limit is low (${rateLimit.remaining}/${rateLimit.limit}).\n` +
+          'Add a Personal Access Token for higher limits.\n' +
+          'Continue anyway?'
+        );
+        if (!proceed) {
+          setIsAnalyzingGitHub(false);
+          return;
+        }
+      }
+
+      // Scan repository
+      const files = await github.scanRepository(parsed.owner, parsed.repo, []);
+
+      if (files.length === 0) {
+        alert('No code files found in repository');
+        setIsAnalyzingGitHub(false);
+        return;
+      }
+
+      // Fetch files
+      const fileContents = await github.fetchFiles(parsed.owner, parsed.repo, files);
+
+      // Send to server for analysis
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: fileContents,
+          repo: `${parsed.owner}/${parsed.repo}`
+        })
+      });
+
+      if (!response.ok) throw new Error('Analysis failed');
+
+      const result = await response.json() as GraphPayload;
+      setPayload(result);
+      setSelectedId(null);
+      setDetails(null);
+      setSource(null);
+      setResults([]);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Analysis failed');
+    } finally {
+      setIsAnalyzingGitHub(false);
+    }
+  };
+
+  const initializeLocalRepo = async () => {
+    setIsInitializingLocal(true);
+    try {
+      const response = await fetch('/api/repo/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reindex: true }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Repository initialization failed');
+      }
+
+      const result = await response.json() as { stats?: GraphPayload['stats'] };
+      const graphResponse = await fetch('/api/graph?level=0');
+      if (!graphResponse.ok) throw new Error('Repository initialized, but graph reload failed');
+      const nextPayload = await graphResponse.json() as GraphPayload;
+      setPayload(nextPayload);
+      setSelectedId(null);
+      setDetails(null);
+      setSource(null);
+      setResults([]);
+      console.info('Local repository initialized', result.stats);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Repository initialization failed');
+    } finally {
+      setIsInitializingLocal(false);
+    }
   };
 
   const toggleType = (type: string) => {
@@ -2556,7 +3443,17 @@ function App() {
       comparePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }, 50);
   };
-  
+
+  const legendPanel = (
+    <GraphLegend
+      viewMode={viewMode}
+      setViewMode={setViewMode}
+      legendCollapsed={legendCollapsed}
+      setLegendCollapsed={setLegendCollapsed}
+      payload={payload}
+    />
+  );
+
   // Analysis panel fetch functions
   const loadDeadCode = async () => {
     try {
@@ -2568,7 +3465,7 @@ function App() {
       console.error('Failed to load dead code:', err);
     }
   };
-  
+
   const loadBridges = async () => {
     try {
       const res = await fetch('/api/analyze/bridges');
@@ -2590,7 +3487,7 @@ function App() {
       console.error('Failed to load security issues:', err);
     }
   };
-  
+
   const loadInvariants = async () => {
     try {
       const res = await fetch('/api/analyze/invariants');
@@ -2600,6 +3497,52 @@ function App() {
     } catch (err) {
       console.error('Failed to load invariants:', err);
     }
+  };
+
+
+  const loadComplexity = async () => {
+    try {
+      const res = await fetch('/api/analyze/complexity');
+      const data = await res.json();
+      setComplexity(data);
+      setShowComplexity(true);
+    } catch (err) { console.error('Failed to load complexity:', err); }
+  };
+
+  const loadDuplicates = async () => {
+    try {
+      const res = await fetch('/api/analyze/duplicates');
+      const data = await res.json();
+      setDuplicates(data);
+      setShowDuplicates(true);
+    } catch (err) { console.error('Failed to load duplicates:', err); }
+  };
+
+  const loadLayerViolations = async () => {
+    try {
+      const res = await fetch('/api/analyze/layer-violations');
+      const data = await res.json();
+      setLayerViolations(data);
+      setShowLayerViolations(true);
+    } catch (err) { console.error('Failed to load layer violations:', err); }
+  };
+
+  const loadHealthScore = async () => {
+    try {
+      const res = await fetch('/api/analyze/health-score');
+      const data = await res.json();
+      setHealthScore(data);
+      setShowHealthScore(true);
+    } catch (err) { console.error('Failed to load health score:', err); }
+  };
+
+  const loadSuggestions = async () => {
+    try {
+      const res = await fetch('/api/analyze/suggestions');
+      const data = await res.json();
+      setSuggestions(data.suggestions || []);
+      setShowSuggestions(true);
+    } catch (err) { console.error('Failed to load suggestions:', err); }
   };
 
   const analyzeImpact = async (nodeId: string, nodeName: string) => {
@@ -2686,19 +3629,43 @@ function App() {
   return (
     <main
       ref={shellRef}
-      className="app-shell"
+      className={`app-shell${darkMode ? "" : " light-mode"}`}
       style={{
-        "--left-width": `${leftWidth}px`,
-        "--right-width": `${rightWidth}px`,
+        "--left-width": showSidebars ? `${leftWidth}px` : "0px",
+        "--right-width": showSidebars ? `${rightWidth}px` : "0px",
       } as React.CSSProperties}
     >
-      <aside className="left-rail">
+      {showSidebars && (
+        <aside className="left-rail">
         <header className="brand-block">
           <div className="brand-mark"><Network size={22} /></div>
-          <div>
+          <div style={{ flex: 1 }}>
             <h1>code-brain</h1>
             <p>Deterministic graph intelligence</p>
           </div>
+          <button
+            type="button"
+            onClick={() => setDarkMode(d => !d)}
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
+              color: 'var(--muted)', borderRadius: '6px', display: 'flex', alignItems: 'center',
+              transition: 'color 0.2s',
+            }}
+          >
+            {darkMode ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            )}
+          </button>
         </header>
 
         {lastUpdate && (
@@ -2721,6 +3688,109 @@ function App() {
             {lastUpdate}
           </div>
         )}
+
+        <section className="tool-panel" style={{ padding: '12px 14px', gap: '8px' }}>
+          <label style={{ fontSize: '11px', fontWeight: '600', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <GitBranch size={14} />
+            <span>GitHub Repository</span>
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <input
+              type="text"
+              className="repo-input"
+              placeholder="owner/repo or GitHub URL"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && analyzeGitHubRepo()}
+              style={{
+                padding: '6px 10px',
+                background: 'var(--bg0)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                color: 'var(--t0)',
+                fontFamily: 'inherit',
+                fontSize: '11px',
+                width: '100%',
+                boxSizing: 'border-box'
+              }}
+            />
+            <select
+              value={authMethod}
+              onChange={(e) => setAuthMethod(e.target.value as any)}
+              style={{
+                padding: '6px 10px',
+                background: 'var(--bg0)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                color: 'var(--t0)',
+                fontFamily: 'inherit',
+                fontSize: '10px',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="none">No Auth</option>
+              <option value="pat">Token (PAT)</option>
+            </select>
+            {authMethod === 'pat' && (
+              <input
+                type="password"
+                placeholder="GitHub Personal Access Token"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--bg0)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--t0)',
+                  fontFamily: 'inherit',
+                  fontSize: '11px',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+            )}
+            <button
+              onClick={analyzeGitHubRepo}
+              disabled={isAnalyzingGitHub || !repoUrl}
+              style={{
+                padding: '8px 12px',
+                background: isAnalyzingGitHub ? 'var(--bg3)' : 'var(--acc)',
+                color: isAnalyzingGitHub ? 'var(--t1)' : 'var(--bg0)',
+                border: 'none',
+                borderRadius: '6px',
+                fontFamily: 'inherit',
+                fontSize: '11px',
+                fontWeight: '600',
+                cursor: isAnalyzingGitHub ? 'not-allowed' : 'pointer',
+                opacity: isAnalyzingGitHub ? 0.6 : 1,
+                transition: 'all 0.2s'
+              }}
+            >
+              {isAnalyzingGitHub ? 'Analyzing...' : 'Analyze'}
+            </button>
+            <button
+              type="button"
+              onClick={initializeLocalRepo}
+              disabled={isInitializingLocal || isAnalyzingGitHub}
+              title="Initialize and re-index this local repository"
+              style={{
+                padding: '8px 12px',
+                background: 'rgba(15, 23, 42, 0.72)',
+                color: isInitializingLocal ? 'var(--muted)' : 'var(--text)',
+                border: '1px solid var(--line-bright)',
+                borderRadius: '6px',
+                fontFamily: 'inherit',
+                fontSize: '11px',
+                fontWeight: '600',
+                cursor: isInitializingLocal || isAnalyzingGitHub ? 'not-allowed' : 'pointer',
+                opacity: isInitializingLocal || isAnalyzingGitHub ? 0.6 : 1,
+              }}
+            >
+              {isInitializingLocal ? 'Initializing...' : 'Init / Re-index Current Repo'}
+            </button>
+          </div>
+        </section>
 
         <section className="tool-panel search-panel">
           <label>
@@ -2762,7 +3832,7 @@ function App() {
                   <strong>{node.name}</strong>
                   <em>{node.type}</em>
                 </span>
-                <small>{relativeLabel(node.fullName || node.file)} · degree {node.degree}</small>
+                <small>{relativeLabel(node.fullName || node.file)} | degree {node.degree}</small>
               </button>
             ))}
             {query.trim() && visibleSearchResults.length === 0 && (
@@ -2793,58 +3863,44 @@ function App() {
           </div>
         </section>
 
-        <section className="tool-panel">
-          <h2><Filter size={15} /> Node Types</h2>
-          <div className="filter-list">
-            {Object.entries(payload.stats.nodesByType).map(([type, count]) => (
-              <button
-                key={type}
-                type="button"
-                className={activeTypes.has(type) ? "active" : ""}
-                onClick={() => toggleType(type)}
-              >
-                <span className="dot" style={{ background: NODE_COLORS[type] || "#e2e8f0" }} />
-                <span>{type}</span>
-                <strong>{count}</strong>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* Legend Panel */}
-        <section className="tool-panel">
-          <h2>
-            <Keyboard size={15} /> Legend
-          </h2>
-          <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '6px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Node Types
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
-                {Object.entries(NODE_COLORS).map(([type, color]) => (
-                  <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: '10px' }}>{type}</span>
-                  </div>
+        {/* Language stats bar — derived from graph node types */}
+        {payload && (() => {
+          const extMap: Record<string, number> = {};
+          payload.nodes.forEach(n => {
+            const file = n.file || n.location?.file || '';
+            const ext = file.includes('.') ? file.split('.').pop()!.toLowerCase() : '';
+            if (ext && ext.length <= 6) extMap[ext] = (extMap[ext] || 0) + 1;
+          });
+          const sorted = Object.entries(extMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+          const total = sorted.reduce((s, [, c]) => s + c, 0);
+          const langColors: Record<string, string> = {
+            ts: '#3178c6', tsx: '#3178c6', js: '#f7df1e', jsx: '#f7df1e',
+            py: '#3572A5', go: '#00ADD8', rs: '#dea584', java: '#b07219',
+            cs: '#178600', cpp: '#f34b7d', c: '#555555', rb: '#701516',
+            php: '#4F5D95', swift: '#F05138', kt: '#A97BFF', md: '#083fa1',
+            json: '#40a02b', yaml: '#cb171e', css: '#563d7c', scss: '#c6538c',
+          };
+          if (sorted.length === 0) return null;
+          return (
+            <section className="tool-panel" style={{ paddingBottom: '4px' }}>
+              <h2>
+                <Code2 size={15} /> Languages
+              </h2>
+              <div style={{ display: 'flex', height: '6px', borderRadius: '4px', overflow: 'hidden', margin: '0 0 8px' }}>
+                {sorted.map(([ext, cnt]) => (
+                  <div key={ext} style={{ flex: cnt, background: langColors[ext] || '#64748b', transition: 'flex 0.3s' }} title={`${ext}: ${cnt}`} />
                 ))}
               </div>
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: '6px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Edge Types
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                {Object.entries(EDGE_COLORS).map(([type, color]) => (
-                  <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '16px', height: '2px', background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: '10px' }}>{type.replace(/_/g, ' ')}</span>
-                  </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {sorted.map(([ext, cnt]) => (
+                  <span key={ext} style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '10px', background: `${langColors[ext] || '#64748b'}22`, color: langColors[ext] || '#94a3b8', border: `1px solid ${langColors[ext] || '#64748b'}44` }}>
+                    .{ext} <span style={{ opacity: 0.7 }}>{Math.round(cnt / total * 100)}%</span>
+                  </span>
                 ))}
               </div>
-            </div>
-          </div>
-        </section>
+            </section>
+          );
+        })()}
 
         <section className="tool-panel">
           <h2><Activity size={15} /> Signal Hubs</h2>
@@ -2861,8 +3917,8 @@ function App() {
         <section className="tool-panel">
           <h2>
             <AlertTriangle size={15} /> Dead Code
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={loadDeadCode}
               style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
             >
@@ -2895,8 +3951,8 @@ function App() {
         <section className="tool-panel">
           <h2>
             <GitBranch size={15} /> Bridge Nodes
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={loadBridges}
               style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
             >
@@ -2967,8 +4023,8 @@ function App() {
         <section className="tool-panel">
           <h2>
             <CheckCircle2 size={15} /> Invariants
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={loadInvariants}
               style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
             >
@@ -3017,7 +4073,7 @@ function App() {
               style={{ fontSize: '12px' }}
             />
             <button type="button" onClick={runPatternQuery} disabled={patternLoading}>
-              {patternLoading ? 'â€¦' : 'Run'}
+              {patternLoading ? '...' : 'Run'}
             </button>
           </div>
           {patternError && <div style={{ fontSize: '11px', color: 'var(--muted)', padding: '4px 0' }}>{patternError}</div>}
@@ -3032,15 +4088,212 @@ function App() {
             ))}
           </div>
         </section>
-      </aside>
 
-      <div
-        className="panel-resizer"
-        role="separator"
-        aria-label="Resize left panel"
-        aria-orientation="vertical"
-        onPointerDown={(event) => startResize("left", event)}
-      />
+        {/* ─── Complexity Panel ─────────────────────────────────────── */}
+        <section className="tool-panel">
+          <h2>
+            <Activity size={15} /> Complexity
+            <button
+              type="button"
+              onClick={loadComplexity}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Scan
+            </button>
+          </h2>
+          {complexity && (
+            <div style={{ fontSize: '11px', color: 'var(--muted)', padding: '4px 8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {(['critical', 'high', 'medium', 'low'] as const).map(lv => {
+                const colors: Record<string, string> = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#4ade80' };
+                return (
+                  <span key={lv} style={{ color: colors[lv] }}>
+                    {complexity.distribution[lv]} <span style={{ opacity: 0.6 }}>{lv}</span>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {showComplexity && complexity && (
+            <div className="hub-list">
+              {(complexity.files as any[]).slice(0, 10).map((f: any) => {
+                const colors: Record<string, string> = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#4ade80' };
+                return (
+                  <button key={f.id} type="button" onClick={() => selectNode(f.id)}>
+                    <span>{f.name}</span>
+                    <small style={{ color: colors[f.level] }}>score {f.score} — {f.level}</small>
+                  </button>
+                );
+              })}
+              {complexity.total > 10 && (
+                <div style={{ padding: '4px 8px', color: '#64748b', fontSize: '11px' }}>
+                  +{complexity.total - 10} more files
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ─── Duplicate Functions Panel ─────────────────────────────── */}
+        <section className="tool-panel">
+          <h2>
+            <Code2 size={15} /> Duplicates
+            <button
+              type="button"
+              onClick={loadDuplicates}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Scan
+            </button>
+          </h2>
+          {showDuplicates && duplicates && (
+            <div className="hub-list">
+              {duplicates.total === 0 ? (
+                <div style={{ padding: '8px', color: '#64748b', fontSize: '12px' }}>No duplicate function names detected</div>
+              ) : (
+                (duplicates.duplicates as any[]).slice(0, 8).map((d: any) => (
+                  <div key={d.name} style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', fontSize: '12px' }}>
+                    <div style={{ fontWeight: 600, color: '#f59e0b' }}>{d.name}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                      Found in {d.count} files
+                    </div>
+                    {(d.files as string[]).slice(0, 2).map((f: string) => (
+                      <div key={f} style={{ fontSize: '10px', color: '#64748b', paddingLeft: '8px' }}>
+                        | {f.split('/').slice(-2).join('/')}
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+              {duplicates.total > 8 && (
+                <div style={{ padding: '4px 8px', color: '#64748b', fontSize: '11px' }}>+{duplicates.total - 8} more</div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ─── Layer Violations Panel ────────────────────────────────── */}
+        <section className="tool-panel">
+          <h2>
+            <Filter size={15} /> Layer Violations
+            <button
+              type="button"
+              onClick={loadLayerViolations}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Check
+            </button>
+          </h2>
+          {showLayerViolations && layerViolations && (
+            <div className="hub-list">
+              {layerViolations.total === 0 ? (
+                <div style={{ padding: '8px', color: '#4ade80', fontSize: '12px' }}>✓ No architecture violations found</div>
+              ) : (
+                (layerViolations.violations as any[]).slice(0, 8).map((v: any, i: number) => (
+                  <div key={i} style={{ padding: '6px 8px', borderLeft: '3px solid #ef4444', margin: '4px 0', background: 'rgba(239,68,68,0.04)', fontSize: '11px' }}>
+                    <div style={{ fontWeight: 600, color: '#f87171' }}>{v.fromLayer} → {v.toLayer}</div>
+                    <div style={{ color: 'var(--muted)', marginTop: '2px' }}>
+                      {v.from.split('/').pop()} imports {v.to.split('/').pop()}
+                    </div>
+                  </div>
+                ))
+              )}
+              {layerViolations.total > 8 && (
+                <div style={{ padding: '4px 8px', color: '#64748b', fontSize: '11px' }}>+{layerViolations.total - 8} more</div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ─── Health Score Panel ─────────────────────────────────────── */}
+        <section className="tool-panel">
+          <h2>
+            <CheckCircle2 size={15} /> Health Score
+            <button
+              type="button"
+              onClick={loadHealthScore}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Compute
+            </button>
+          </h2>
+          {showHealthScore && healthScore && (
+            <div style={{ fontSize: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', borderBottom: '1px solid var(--line)' }}>
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '50%', display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  background: `conic-gradient(${healthScore.score >= 80 ? '#4ade80' : healthScore.score >= 60 ? '#f59e0b' : '#ef4444'} ${healthScore.score * 3.6}deg, rgba(255,255,255,0.06) 0deg)`,
+                  boxShadow: '0 0 0 3px var(--surface)',
+                }}>
+                  <div style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1, color: healthScore.score >= 80 ? '#4ade80' : healthScore.score >= 60 ? '#f59e0b' : '#ef4444' }}>
+                    {healthScore.grade}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '20px', fontWeight: 700 }}>{healthScore.score}<span style={{ fontSize: '12px', opacity: 0.5 }}>/100</span></div>
+                  <div style={{ color: 'var(--muted)', fontSize: '11px' }}>Overall health grade</div>
+                </div>
+              </div>
+              <div style={{ padding: '6px 8px' }}>
+                {Object.entries(healthScore.breakdown as Record<string, number>).map(([key, val]) => (
+                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--muted)', fontSize: '11px' }}>
+                    <span>{key.replace(/([A-Z])/g, ' $1').replace('Penalty', ' −').trim()}</span>
+                    <span style={{ color: val > 0 ? '#f87171' : '#4ade80', fontWeight: 600 }}>{val > 0 ? `-${Math.round(val)}` : '0'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ─── Suggestions Panel ─────────────────────────────────────── */}
+        <section className="tool-panel">
+          <h2>
+            <Braces size={15} /> Suggestions
+            <button
+              type="button"
+              onClick={loadSuggestions}
+              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }}
+            >
+              Analyze
+            </button>
+          </h2>
+          {showSuggestions && (
+            <div style={{ fontSize: '12px' }}>
+              {suggestions.length === 0 ? (
+                <div style={{ padding: '8px', color: '#4ade80' }}>✓ No improvements needed — looking great!</div>
+              ) : (
+                suggestions.map((s, i) => {
+                  const priorityColors: Record<string, string> = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#4ade80' };
+                  return (
+                    <div key={i} style={{ padding: '8px', borderLeft: `3px solid ${priorityColors[s.priority]}`, margin: '4px 0', background: `${priorityColors[s.priority]}08` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                        <span style={{ background: priorityColors[s.priority], color: '#000', borderRadius: '4px', padding: '1px 5px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>{s.priority}</span>
+                        <span style={{ fontWeight: 600 }}>{s.title}</span>
+                      </div>
+                      <div style={{ color: 'var(--muted)', marginBottom: '3px' }}>{s.desc}</div>
+                      <div style={{ fontSize: '10px', color: '#60a5fa' }}>→ {s.action}</div>
+                      <div style={{ fontSize: '10px', color: '#4ade80', marginTop: '2px' }}>✦ {s.impact}</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </section>
+
+      </aside>
+      )}
+
+      {showSidebars && (
+        <div
+          className="panel-resizer"
+          role="separator"
+          aria-label="Resize left panel"
+          aria-orientation="vertical"
+          onPointerDown={(event) => startResize("left", event)}
+        />
+      )}
 
       <GraphStage
         payload={payload}
@@ -3068,7 +4321,12 @@ function App() {
           else setContextMenu(null);
         }}
         searchQuery={query}
+        churnData={churnData}
+        showSidebars={showSidebars}
+        setShowSidebars={setShowSidebars}
       />
+
+      {legendPanel}
 
       {/* Context menu */}
       {contextMenu && contextMenu.nodeId && (
@@ -3091,8 +4349,8 @@ function App() {
             ...(pathMode.source && pathMode.source !== contextMenu.nodeId
               ? [{ label: 'Find path from source', action: () => findPath(pathMode.source!, contextMenu.nodeId) }]
               : []),
-            { label: 'Find callers', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); }},
-            { label: 'Copy node ID', action: () => { navigator.clipboard.writeText(contextMenu.nodeId); setContextMenu(null); }},
+            { label: 'Find callers', action: () => { selectNode(contextMenu.nodeId); setContextMenu(null); } },
+            { label: 'Copy node ID', action: () => { navigator.clipboard.writeText(contextMenu.nodeId); setContextMenu(null); } },
           ].map(item => (
             <button key={item.label} type="button" onClick={item.action}
               style={{
@@ -3110,15 +4368,18 @@ function App() {
         </div>
       )}
 
-      <div
-        className="panel-resizer"
-        role="separator"
-        aria-label="Resize live node panel"
-        aria-orientation="vertical"
-        onPointerDown={(event) => startResize("right", event)}
-      />
+      {showSidebars && (
+        <div
+          className="panel-resizer"
+          role="separator"
+          aria-label="Resize live node panel"
+          aria-orientation="vertical"
+          onPointerDown={(event) => startResize("right", event)}
+        />
+      )}
 
-      <aside className="right-rail inspector-shell">
+      {showSidebars && (
+        <aside className="right-rail inspector-shell">
         <section className="inspector-head inspector-head-modern">
           <div className="inspector-breadcrumb">
             <span>Live Node Inspector</span>
@@ -3214,6 +4475,64 @@ function App() {
                   {compareNode?.id === selectedNode.id ? "Compare target" : "Compare"}
                 </button>
               </div>
+              {/* Security signals matching this node's file */}
+              {(() => {
+                const nodeFile = nodeFilePath(selectedNode);
+                const matches = securityIssues.filter((issue: any) =>
+                  issue.path && nodeFile && (
+                    issue.path === nodeFile ||
+                    issue.path.endsWith(nodeFile) ||
+                    nodeFile.endsWith(issue.path)
+                  )
+                );
+                if (matches.length === 0) return null;
+                return (
+                  <div style={{
+                    marginTop: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '5px',
+                  }}>
+                    {matches.map((issue: any, i: number) => (
+                      <div key={i} style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '8px 10px',
+                        background: issue.severity === 'high'
+                          ? 'rgba(239,68,68,0.12)'
+                          : issue.severity === 'medium'
+                            ? 'rgba(245,158,11,0.12)'
+                            : 'rgba(148,163,184,0.08)',
+                        border: `1px solid ${issue.severity === 'high' ? 'rgba(239,68,68,0.35)'
+                          : issue.severity === 'medium' ? 'rgba(245,158,11,0.35)'
+                            : 'rgba(148,163,184,0.2)'
+                          }`,
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                      }}>
+                        <AlertTriangle
+                          size={13}
+                          style={{
+                            flexShrink: 0,
+                            marginTop: '1px',
+                            color: issue.severity === 'high' ? '#ef4444'
+                              : issue.severity === 'medium' ? '#f59e0b' : '#94a3b8',
+                          }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+                            {issue.title}
+                          </div>
+                          <div style={{ color: 'var(--muted)' }}>
+                            {issue.severity} | line {issue.line}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </section>
 
             {compareNode && (
@@ -3442,40 +4761,6 @@ function App() {
                         </div>
                       )}
                     </div>
-                    {false && <div
-                      style={{
-                        height: '12px',
-                        cursor: 'ns-resize',
-                        background: 'linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.25), transparent)',
-                        borderRadius: '6px',
-                        marginTop: '8px',
-                        position: 'relative',
-                        flexShrink: 0,
-                        transition: 'all 200ms ease'
-                      }}
-                      onPointerDown={startRelationshipsResize}
-                      title="Drag to resize relationships panel"
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.4), transparent)';
-                        e.currentTarget.style.height = '14px';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.25), transparent)';
-                        e.currentTarget.style.height = '12px';
-                      }}
-                    >
-                      <div style={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: '50px',
-                        height: '4px',
-                        background: 'rgba(6, 182, 212, 0.6)',
-                        borderRadius: '2px',
-                        boxShadow: '0 0 10px rgba(6, 182, 212, 0.4)'
-                      }} />
-                    </div>}
                   </>
                 )}
               </section>
@@ -3558,7 +4843,7 @@ function App() {
                   fontSize: '1.2rem',
                   fontWeight: '700'
                 }}>
-                  â–¼
+                  v
                 </span>
               </div>
 
@@ -3822,6 +5107,7 @@ function App() {
           </section>
         )}
       </aside>
+      )}
 
       {/* Keyboard Shortcuts Panel */}
       {showShortcuts && (
@@ -3866,6 +5152,24 @@ function App() {
                   <kbd>Enter</kbd>
                 </div>
                 <span>Execute search</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>+</kbd> / <kbd>-</kbd>
+                </div>
+                <span>Zoom in / out</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>f</kbd>
+                </div>
+                <span>Fit graph to screen</span>
+              </div>
+              <div className="shortcut-item">
+                <div className="shortcut-keys">
+                  <kbd>b</kbd>
+                </div>
+                <span>Blast radius on selected node</span>
               </div>
               <div className="shortcut-item">
                 <div className="shortcut-keys">
@@ -3916,7 +5220,7 @@ function App() {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
           code-brain
         </span>
-        <span>{payload?.stats.nodeCount ?? 0} nodes · {payload?.stats.edgeCount ?? 0} edges</span>
+        <span>{payload?.stats.nodeCount ?? 0} nodes | {payload?.stats.edgeCount ?? 0} edges</span>
         {payload?.analytics?.health && (
           <span>Health: <strong style={{ color: (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) < 0.1 ? '#10b981' : '#f59e0b' }}>
             {(100 - (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) * 100).toFixed(0)}%
@@ -3924,8 +5228,9 @@ function App() {
         )}
         <span>View: <strong style={{ color: 'var(--accent)' }}>{viewMode}</strong></span>
         {lastUpdate && <span style={{ opacity: 0.7 }}>Updated: {lastUpdate}</span>}
-        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>⌘K for commands · Right-click nodes for actions</span>
+        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>Ctrl+K search | +/- zoom | F fit | B blast | Right-click nodes for actions</span>
       </footer>
+
     </main>
   );
 }

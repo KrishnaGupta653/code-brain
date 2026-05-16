@@ -23,11 +23,11 @@ try {
   }
 
   await page.getByText("code-brain").first().waitFor({ timeout: 10000 });
-  await page.getByText("Node Types").waitFor({ timeout: 10000 });
+  await page.getByText("Legend & Filters").first().waitFor({ timeout: 10000 });
 
-  const canvasCount = await page.locator("canvas").count();
-  if (canvasCount === 0) {
-    throw new Error("Expected Sigma canvas elements to render");
+  const renderedGraphCount = await page.locator("canvas, .codeflow-stage svg, .treemap-overlay svg").count();
+  if (renderedGraphCount === 0) {
+    throw new Error("Expected a graph renderer to mount");
   }
 
   if (pageErrors.length > 0) {

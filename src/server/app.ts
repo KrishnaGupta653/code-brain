@@ -14,6 +14,9 @@ import { ContextAssembler } from "../retrieval/context-assembler.js";
 import { logger, getDbPath, stableId, normalizeProjectRoot } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
 import { GraphEdge, GraphNode, RankingScore, SourceSpan } from "../types/models.js";
+import { GraphBuilder } from "../graph/index.js";
+import { initCommand } from "../cli/commands/init.js";
+import { indexCommand } from "../cli/commands/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -416,9 +419,9 @@ export async function createGraphServer(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],  // needed for graph UI
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        connectSrc: ["'self'", "ws://localhost:*", "wss://localhost:*"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],  // needed for graph UI fallback
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+        connectSrc: ["'self'", "https://api.github.com", "ws://localhost:*", "wss://localhost:*"],
         imgSrc: ["'self'", "data:", "blob:"],
         fontSrc: ["'self'", "data:"],
       }
@@ -426,7 +429,7 @@ export async function createGraphServer(
     crossOriginEmbedderPolicy: false,  // Allow embedding for development
   }));
   
-  app.use(express.json());
+  app.use(express.json({ limit: "75mb" }));
   
   // Security: Rate limiting for API endpoints
   const apiLimiter = rateLimit({
@@ -460,6 +463,7 @@ export async function createGraphServer(
   app.use(express.static(staticDir));
 
   const resolvedProjectRoot = normalizeProjectRoot(projectRoot);
+  let activeProjectRoot = resolvedProjectRoot;
   logger.info(`Server starting for projectRoot: ${projectRoot}`);
   logger.info(`Resolved to: ${resolvedProjectRoot}`);
 
@@ -481,9 +485,9 @@ export async function createGraphServer(
     graph = storage.loadGraph(resolvedProjectRoot);
   }
   
-  const queryEngine = new QueryEngine(graph, storage, resolvedProjectRoot);
-  const graphStats = graph.getStats();
-  const analytics = computeAnalytics(graph);
+  let queryEngine = new QueryEngine(graph, storage, activeProjectRoot);
+  let graphStats = graph.getStats();
+  let analytics = computeAnalytics(graph);
   let rankingScores = storage.getRankingScores(resolvedProjectRoot);
   if (rankingScores.length === 0) {
     rankingScores = Object.entries(analytics.importance).map(([nodeId, score]) => ({
@@ -496,7 +500,32 @@ export async function createGraphServer(
     }));
     storage.saveRankingScores(resolvedProjectRoot, rankingScores);
   }
-  const rankingByNode = new Map(rankingScores.map((score) => [score.nodeId, score]));
+  let rankingByNode = new Map(rankingScores.map((score) => [score.nodeId, score]));
+
+  const deriveRankingScores = () => Object.entries(analytics.importance).map(([nodeId, score]) => ({
+    nodeId,
+    score: Number(score),
+    algorithm: "degree_importance",
+    components: {
+      centrality: Number(analytics.centrality[nodeId] || 0),
+    },
+  }));
+
+  const activateGraph = (
+    nextGraph: ReturnType<typeof storage.loadGraph>,
+    nextRoot: string,
+    nextRankingScores?: RankingScore[],
+  ) => {
+    graph = nextGraph;
+    activeProjectRoot = nextRoot;
+    graphStats = graph.getStats();
+    analytics = computeAnalytics(graph);
+    rankingScores = nextRankingScores && nextRankingScores.length > 0
+      ? nextRankingScores
+      : deriveRankingScores();
+    rankingByNode = new Map(rankingScores.map((score) => [score.nodeId, score]));
+    queryEngine = new QueryEngine(graph, storage, activeProjectRoot);
+  };
 
   logger.info(`Graph loaded with stats: ${JSON.stringify(graphStats)}`);
   if (useLazyLoading) {
@@ -826,6 +855,161 @@ export async function createGraphServer(
     });
   });
 
+  // GitHub repo analysis endpoint. The UI fetches GitHub content in-browser,
+  // then this endpoint materializes it into a temporary repository and builds
+  // the same parser-backed graph used for local projects.
+  app.post("/api/analyze", async (req, res) => {
+    try {
+      const { files, repo } = req.body;
+
+      if (!files || !Array.isArray(files)) {
+        res.status(400).json({ error: 'Invalid files array' });
+        return;
+      }
+
+      if (files.length === 0) {
+        res.status(400).json({ error: 'No files provided' });
+        return;
+      }
+
+      const safeRepoName = String(repo || "github-repo")
+        .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+        .slice(0, 120);
+      const remoteRoot = path.join(
+        resolvedProjectRoot,
+        ".codebrain",
+        "remote-repos",
+        `${safeRepoName}-${Date.now()}`,
+      );
+
+      fs.mkdirSync(remoteRoot, { recursive: true });
+
+      const writtenFiles: string[] = [];
+      for (const file of files as Array<{ path?: string; name?: string; content?: string }>) {
+        const relativePath = String(file.path || file.name || "").replace(/\\/g, "/");
+        if (!relativePath || relativePath.includes("\0")) continue;
+
+        const targetPath = path.resolve(remoteRoot, relativePath);
+        const relativeToRoot = path.relative(remoteRoot, targetPath);
+        if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+          continue;
+        }
+
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.writeFileSync(targetPath, String(file.content || ""), "utf8");
+        writtenFiles.push(targetPath);
+      }
+
+      if (writtenFiles.length === 0) {
+        res.status(400).json({ error: "No valid files could be materialized" });
+        return;
+      }
+
+      const builder = new GraphBuilder();
+      const remoteGraph = await builder.buildFromRepository(
+        remoteRoot,
+        ["**"],
+        ["node_modules", "dist", "build", "coverage", ".git", ".codebrain"],
+        writtenFiles,
+        false,
+      );
+
+      activateGraph(remoteGraph as ReturnType<typeof storage.loadGraph>, remoteRoot);
+
+      const payloadNodes = graph.getNodes().map((node) => {
+        const sanitized = sanitizeNode(node, rankingByNode.get(node.id));
+        sanitized.degree = graph.getIncomingEdges(node.id).length + graph.getOutgoingEdges(node.id).length;
+        sanitized.incomingCount = graph.getIncomingEdges(node.id).length;
+        sanitized.outgoingCount = graph.getOutgoingEdges(node.id).length;
+        return sanitized;
+      });
+
+      res.json({
+        nodes: payloadNodes,
+        edges: graph.getEdges().map(sanitizeEdge),
+        stats: graphStats,
+        ranking: rankingScores.slice(0, 50),
+        analytics: {
+          health: analytics.health,
+          hubs: analytics.hubs,
+          communities: analytics.communities,
+        },
+        source: "github",
+        repo,
+      });
+    } catch (error) {
+      logger.error('Analysis error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Analysis failed'
+      });
+    }
+  });
+
+  app.get("/api/churn", async (req, res) => {
+    try {
+      // Lazy load GitIntegration
+      const { GitIntegration } = await import('../git/index.js');
+      const git = new GitIntegration(resolvedProjectRoot);
+      const isRepo = await git.isGitRepo();
+      if (!isRepo) {
+        res.json({ files: {} });
+        return;
+      }
+      
+      const filePaths = graph.getNodes()
+        .filter(n => n.type === 'file' || n.type === 'project' || n.type === 'module')
+        .map(n => n.location?.file)
+        .filter((f): f is string => Boolean(f));
+        
+      const fileStats = await git.getFileStats(filePaths, '1 year ago');
+      const statsObj: Record<string, { changes: number; authors: number; hotspot: boolean }> = {};
+      
+      for (const [path, stats] of fileStats) {
+        statsObj[path] = {
+          changes: stats.changeCount,
+          authors: stats.authors.length,
+          hotspot: stats.isHotspot
+        };
+      }
+      
+      res.json({ files: statsObj });
+    } catch (error) {
+      logger.error('Churn analysis error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Churn analysis failed'
+      });
+    }
+  });
+
+  app.post("/api/repo/init", async (req, res) => {
+    try {
+      const reindex = req.body?.reindex !== false;
+      await initCommand(resolvedProjectRoot);
+      if (reindex) {
+        await indexCommand(resolvedProjectRoot, {
+          includeDocs: true,
+          includeAPI: true,
+        });
+      }
+
+      const refreshedGraph = storage.loadGraph(resolvedProjectRoot);
+      const refreshedRanking = storage.getRankingScores(resolvedProjectRoot);
+      activateGraph(refreshedGraph, resolvedProjectRoot, refreshedRanking);
+
+      res.json({
+        ok: true,
+        root: resolvedProjectRoot,
+        reindexed: reindex,
+        stats: graphStats,
+      });
+    } catch (error) {
+      logger.error("Repository initialization failed:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Repository initialization failed",
+      });
+    }
+  });
+
   app.get("/api/node/:id", (req, res) => {
     const node = graph.getNode(req.params.id);
     if (!node) {
@@ -896,9 +1080,9 @@ export async function createGraphServer(
     if (node.location?.file) {
       const resolvedFile = path.isAbsolute(node.location.file)
         ? path.resolve(node.location.file)
-        : path.resolve(resolvedProjectRoot, node.location.file);
+        : path.resolve(activeProjectRoot, node.location.file);
 
-      if (!isInsideRoot(resolvedProjectRoot, resolvedFile)) {
+      if (!isInsideRoot(activeProjectRoot, resolvedFile)) {
         res.status(403).json({ error: "Source file must be inside project root" });
         return;
       }
@@ -1001,8 +1185,8 @@ export async function createGraphServer(
 
     const resolvedFile = path.isAbsolute(file)
       ? path.resolve(file)
-      : path.resolve(resolvedProjectRoot, file);
-    if (!isInsideRoot(resolvedProjectRoot, resolvedFile)) {
+      : path.resolve(activeProjectRoot, file);
+    if (!isInsideRoot(activeProjectRoot, resolvedFile)) {
       res.status(403).json({ error: "Source file must be inside project root" });
       return;
     }
@@ -1025,7 +1209,7 @@ export async function createGraphServer(
 
     res.json({
       file: resolvedFile,
-      relativeFile: path.relative(resolvedProjectRoot, resolvedFile),
+      relativeFile: path.relative(activeProjectRoot, resolvedFile),
       startLine,
       endLine,
       requestedStartLine: requestedStart,
@@ -1235,7 +1419,7 @@ export async function createGraphServer(
   // Security signal endpoint: lightweight static checks inspired by CodeFlow's browser scanner.
   app.get('/api/analyze/security', (_req, res) => {
     try {
-      const issues = scanSecurityIssues(resolvedProjectRoot, graph);
+      const issues = scanSecurityIssues(activeProjectRoot, graph);
       const bySeverity = issues.reduce<Record<string, number>>((acc, issue) => {
         acc[issue.severity] = (acc[issue.severity] || 0) + 1;
         return acc;
@@ -1273,6 +1457,239 @@ export async function createGraphServer(
         affectedTests: analysis.affectedTests,
         affectedFiles: Array.from(analysis.affectedFiles),
       });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+
+  // ── Cyclomatic complexity per file ─────────────────────────────────────────
+  app.get('/api/analyze/complexity', (_req, res) => {
+    try {
+      const fileNodes = graph.getNodes().filter(n => n.type === 'file' || n.type === 'module');
+      const results = fileNodes.map(node => {
+        const filePath = node.location?.file || '';
+        let score = 1;
+        let level: 'low' | 'medium' | 'high' | 'critical' = 'low';
+        if (filePath && fs.existsSync(filePath)) {
+          try {
+            const content = fs.readFileSync(filePath, 'utf8');
+            const patterns = [
+              /\bif\s*\(/g, /\belse\s+if\s*\(/g, /\bwhile\s*\(/g, /\bfor\s*\(/g,
+              /\bcase\s+/g, /\bcatch\s*\(/g, /&&/g, /\|\|/g,
+              /\bif\s+[^(]/g, /\belif\s+/g, /\bexcept\s*/g,
+            ];
+            patterns.forEach(p => { const m = content.match(p); if (m) score += m.length; });
+          } catch { /* skip unreadable */ }
+        }
+        if (score > 30) level = 'critical';
+        else if (score > 20) level = 'high';
+        else if (score > 10) level = 'medium';
+        return { id: node.id, name: node.name, file: filePath, score, level };
+      });
+      results.sort((a, b) => b.score - a.score);
+      const dist = { critical: 0, high: 0, medium: 0, low: 0 };
+      results.forEach(r => { dist[r.level]++; });
+      res.json({ total: results.length, distribution: dist, files: results.slice(0, 100) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── Duplicate function name detection ────────────────────────────────────────
+  app.get('/api/analyze/duplicates', (_req, res) => {
+    try {
+      const fnNodes = graph.getNodes().filter(n => n.type === 'function' || n.type === 'method');
+      const byName = new Map<string, Array<{ id: string; name: string; file: string }>>();
+      const COMMON_NAMES = new Set([
+        'render','init','setup','cleanup','destroy','reset','update','refresh',
+        'validate','parse','format','get','set','fetch','load','save','create',
+        'delete','remove','add','find','filter','map','sort',
+        '__init__','__str__','__repr__','toString','valueOf',
+        'handleClick','handleChange','handleSubmit','onClick','onChange',
+        'componentDidMount','componentWillUnmount','ngOnInit','ngOnDestroy',
+      ]);
+      fnNodes.forEach(n => {
+        const base = n.name.includes('.') ? n.name.split('.').pop()! : n.name;
+        if (!base || base.length < 3 || COMMON_NAMES.has(base)) return;
+        const file = n.location?.file || '';
+        if (!byName.has(base)) byName.set(base, []);
+        byName.get(base)!.push({ id: n.id, name: n.fullName || n.name, file });
+      });
+      const duplicates: Array<{ name: string; count: number; files: string[]; entries: any[] }> = [];
+      byName.forEach((entries, name) => {
+        const uniqueFiles = [...new Set(entries.map(e => e.file))];
+        if (uniqueFiles.length >= 3) {
+          duplicates.push({ name, count: uniqueFiles.length, files: uniqueFiles, entries });
+        }
+      });
+      duplicates.sort((a, b) => b.count - a.count);
+      res.json({ total: duplicates.length, duplicates: duplicates.slice(0, 50) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── Architecture layer violation detection ──────────────────────────────────
+  app.get('/api/analyze/layer-violations', (_req, res) => {
+    try {
+      const LAYER_ORDER: Record<string, number> = {
+        ui: 0, components: 0, pages: 0, views: 0, templates: 0,
+        services: 2, api: 2, controllers: 2,
+        utils: 4, helpers: 4, lib: 4, common: 4,
+        data: 3, models: 3, store: 3, schemas: 3,
+        config: 5, test: 6, tests: 6,
+      };
+      function detectLayerLocal(filePath: string): string {
+        const l = filePath.toLowerCase();
+        if (l.includes('/test') || l.includes('__tests__')) return 'test';
+        if (l.includes('/ui/') || l.includes('/views/') || l.includes('/pages/')) return 'ui';
+        if (l.includes('/component')) return 'components';
+        if (l.includes('/service') || l.includes('/api/') || l.includes('/controller')) return 'services';
+        if (l.includes('/util') || l.includes('/helper') || l.includes('/lib/')) return 'utils';
+        if (l.includes('/data') || l.includes('/model') || l.includes('/store') || l.includes('/schema')) return 'data';
+        if (l.includes('/config') || l.includes('/settings')) return 'config';
+        return 'utils';
+      }
+      const edgesArr = graph.getEdges().filter(e => ['IMPORTS','DEPENDS_ON'].includes(e.type) && e.resolved);
+      const violations: Array<{ from: string; fromLayer: string; to: string; toLayer: string; suggestion: string }> = [];
+      edgesArr.forEach(edge => {
+        const src = graph.getNode(edge.from);
+        const tgt = graph.getNode(edge.to);
+        if (!src?.location?.file || !tgt?.location?.file) return;
+        const srcLayer = detectLayerLocal(src.location.file);
+        const tgtLayer = detectLayerLocal(tgt.location.file);
+        const srcLevel = LAYER_ORDER[srcLayer];
+        const tgtLevel = LAYER_ORDER[tgtLayer];
+        if (srcLevel !== undefined && tgtLevel !== undefined && srcLevel > tgtLevel && srcLevel - tgtLevel > 1) {
+          violations.push({
+            from: src.location.file, fromLayer: srcLayer,
+            to: tgt.location.file, toLayer: tgtLayer,
+            suggestion: srcLayer + ' should not import from ' + tgtLayer + '. Use dependency injection.',
+          });
+        }
+      });
+      res.json({ total: violations.length, violations: violations.slice(0, 100) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── Code health score A/B/C/D/F ────────────────────────────────────────────
+  app.get('/api/analyze/health-score', (_req, res) => {
+    try {
+      const nodes = graph.getNodes();
+      const edges = graph.getEdges();
+      const fnNodes = nodes.filter(n => n.type === 'function' || n.type === 'method');
+      const deadNodes = fnNodes.filter(n => n.metadata?.isDead === true);
+      const secIssues = scanSecurityIssues(activeProjectRoot, graph);
+      const cycles = analytics.cycles || [];
+      let score = 100;
+      const deadPct = fnNodes.length > 0 ? (deadNodes.length / fnNodes.length) * 100 : 0;
+      score -= Math.min(20, deadPct);
+      score -= Math.min(20, cycles.length * 5);
+      const fileNodesH = nodes.filter(n => n.type === 'file' || n.type === 'module');
+      const godFiles = fileNodesH.filter(n => {
+        const ch = graph.getOutgoingEdges(n.id).filter(e => e.type === 'DEFINES' || e.type === 'OWNS');
+        return ch.length >= 15;
+      });
+      score -= Math.min(15, godFiles.length * 3);
+      const avgCoup = nodes.length > 0 ? edges.length / nodes.length : 0;
+      score -= Math.min(15, Math.max(0, avgCoup - 3) * 2);
+      const highSec = secIssues.filter(i => i.severity === 'high').length;
+      score -= Math.min(20, highSec * 5);
+      score = Math.max(0, Math.round(score));
+      let grade = 'F';
+      if (score >= 90) grade = 'A';
+      else if (score >= 80) grade = 'B';
+      else if (score >= 70) grade = 'C';
+      else if (score >= 60) grade = 'D';
+      res.json({
+        score, grade,
+        breakdown: {
+          deadCodePenalty: Math.min(20, deadPct),
+          cyclePenalty: Math.min(20, cycles.length * 5),
+          godFilePenalty: Math.min(15, godFiles.length * 3),
+          couplingPenalty: Math.min(15, Math.max(0, avgCoup - 3) * 2),
+          securityPenalty: Math.min(20, highSec * 5),
+        },
+        stats: {
+          totalNodes: nodes.length, totalEdges: edges.length,
+          deadFunctions: deadNodes.length, cycles: cycles.length,
+          godFiles: godFiles.length, highSecurityIssues: highSec,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── Actionable improvement suggestions ──────────────────────────────────────
+  app.get('/api/analyze/suggestions', (_req, res) => {
+    try {
+      const nodes = graph.getNodes();
+      const edges = graph.getEdges();
+      const fnNodes = nodes.filter(n => n.type === 'function' || n.type === 'method');
+      const deadNodes = fnNodes.filter(n => n.metadata?.isDead === true);
+      const secIssues = scanSecurityIssues(activeProjectRoot, graph);
+      const cycles = analytics.cycles || [];
+      const suggestions: Array<{
+        priority: 'critical' | 'high' | 'medium' | 'low';
+        icon: string; title: string; desc: string; action: string; impact: string;
+      }> = [];
+      if (deadNodes.length > 10) {
+        suggestions.push({ priority: 'high', icon: 'broom', title: 'Remove Dead Code',
+          desc: deadNodes.length + ' unused functions detected.',
+          action: 'Review the Dead Code panel to find orphaned functions.',
+          impact: 'Reduces codebase by ~' + (deadNodes.length * 15) + ' lines' });
+      }
+      if (cycles.length > 0) {
+        suggestions.push({ priority: 'critical', icon: 'refresh', title: 'Break Circular Dependencies',
+          desc: cycles.length + ' circular dependency cycles found.',
+          action: 'Extract shared code to a new module or use dependency injection.',
+          impact: 'Improves testability and modularity' });
+      }
+      const fileNodesSug = nodes.filter(n => n.type === 'file' || n.type === 'module');
+      const godFilesSug = fileNodesSug.filter(n => {
+        const ch = graph.getOutgoingEdges(n.id).filter(e => e.type === 'DEFINES' || e.type === 'OWNS');
+        return ch.length >= 15;
+      });
+      if (godFilesSug.length > 0) {
+        suggestions.push({ priority: 'high', icon: 'split', title: 'Split Large Files',
+          desc: godFilesSug.length + ' files have 15+ functions.',
+          action: 'Group related functions and extract to separate modules.',
+          impact: 'Improves code navigation and testability' });
+      }
+      const couplingMap = new Map<string, number>();
+      edges.forEach(e => { couplingMap.set(e.to, (couplingMap.get(e.to) || 0) + 1); });
+      const highCoupling = [...couplingMap.entries()].filter(([, c]) => c >= 8).length;
+      if (highCoupling > 0) {
+        suggestions.push({ priority: 'medium', icon: 'link', title: 'Reduce Coupling',
+          desc: highCoupling + ' files are imported by 8+ others.',
+          action: 'Review if these should be split or importers consolidated.',
+          impact: 'Reduces blast radius of changes' });
+      }
+      const highSec = secIssues.filter(i => i.severity === 'high');
+      if (highSec.length > 0) {
+        suggestions.push({ priority: 'critical', icon: 'shield', title: 'Fix Security Issues',
+          desc: highSec.length + ' high-severity security issues detected.',
+          action: 'Address hardcoded secrets and injection risks immediately.',
+          impact: 'Prevents potential security breaches' });
+      }
+      const testNodesSug = nodes.filter(n => {
+        const fp = n.location?.file || '';
+        return fp.includes('.test.') || fp.includes('.spec.') || fp.includes('__tests__');
+      });
+      const testRatio = nodes.length > 0 ? (testNodesSug.length / nodes.length) * 100 : 0;
+      if (testRatio < 10 && nodes.length > 20) {
+        suggestions.push({ priority: 'medium', icon: 'beaker', title: 'Add Test Coverage',
+          desc: 'Only ' + testNodesSug.length + ' test files (~' + Math.round(testRatio) + '%).',
+          action: 'Focus on testing critical paths and high-complexity files.',
+          impact: 'Prevents regressions and improves confidence' });
+      }
+      const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      suggestions.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+      res.json({ total: suggestions.length, suggestions });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

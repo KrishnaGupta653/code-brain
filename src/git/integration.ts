@@ -45,24 +45,32 @@ export class GitIntegration {
 
     try {
       const options = since ? ['--since', since] : [];
-      const log: LogResult = await this.git.log([...options, '--name-only', '--pretty=format:%H|%an|%ad']);
-
+      
+      // Use raw git log with name-only to get all commits and their files efficiently in one go
+      // This avoids ENAMETOOLONG errors and spawning thousands of git processes
+      const logRaw = await this.git.raw(['log', ...options, '--name-only', '--pretty=format:%H|%an|%ad']);
       const fileChanges = new Map<string, { count: number; authors: Set<string>; lastDate: Date }>();
 
-      for (const commit of log.all) {
-        const parts = commit.hash.split('|');
-        if (parts.length < 3) continue;
-
-        const author = parts[1];
-        const date = new Date(parts[2]);
-
-        // Get files changed in this commit
-        const diffSummary = await this.git.diffSummary([`${commit.hash}^`, commit.hash]);
+      // Parse the output: each commit starts with hash|author|date followed by changed files
+      const commits = logRaw.split('\n\n');
+      for (const commitBlock of commits) {
+        const lines = commitBlock.trim().split('\n');
+        if (lines.length < 2) continue; // No files changed or invalid block
         
-        for (const file of diffSummary.files) {
-          if (!filePaths.includes(file.file)) continue;
+        const [hash, author, dateStr] = lines[0].split('|');
+        if (!hash || !author || !dateStr) continue;
+        
+        const date = new Date(dateStr);
+        
+        // Skip the first line, the rest are file paths
+        for (let i = 1; i < lines.length; i++) {
+          const file = lines[i].trim();
+          if (!file) continue;
+          
+          // Only track files we care about (if filePaths is provided and not empty)
+          if (filePaths && filePaths.length > 0 && !filePaths.includes(file)) continue;
 
-          const existing = fileChanges.get(file.file) || {
+          const existing = fileChanges.get(file) || {
             count: 0,
             authors: new Set<string>(),
             lastDate: new Date(0),
@@ -74,7 +82,7 @@ export class GitIntegration {
             existing.lastDate = date;
           }
 
-          fileChanges.set(file.file, existing);
+          fileChanges.set(file, existing);
         }
       }
 
