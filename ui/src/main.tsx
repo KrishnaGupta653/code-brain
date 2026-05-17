@@ -2952,6 +2952,7 @@ function App() {
   const [authMethod, setAuthMethod] = useState<'none' | 'pat' | 'github_app'>('none');
   const [token, setToken] = useState('');
   const [isAnalyzingGitHub, setIsAnalyzingGitHub] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<string>('');
   const [isInitializingLocal, setIsInitializingLocal] = useState(false);
 
   const shellRef = useRef<HTMLElement | null>(null);
@@ -3180,16 +3181,29 @@ function App() {
       }
 
       // Scan repository
-      const files = await github.scanRepository(parsed.owner, parsed.repo, []);
+      const files = await github.scanRepository(
+        parsed.owner, 
+        parsed.repo, 
+        [],
+        (msg) => setAnalyzeProgress(msg)
+      );
 
       if (files.length === 0) {
         alert('No code files found in repository');
         setIsAnalyzingGitHub(false);
+        setAnalyzeProgress('');
         return;
       }
 
       // Fetch files
-      const fileContents = await github.fetchFiles(parsed.owner, parsed.repo, files);
+      const fileContents = await github.fetchFiles(
+        parsed.owner, 
+        parsed.repo, 
+        files,
+        (current, total) => setAnalyzeProgress(`Fetching files: ${current}/${total} (${Math.round((current/total)*100)}%)`)
+      );
+
+      setAnalyzeProgress('Analyzing on server...');
 
       // Send to server for analysis
       const response = await fetch('/api/analyze', {
@@ -3201,7 +3215,10 @@ function App() {
         })
       });
 
-      if (!response.ok) throw new Error('Analysis failed');
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Analysis failed');
+      }
 
       const result = await response.json() as GraphPayload;
       setPayload(result);
@@ -3213,6 +3230,7 @@ function App() {
       alert(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
       setIsAnalyzingGitHub(false);
+      setAnalyzeProgress('');
     }
   };
 
@@ -3790,6 +3808,11 @@ function App() {
               {isInitializingLocal ? 'Initializing...' : 'Init / Re-index Current Repo'}
             </button>
           </div>
+          {isAnalyzingGitHub && analyzeProgress && (
+            <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--muted)', fontFamily: 'monospace' }}>
+              {analyzeProgress}
+            </div>
+          )}
         </section>
 
         <section className="tool-panel search-panel">
