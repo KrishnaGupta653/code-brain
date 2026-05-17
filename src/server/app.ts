@@ -1,7 +1,9 @@
 import express from "express";
 import fs from "fs";
 import { Server } from "http";
+import https from "https";
 import path from "path";
+import AdmZip from "adm-zip";
 import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
 import helmet from "helmet";
@@ -860,14 +862,15 @@ export async function createGraphServer(
   // the same parser-backed graph used for local projects.
   app.post("/api/analyze", async (req, res) => {
     try {
-      const { files, repo } = req.body;
+      const { files, repo, branch } = req.body;
+      const isZipFetch = repo && (!files || files.length === 0);
 
-      if (!files || !Array.isArray(files)) {
+      if (!isZipFetch && (!files || !Array.isArray(files))) {
         res.status(400).json({ error: 'Invalid files array' });
         return;
       }
 
-      if (files.length === 0) {
+      if (!isZipFetch && files.length === 0) {
         res.status(400).json({ error: 'No files provided' });
         return;
       }
@@ -875,7 +878,7 @@ export async function createGraphServer(
       const safeRepoName = String(repo || "github-repo")
         .replace(/[^a-zA-Z0-9_.-]+/g, "-")
         .slice(0, 120);
-      const remoteRoot = path.join(
+      let remoteRoot = path.join(
         resolvedProjectRoot,
         ".codebrain",
         "remote-repos",
@@ -884,20 +887,107 @@ export async function createGraphServer(
 
       fs.mkdirSync(remoteRoot, { recursive: true });
 
-      const writtenFiles: string[] = [];
-      for (const file of files as Array<{ path?: string; name?: string; content?: string }>) {
-        const relativePath = String(file.path || file.name || "").replace(/\\/g, "/");
-        if (!relativePath || relativePath.includes("\0")) continue;
+      let writtenFiles: string[] = [];
 
-        const targetPath = path.resolve(remoteRoot, relativePath);
-        const relativeToRoot = path.relative(remoteRoot, targetPath);
-        if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-          continue;
+      if (isZipFetch) {
+        // Download the zip archive to bypass GitHub rate limits
+        let targetBranch = branch || "main";
+        let zipUrl = `https://github.com/${repo}/archive/refs/heads/${targetBranch}.zip`;
+        const zipPath = path.join(remoteRoot, "repo.zip");
+        
+        const downloadZip = (url: string): Promise<void> => {
+          return new Promise<void>((resolve, reject) => {
+            https.get(url, { headers: { 'User-Agent': 'code-brain' } }, (response) => {
+              if (response.statusCode === 301 || response.statusCode === 302) {
+                const redirectUrl = response.headers.location;
+                if (redirectUrl) {
+                  https.get(redirectUrl, { headers: { 'User-Agent': 'code-brain' } }, (redirectResponse) => {
+                    if (redirectResponse.statusCode !== 200) {
+                       reject(new Error(`Failed to download zip from redirect: ${redirectResponse.statusCode}`));
+                       return;
+                    }
+                    const fileStream = fs.createWriteStream(zipPath);
+                    redirectResponse.pipe(fileStream);
+                    fileStream.on('finish', () => { fileStream.close(); resolve(); });
+                  }).on('error', reject);
+                  return;
+                }
+              }
+              if (response.statusCode === 404) {
+                 reject(new Error("404"));
+                 return;
+              }
+              if (response.statusCode !== 200) {
+                reject(new Error(`Failed to download repository zip: ${response.statusCode}`));
+                return;
+              }
+              const fileStream = fs.createWriteStream(zipPath);
+              response.pipe(fileStream);
+              fileStream.on('finish', () => { fileStream.close(); resolve(); });
+            }).on('error', reject);
+          });
+        };
+
+        try {
+           await downloadZip(zipUrl);
+        } catch (e: any) {
+           if (e.message === "404" && !branch) {
+              // Fallback to master if branch wasn't explicitly specified
+              targetBranch = "master";
+              zipUrl = `https://github.com/${repo}/archive/refs/heads/${targetBranch}.zip`;
+              try {
+                  await downloadZip(zipUrl);
+              } catch (e2: any) {
+                  throw new Error(`Repository not found or branch does not exist (tried main and master).`);
+              }
+           } else {
+              throw new Error(`Failed to download repository: ${e.message}`);
+           }
         }
 
-        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-        fs.writeFileSync(targetPath, String(file.content || ""), "utf8");
-        writtenFiles.push(targetPath);
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(remoteRoot, true);
+        
+        // Delete zip to save space
+        fs.unlinkSync(zipPath);
+        
+        // Find the extracted folder (GitHub zips typically extract to an inner root folder)
+        const entries = fs.readdirSync(remoteRoot);
+        const extractedFolder = entries.find(e => fs.statSync(path.join(remoteRoot, e)).isDirectory());
+        
+        if (extractedFolder) {
+            remoteRoot = path.join(remoteRoot, extractedFolder);
+            const scanDir = (dir: string) => {
+                const results: string[] = [];
+                const list = fs.readdirSync(dir);
+                for (const file of list) {
+                    const filePath = path.join(dir, file);
+                    const stat = fs.statSync(filePath);
+                    if (stat && stat.isDirectory()) {
+                        results.push(...scanDir(filePath));
+                    } else {
+                        results.push(filePath);
+                    }
+                }
+                return results;
+            };
+            writtenFiles = scanDir(remoteRoot);
+        }
+      } else {
+        for (const file of files as Array<{ path?: string; name?: string; content?: string }>) {
+          const relativePath = String(file.path || file.name || "").replace(/\\/g, "/");
+          if (!relativePath || relativePath.includes("\0")) continue;
+
+          const targetPath = path.resolve(remoteRoot, relativePath);
+          const relativeToRoot = path.relative(remoteRoot, targetPath);
+          if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+            continue;
+          }
+
+          fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+          fs.writeFileSync(targetPath, String(file.content || ""), "utf8");
+          writtenFiles.push(targetPath);
+        }
       }
 
       if (writtenFiles.length === 0) {

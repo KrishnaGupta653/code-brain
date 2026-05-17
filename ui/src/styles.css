@@ -194,6 +194,106 @@ button {
   color: inherit;
 }
 
+.repo-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 0.85rem;
+  transition: all var(--transition-fast);
+}
+
+.repo-input::placeholder {
+  color: var(--muted);
+}
+
+.repo-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.15), var(--glow-cyan);
+}
+
+.light-mode .repo-input {
+  background: #ffffff;
+  color: var(--text-bright);
+}
+
+.light-mode .repo-input:focus {
+  background: #ffffff;
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-3));
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.25);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(6, 182, 212, 0.4), var(--glow-cyan);
+}
+
+.primary-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--line-bright);
+  box-shadow: none;
+  color: var(--muted);
+  background-image: none;
+}
+
+.secondary-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--text-bright);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: var(--muted);
+}
+
+.light-mode .secondary-btn {
+  background: #ffffff;
+  color: var(--text-bright);
+  border-color: var(--line-bright);
+}
+
+.light-mode .secondary-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
 #root {
   min-height: 100vh;
 }

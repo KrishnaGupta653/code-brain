@@ -2949,8 +2949,7 @@ function App() {
 
   // GitHub repo input state
   const [repoUrl, setRepoUrl] = useState('');
-  const [authMethod, setAuthMethod] = useState<'none' | 'pat' | 'github_app'>('none');
-  const [token, setToken] = useState('');
+
   const [isAnalyzingGitHub, setIsAnalyzingGitHub] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<string>('');
   const [isInitializingLocal, setIsInitializingLocal] = useState(false);
@@ -3162,55 +3161,13 @@ function App() {
     }
 
     setIsAnalyzingGitHub(true);
+    setAnalyzeProgress('Downloading repository zip on server...');
     try {
-      // Set authentication
-      github.setToken(authMethod === 'pat' ? token : null);
-
-      // Check rate limit
-      const rateLimit = await github.getRateLimit();
-      if (rateLimit.remaining < 50 && authMethod === 'none') {
-        const proceed = window.confirm(
-          `GitHub API rate limit is low (${rateLimit.remaining}/${rateLimit.limit}).\n` +
-          'Add a Personal Access Token for higher limits.\n' +
-          'Continue anyway?'
-        );
-        if (!proceed) {
-          setIsAnalyzingGitHub(false);
-          return;
-        }
-      }
-
-      // Scan repository
-      const files = await github.scanRepository(
-        parsed.owner, 
-        parsed.repo, 
-        [],
-        (msg) => setAnalyzeProgress(msg)
-      );
-
-      if (files.length === 0) {
-        alert('No code files found in repository');
-        setIsAnalyzingGitHub(false);
-        setAnalyzeProgress('');
-        return;
-      }
-
-      // Fetch files
-      const fileContents = await github.fetchFiles(
-        parsed.owner, 
-        parsed.repo, 
-        files,
-        (current, total) => setAnalyzeProgress(`Fetching files: ${current}/${total} (${Math.round((current/total)*100)}%)`)
-      );
-
-      setAnalyzeProgress('Analyzing on server...');
-
-      // Send to server for analysis
+      // Send to server for analysis directly (bypasses GitHub API rate limits by downloading ZIP natively)
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          files: fileContents,
           repo: `${parsed.owner}/${parsed.repo}`
         })
       });
@@ -3220,6 +3177,7 @@ function App() {
         throw new Error(body.error || 'Analysis failed');
       }
 
+      setAnalyzeProgress('Processing graph...');
       const result = await response.json() as GraphPayload;
       setPayload(result);
       setSelectedId(null);
@@ -3720,90 +3678,21 @@ function App() {
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && analyzeGitHubRepo()}
-              style={{
-                padding: '6px 10px',
-                background: 'var(--bg0)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                color: 'var(--t0)',
-                fontFamily: 'inherit',
-                fontSize: '11px',
-                width: '100%',
-                boxSizing: 'border-box'
-              }}
             />
-            <select
-              value={authMethod}
-              onChange={(e) => setAuthMethod(e.target.value as any)}
-              style={{
-                padding: '6px 10px',
-                background: 'var(--bg0)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                color: 'var(--t0)',
-                fontFamily: 'inherit',
-                fontSize: '10px',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="none">No Auth</option>
-              <option value="pat">Token (PAT)</option>
-            </select>
-            {authMethod === 'pat' && (
-              <input
-                type="password"
-                placeholder="GitHub Personal Access Token"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--bg0)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--t0)',
-                  fontFamily: 'inherit',
-                  fontSize: '11px',
-                  width: '100%',
-                  boxSizing: 'border-box'
-                }}
-              />
-            )}
+
             <button
+              className="primary-btn"
               onClick={analyzeGitHubRepo}
               disabled={isAnalyzingGitHub || !repoUrl}
-              style={{
-                padding: '8px 12px',
-                background: isAnalyzingGitHub ? 'var(--bg3)' : 'var(--acc)',
-                color: isAnalyzingGitHub ? 'var(--t1)' : 'var(--bg0)',
-                border: 'none',
-                borderRadius: '6px',
-                fontFamily: 'inherit',
-                fontSize: '11px',
-                fontWeight: '600',
-                cursor: isAnalyzingGitHub ? 'not-allowed' : 'pointer',
-                opacity: isAnalyzingGitHub ? 0.6 : 1,
-                transition: 'all 0.2s'
-              }}
             >
               {isAnalyzingGitHub ? 'Analyzing...' : 'Analyze'}
             </button>
             <button
               type="button"
+              className="secondary-btn"
               onClick={initializeLocalRepo}
               disabled={isInitializingLocal || isAnalyzingGitHub}
               title="Initialize and re-index this local repository"
-              style={{
-                padding: '8px 12px',
-                background: 'rgba(15, 23, 42, 0.72)',
-                color: isInitializingLocal ? 'var(--muted)' : 'var(--text)',
-                border: '1px solid var(--line-bright)',
-                borderRadius: '6px',
-                fontFamily: 'inherit',
-                fontSize: '11px',
-                fontWeight: '600',
-                cursor: isInitializingLocal || isAnalyzingGitHub ? 'not-allowed' : 'pointer',
-                opacity: isInitializingLocal || isAnalyzingGitHub ? 0.6 : 1,
-              }}
             >
               {isInitializingLocal ? 'Initializing...' : 'Init / Re-index Current Repo'}
             </button>
