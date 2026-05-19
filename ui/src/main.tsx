@@ -71,6 +71,7 @@ interface NodeAttributes {
   zIndex?: number;
   community?: number;
   rankScore?: number;
+  depthScale?: number;
 }
 
 interface EdgeAttributes {
@@ -168,11 +169,9 @@ function pathParts(file?: string): string[] {
 
 /**
  * Returns the first meaningful top-level folder segment.
- * When given a GraphNode, prefers node.name (already project-relative, e.g. "src/utils/foo.ts")
- * over node.file (absolute path that starts with "Users/...") so that Flow/Cluster/Bundle
- * visualizations group files by project folder rather than OS username.
- * Only uses node.name when it contains a path separator — bare module names like "path"
- * or "fs" are not paths and should fall through to the absolute-path heuristic.
+ * Handles both local (absolute) and remote (relative) paths consistently.
+ * When given a GraphNode, prefers node.name (project-relative path)
+ * over node.file (absolute path) for consistent grouping.
  */
 export function topFolder(fileOrNode?: string | Pick<GraphNode, 'file' | 'location' | 'type' | 'fullName' | 'name'>): string {
   if (fileOrNode && typeof fileOrNode !== 'string') {
@@ -185,12 +184,25 @@ export function topFolder(fileOrNode?: string | Pick<GraphNode, 'file' | 'locati
   }
   const file = typeof fileOrNode === 'string' ? fileOrNode : nodeFilePath(fileOrNode);
   const parts = pathParts(file);
-  // If the path has many segments (absolute path), find a known project-root directory
-  // and return it (e.g., "src", "ui", "dist") rather than "Users" or "Desktop".
-  const projectRootMarkers = ['src', 'ui', 'lib', 'app', 'packages', 'dist', 'tests', 'python', 'vscode-extension'];
+  
+  // Empty or single-part paths
+  if (parts.length === 0) return 'root';
+  if (parts.length === 1) return parts[0];
+  
+  // Find known project-root markers (src, ui, lib, etc.)
+  const projectRootMarkers = ['src', 'ui', 'lib', 'app', 'packages', 'dist', 'tests', 'python', 'vscode-extension', 'api', 'docs', 'templates'];
   const markerIndex = parts.findIndex((p) => projectRootMarkers.includes(p.toLowerCase()));
   if (markerIndex >= 0) return parts[markerIndex];
-  return parts[0] ?? 'root';
+  
+  // Skip common system/temp prefixes (Users, home, tmp, .codebrain, remote-repos, etc.)
+  const skipPrefixes = ['users', 'home', 'tmp', 'temp', '.codebrain', 'remote-repos', 'desktop', 'documents'];
+  let startIndex = 0;
+  while (startIndex < parts.length && skipPrefixes.includes(parts[startIndex].toLowerCase())) {
+    startIndex++;
+  }
+  
+  // Return first meaningful folder after skipping prefixes
+  return parts[startIndex] ?? parts[0] ?? 'root';
 }
 
 function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode, churnData?: Record<string, { changes: number; authors: number; hotspot: boolean }> | null): string {
@@ -330,6 +342,32 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function withAlpha(color: string, alpha: number): string {
+  const safeAlpha = clamp(alpha, 0, 1);
+  if (color.startsWith("#")) return hexToRgba(color, safeAlpha);
+
+  const rgbaMatch = color.match(/^rgba?\(([^)]+)\)$/i);
+  if (!rgbaMatch) return color;
+
+  const channels = rgbaMatch[1].split(",").map((part) => part.trim());
+  if (channels.length < 3) return color;
+  return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${safeAlpha})`;
+}
+
+function nodeDepthScale(attrs: Partial<NodeAttributes>): number {
+  return clamp(Number(attrs.depthScale ?? 1), 0.84, 1.18);
+}
+
+function scaledNodeSize(attrs: Partial<NodeAttributes>, emphasis = 1): number {
+  const baseSize = Number(attrs.baseSize ?? attrs.size ?? 4);
+  return baseSize * nodeDepthScale(attrs) * emphasis;
+}
+
+function depthTintedColor(baseColor: string, attrs: Partial<NodeAttributes>, opacity = 1): string {
+  const depthOpacity = 0.66 + (nodeDepthScale(attrs) - 0.84) * 0.9;
+  return withAlpha(baseColor, depthOpacity * opacity);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -341,6 +379,18 @@ function stableNumber(value: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
+}
+
+function showNotification(message: string, type: 'success' | 'error' = 'success') {
+  const notification = document.createElement('div');
+  notification.textContent = message;
+  const bgColor = type === 'success' ? '#10b981' : '#ef4444';
+  notification.style.cssText = `position:fixed;top:20px;right:20px;background:${bgColor};color:white;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;z-index:10000;box-shadow:0 4px 12px rgba(0,0,0,0.3);animation:slideIn 0.3s ease-out`;
+  document.body.appendChild(notification);
+  setTimeout(() => {
+    notification.style.animation = 'slideOut 0.3s ease-in';
+    setTimeout(() => notification.remove(), 300);
+  }, 2500);
 }
 
 function buildCommunityLookup(payload: GraphPayload): Map<string, number> {
@@ -382,9 +432,17 @@ function flowGroupLabel(node: GraphNode): string {
     : fullNameParts.length > 1
       ? fullNameParts
       : pathParts(nodeFilePath(node));
-  const projectMarkers = ['src', 'ui', 'lib', 'app', 'packages', 'dist', 'tests', 'test-languages', 'python', 'vscode-extension'];
+  
+  // Skip common system/temp prefixes for consistency
+  const skipPrefixes = ['users', 'home', 'tmp', 'temp', '.codebrain', 'remote-repos', 'desktop', 'documents'];
+  let startIndex = 0;
+  while (startIndex < rawParts.length && skipPrefixes.includes(rawParts[startIndex].toLowerCase())) {
+    startIndex++;
+  }
+  
+  const projectMarkers = ['src', 'ui', 'lib', 'app', 'packages', 'dist', 'tests', 'test-languages', 'python', 'vscode-extension', 'api', 'docs', 'templates'];
   const markerIndex = rawParts.findIndex((part) => projectMarkers.includes(part.toLowerCase()));
-  const parts = markerIndex >= 0 ? rawParts.slice(markerIndex) : rawParts;
+  const parts = markerIndex >= 0 ? rawParts.slice(markerIndex) : rawParts.slice(startIndex);
 
   if (parts.length === 0) return topFolder(node);
   if (parts.length === 1) return parts[0];
@@ -400,7 +458,7 @@ function flowGroupLabel(node: GraphNode): string {
   return `${first}/${second}`;
 }
 
-function fileWeight(node: GraphNode): number {
+export function fileWeight(node: GraphNode): number {
   const locationLines = node.location
     ? Math.max(1, node.location.endLine - node.location.startLine + 1)
     : 0;
@@ -615,6 +673,8 @@ function useGraphData() {
                 })
                 .then(setPayload)
                 .catch((err) => console.error('Failed to reload graph:', err));
+            } else if (message.type === 'analysis-progress') {
+              window.dispatchEvent(new CustomEvent('codebrain:analysis-progress', { detail: message }));
             }
           } catch (err) {
             console.error('Failed to parse WebSocket message:', err);
@@ -747,6 +807,7 @@ function GraphStage({
   const lastAppliedLayoutRef = useRef<LayoutMode | null>(null);
   const refreshRafRef = useRef<number | null>(null);
   const prevNodeCount = useRef(0);
+  const [expandedTreePaths, setExpandedTreePaths] = useState<Set<string>>(() => new Set(['root']));
   const rotationRef = useRef({ x: -0.18, y: 0.42 });
   const dragRef = useRef<{
     pointerId: number;
@@ -771,6 +832,10 @@ function GraphStage({
   useEffect(() => {
     hasGraphOverlayRef.current = hasGraphOverlay;
   }, [hasGraphOverlay]);
+
+  useEffect(() => {
+    setExpandedTreePaths(new Set(['root']));
+  }, [visualPayload, vizType]);
 
   const projectSphere = useCallback(() => {
     const graph = graphRef.current;
@@ -797,19 +862,22 @@ function GraphStage({
       const yawZ = -baseX * sinY + baseZ * cosY;
       const projectedY = baseY * cosX - yawZ * sinX;
       const projectedZ = baseY * sinX + yawZ * cosX;
-      const depthScale = 0.72 + ((projectedZ / maxDepth + 1) / 2) * 0.56;
+      const depthScale = vizType === "vector"
+        ? 0.9 + ((projectedZ / maxDepth + 1) / 2) * 0.18
+        : 0.72 + ((projectedZ / maxDepth + 1) / 2) * 0.56;
       const baseSize = Number(attrs.baseSize ?? attrs.size ?? 4);
       const baseColor = String(attrs.baseColor || attrs.color || "#e2e8f0");
 
       graph.setNodeAttribute(id, "x", yawX);
       graph.setNodeAttribute(id, "y", projectedY);
       graph.setNodeAttribute(id, "size", baseSize * depthScale);
-      graph.setNodeAttribute(id, "color", hexToRgba(baseColor, 0.62 + depthScale * 0.28));
+      graph.setNodeAttribute(id, "depthScale", depthScale);
+      graph.setNodeAttribute(id, "color", depthTintedColor(baseColor, { depthScale }));
       graph.setNodeAttribute(id, "zIndex", Math.round(depthScale * 100));
     });
 
     sigma.refresh();
-  }, []);
+  }, [vizType]);
 
   useEffect(() => {
     if (!containerRef.current || (vizType !== 'symbols' && vizType !== 'vector')) return;
@@ -857,7 +925,9 @@ function GraphStage({
       const localRadius = Math.sqrt((localSeed % 1000) / 1000) * Math.max(8, radius * 1.2);
       const rankScore = node.rank?.score ?? 0;
       const depthAngle = localAngle * 1.7 + communityAngle;
-      const baseSize = nodeSize(node);
+      const baseSize = vizType === 'vector'
+        ? Math.min(12, nodeSize(node) * 0.82)
+        : nodeSize(node);
       const baseColor = colorForViewMode(node, viewMode, churnData);
       graph.addNode(node.id, {
         type: "circle",
@@ -968,13 +1038,13 @@ function GraphStage({
       labelRenderedSizeThreshold: vizType === 'vector' ? 18 : 16,
       defaultDrawNodeLabel: drawCleanNodeLabel,
       defaultDrawNodeHover: drawCleanNodeHover,
-      minCameraRatio: 0.08,
-      maxCameraRatio: 4,
+      minCameraRatio: vizType === 'vector' ? 0.18 : 0.08,
+      maxCameraRatio: vizType === 'vector' ? 3.2 : 4,
       // Keep edges visible during movement. Hiding them is faster, but it makes
       // the vector graph feel broken on dense repos because pan/zoom can leave
       // users looking at nodes only until the next render.
       hideEdgesOnMove: false,
-      hideLabelsOnMove: true,         // No label rendering during zoom - reduces flashing
+      hideLabelsOnMove: vizType === 'vector' ? false : true,
       enableEdgeEvents: false,        // Disables all edge events (click, hover, wheel)
       zIndex: true,                   // Important nodes render on top
       defaultEdgeColor: "#334155",    // Fast rendering without lookup
@@ -1101,7 +1171,7 @@ function GraphStage({
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [visualPayload, vizType, viewMode, onSelect, onHover, projectSphere, communityLookup]);
+  }, [visualPayload, vizType, viewMode, onSelect, onHover, projectSphere, communityLookup, showSidebars]);
 
   // Wire global keyboard zoom/fit shortcuts into the Sigma camera via custom events
   // (App-level keyboard handler doesn't have access to sigmaRef, so we use DOM events)
@@ -1153,20 +1223,23 @@ function GraphStage({
       const node = nodeLookup.get(id);
       const visibleByType = node ? activeTypes.has(node.type) : true;
       const related = !focusId || neighbors.has(id);
-      const baseSize = Number(attrs.baseSize ?? attrs.size ?? (node ? nodeSize(node) : 4));
+      const emphasis = id === selectedId
+        ? (vizType === 'vector' ? 1.12 : 1.3)
+        : related
+          ? (vizType === 'vector' ? 1 : 1.05)
+          : (vizType === 'vector' ? 0.82 : 0.7);
+      const baseColor = String(attrs.baseColor || attrs.color || "#e2e8f0");
 
       graph.setNodeAttribute(id, "hidden", !visibleByType);
-      const opacity = related ? 1.0 : (focusId ? 0.15 : 0.44);
+      const opacity = related ? 1.0 : (focusId ? 0.16 : 0.4);
       graph.setNodeAttribute(
         id, "color",
-        related
-          ? (attrs.baseColor || attrs.color)
-          : hexToRgba(String(attrs.baseColor || attrs.color || "#e2e8f0"), opacity),
+        depthTintedColor(baseColor, attrs, opacity),
       );
       graph.setNodeAttribute(id, "highlighted", id === selectedId || id === focusId);
       graph.setNodeAttribute(id, "forceLabel", id === selectedId || id === focusId);
       graph.setNodeAttribute(id, "zIndex", id === selectedId ? 10 : related ? 2 : 0);
-      graph.setNodeAttribute(id, "size", baseSize * (id === selectedId ? 1.3 : related ? 1.05 : 0.7));
+      graph.setNodeAttribute(id, "size", scaledNodeSize(attrs, emphasis));
     });
 
     graph.forEachEdge((edgeId: string, attrs: EdgeAttributes, source: string, target: string) => {
@@ -1180,7 +1253,7 @@ function GraphStage({
       graph.setEdgeAttribute(edgeId, "color", hexToRgba(baseColor, edgeOpacity));
       graph.setEdgeAttribute(edgeId, "size", sourceVisible && targetVisible ? (focusId ? (related ? 2.2 : 0.35) : baseSize) : 0.25);
     });
-  }, [nodeLookup]);
+  }, [nodeLookup, vizType]);
 
   // Selection effect: runs on click, camera animation, and type filter, but not hover.
   useEffect(() => {
@@ -1224,14 +1297,22 @@ function GraphStage({
 
     applyHoverRef.fn = (hoverId: string | null) => {
       if (hasGraphOverlayRef.current) return;
+      if (hoverRafRef.current !== null) cancelAnimationFrame(hoverRafRef.current);
       // When hovering a node: dim everything except it and its neighbors.
       // When leaving: restore to selection focus (or no focus).
-      const effectiveFocus = hoverId ?? selectedId;
-      applyFocusState(graph, effectiveFocus, activeTypes, selectedId);
-      sigma.refresh();
+      hoverRafRef.current = requestAnimationFrame(() => {
+        hoverRafRef.current = null;
+        const effectiveFocus = hoverId ?? selectedId;
+        applyFocusState(graph, effectiveFocus, activeTypes, selectedId);
+        sigma.refresh();
+      });
     };
 
     return () => {
+      if (hoverRafRef.current !== null) {
+        cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = null;
+      }
       if (applyHoverRef) applyHoverRef.fn = null;
     };
   }, [activeTypes, selectedId, applyFocusState]);
@@ -1268,6 +1349,9 @@ function GraphStage({
 
       graph.setNodeAttribute(id, 'color', color);
       graph.setNodeAttribute(id, 'baseColor', color);
+      graph.setNodeAttribute(id, 'color', depthTintedColor(color, {
+        depthScale: graph.getNodeAttribute(id, 'depthScale'),
+      }));
     });
 
     // Use requestAnimationFrame to batch refresh and prevent flashing
@@ -1290,8 +1374,10 @@ function GraphStage({
         const nodeData = nodeLookup.get(id);
         if (!nodeData) return;
         const color = colorForViewMode(nodeData, viewMode, churnData);
-        graph.setNodeAttribute(id, 'color', color);
         graph.setNodeAttribute(id, 'baseColor', color);
+        graph.setNodeAttribute(id, 'color', depthTintedColor(color, {
+          depthScale: graph.getNodeAttribute(id, 'depthScale'),
+        }));
       });
       requestAnimationFrame(() => {
         sigma.refresh();
@@ -1313,7 +1399,9 @@ function GraphStage({
         nodeFilePath(nodeData).toLowerCase().includes(lower);
 
       const baseColor = colorForViewMode(nodeData, viewMode, churnData);
-      const color = matches ? baseColor : 'rgba(71,85,105,0.2)';
+      const color = matches
+        ? depthTintedColor(baseColor, { depthScale: graph.getNodeAttribute(id, 'depthScale') })
+        : 'rgba(71,85,105,0.2)';
       graph.setNodeAttribute(id, 'color', color);
     });
 
@@ -1348,9 +1436,11 @@ function GraphStage({
     graph.forEachNode((id: string, attrs: NodeAttributes) => {
       const node = nodeLookup.get(id);
       const visibleByType = node ? activeTypes.has(node.type) : true;
-      const baseSize = Number(attrs.baseSize ?? attrs.size ?? (node ? nodeSize(node) : 4));
       const isSource = id === sourceId;
       const isActive = activeOverlay.has(id);
+      const emphasis = mode === 'path'
+        ? (isActive ? (isSource ? 1.22 : 1.08) : 0.62)
+        : (isSource ? 1.28 : isActive ? 1.04 : 0.68);
 
       graph.setNodeAttribute(id, 'hidden', !visibleByType);
       graph.setNodeAttribute(id, 'forceLabel', isSource || isActive);
@@ -1359,7 +1449,6 @@ function GraphStage({
 
       if (mode === 'path') {
         graph.setNodeAttribute(id, 'color', isActive ? '#22c55e' : 'rgba(71,85,105,0.12)');
-        graph.setNodeAttribute(id, 'size', isActive ? baseSize * (isSource ? 1.55 : 1.3) : baseSize * 0.5);
       } else {
         // Blast radius: source = gold (the changed file), affected = orange, rest = dimmed
         graph.setNodeAttribute(
@@ -1367,12 +1456,8 @@ function GraphStage({
           'color',
           isSource ? '#fbbf24' : isActive ? '#f97316' : 'rgba(71,85,105,0.12)',
         );
-        graph.setNodeAttribute(
-          id,
-          'size',
-          isSource ? baseSize * 1.7 : isActive ? baseSize * 1.15 : baseSize * 0.55,
-        );
       }
+      graph.setNodeAttribute(id, 'size', scaledNodeSize(attrs, emphasis));
     });
 
     graph.forEachEdge((edgeId: string, attrs: EdgeAttributes, source: string, target: string) => {
@@ -1481,156 +1566,273 @@ function GraphStage({
     applyLayout(layoutMode);
   }, [applyLayout, layoutMode]);
 
-  const exportPNG = () => {
-    if (vizType === 'symbols' || vizType === 'vector') {
-      const sigma = sigmaRef.current;
-      if (!sigma) return;
-      const canvas = sigma.getContainer().querySelector('canvas') as HTMLCanvasElement | null;
-      if (!canvas) return;
-      const output = document.createElement('canvas');
-      output.width = canvas.width;
-      output.height = canvas.height;
-      const context = output.getContext('2d');
-      if (!context) return;
-      context.fillStyle = '#0a0e17';
-      context.fillRect(0, 0, output.width, output.height);
-      context.drawImage(canvas, 0, 0);
-      const link = document.createElement('a');
-      link.download = `code-brain-${vizType}.png`;
-      link.href = output.toDataURL('image/png');
-      link.click();
-    } else {
-      const container = d3StageRef.current;
-      if (!container) return;
-      const svg = container.querySelector('svg');
-      if (!svg) return;
-      const serializer = new XMLSerializer();
-      let svgStr = serializer.serializeToString(svg);
-      
-      if (!svgStr.includes('background-color')) {
-        svgStr = svgStr.replace('<svg ', '<svg style="background-color:#0a0e17;" ');
-      }
+  const isSigmaViz = vizType === 'symbols' || vizType === 'vector';
+  const isTreemapViz = vizType === 'treemap';
+  const isD3Viz = !isSigmaViz && !isTreemapViz;
 
-      const img = new Image();
-      const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-      
-      img.onload = () => {
+  const withD3Viewport = (action: (svg: any, zoomBehavior: any) => void, warning: string) => {
+    const svg = d3SvgRef.current;
+    const zoomBehavior = d3ZoomRef.current;
+    if (!svg || !zoomBehavior) {
+      console.warn(warning);
+      return;
+    }
+    action(svg, zoomBehavior);
+  };
+
+  const exportPNG = () => {
+    try {
+      if (isSigmaViz) {
+        const sigma = sigmaRef.current;
+        if (!sigma) {
+          console.warn('Export PNG: Sigma instance not found');
+          alert('Cannot export: Graph not fully loaded. Please wait and try again.');
+          return;
+        }
+        const canvas = sigma.getContainer().querySelector('canvas') as HTMLCanvasElement | null;
+        if (!canvas) {
+          console.warn('Export PNG: Canvas element not found');
+          alert('Cannot export: Canvas not found. Please try again.');
+          return;
+        }
         const output = document.createElement('canvas');
-        output.width = svg.clientWidth || 1920;
-        output.height = svg.clientHeight || 1080;
+        output.width = canvas.width;
+        output.height = canvas.height;
         const context = output.getContext('2d');
-        if (!context) return;
+        if (!context) {
+          alert('Cannot export: Failed to create canvas context.');
+          return;
+        }
         context.fillStyle = '#0a0e17';
         context.fillRect(0, 0, output.width, output.height);
-        context.drawImage(img, 0, 0);
-        
+        context.drawImage(canvas, 0, 0);
         const link = document.createElement('a');
         link.download = `code-brain-${vizType}.png`;
         link.href = output.toDataURL('image/png');
         link.click();
-        URL.revokeObjectURL(url);
-      };
-      img.src = url;
+        console.info('✓ PNG exported successfully');
+        showNotification('✓ PNG exported successfully');
+      } else {
+        const container = d3StageRef.current;
+        if (!container) {
+          console.warn('Export PNG: Container not found');
+          alert('Cannot export: Graph container not found. Please try again.');
+          return;
+        }
+        const svg = container.querySelector('svg');
+        if (!svg) {
+          console.warn('Export PNG: SVG element not found in container');
+          alert('Cannot export: SVG not found. Make sure the graph is fully rendered.');
+          return;
+        }
+        const serializer = new XMLSerializer();
+        let svgStr = serializer.serializeToString(svg);
+        
+        if (!svgStr.includes('background-color')) {
+          svgStr = svgStr.replace('<svg ', '<svg style="background-color:#0a0e17;" ');
+        }
+
+        const img = new Image();
+        const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        
+        img.onload = () => {
+          const output = document.createElement('canvas');
+          output.width = svg.clientWidth || 1920;
+          output.height = svg.clientHeight || 1080;
+          const context = output.getContext('2d');
+          if (!context) {
+            alert('Cannot export: Failed to create canvas context.');
+            URL.revokeObjectURL(url);
+            return;
+          }
+          context.fillStyle = '#0a0e17';
+          context.fillRect(0, 0, output.width, output.height);
+          context.drawImage(img, 0, 0);
+          
+          const link = document.createElement('a');
+          link.download = `code-brain-${vizType}.png`;
+          link.href = output.toDataURL('image/png');
+          link.click();
+          URL.revokeObjectURL(url);
+          console.info('✓ PNG exported successfully');
+          showNotification('✓ PNG exported successfully');
+        };
+        img.onerror = () => {
+          console.error('Export PNG: Failed to load SVG as image');
+          alert('Failed to export PNG. The graph may be too complex. Try exporting as SVG instead.');
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      }
+    } catch (error) {
+      console.error('Failed to export PNG:', error);
+      alert('Failed to export PNG. Check console for details.');
     }
   };
 
   const exportJSON = () => {
-    const data = {
-      exportedAt: new Date().toISOString(),
-      vizType,
-      nodes: visualPayload.nodes.map(n => ({
-        id: n.id,
-        name: n.name,
-        type: n.type,
-        file: n.file,
-        degree: n.degree,
-        rank: n.rank?.score,
-        folder: topFolder(n),
-        isDead: n.metadata?.isDead,
-        isBridge: n.metadata?.isBridge,
-      })),
-      edges: visualPayload.edges.map(e => ({
-        id: e.id,
-        from: e.from,
-        to: e.to,
-        type: e.type,
-        resolved: e.resolved,
-      })),
-      stats: visualPayload.stats,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.download = 'code-brain-graph.json';
-    link.href = URL.createObjectURL(blob);
-    link.click();
-    URL.revokeObjectURL(link.href);
+    try {
+      const data = {
+        exportedAt: new Date().toISOString(),
+        vizType,
+        nodes: visualPayload.nodes.map(n => ({
+          id: n.id,
+          name: n.name,
+          type: n.type,
+          file: n.file,
+          degree: n.degree,
+          rank: n.rank?.score,
+          folder: topFolder(n),
+          isDead: n.metadata?.isDead,
+          isBridge: n.metadata?.isBridge,
+        })),
+        edges: visualPayload.edges.map(e => ({
+          id: e.id,
+          from: e.from,
+          to: e.to,
+          type: e.type,
+          resolved: e.resolved,
+        })),
+        stats: visualPayload.stats,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.download = 'code-brain-graph.json';
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      console.info('✓ Graph JSON exported successfully');
+      showNotification('✓ Graph JSON exported successfully');
+    } catch (error) {
+      console.error('Failed to export JSON:', error);
+      alert('Failed to export JSON. Check console for details.');
+    }
+  };
+
+  const exportAIJSON = async () => {
+    try {
+      console.info('Fetching AI export from server...');
+      
+      // Call the backend API endpoint with no token limit for full export
+      // This matches the CLI behavior when no maxTokens is specified
+      const response = await fetch('/api/export/ai?maxTokens=200000');
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `Server returned ${response.status}`);
+      }
+      
+      const aiBundle = await response.json();
+      
+      // Download the AI export
+      const blob = new Blob([JSON.stringify(aiBundle, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.download = 'code-brain-ai-analysis.json';
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      console.info('✓ AI-optimized JSON exported successfully (codebrain-ai/v3-hierarchical format)');
+      showNotification('✓ AI JSON exported successfully');
+    } catch (error) {
+      console.error('Failed to export AI JSON:', error);
+      alert(`Failed to export AI JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const exportMarkdown = () => {
-    const nodes = visualPayload.nodes;
-    const topHubs = [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0)).slice(0, 15);
-    const deadNodes = nodes.filter(n => n.metadata?.isDead);
-    const bridgeNodes = nodes.filter(n => n.metadata?.isBridge);
-    const cycles = visualPayload.analytics?.cycles ?? [];
+    try {
+      const nodes = visualPayload.nodes;
+      const topHubs = [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0)).slice(0, 15);
+      const deadNodes = nodes.filter(n => n.metadata?.isDead);
+      const bridgeNodes = nodes.filter(n => n.metadata?.isBridge);
+      const cycles = visualPayload.analytics?.cycles ?? [];
 
-    const lines = [
-      `# Code-Brain Graph Report`,
-      ``,
-      `> Generated: ${new Date().toLocaleString()}`,
-      ``,
-      `## Overview`,
-      ``,
-      `| Metric | Value |`,
-      `|--------|-------|`,
-      `| Nodes | ${nodes.length} |`,
-      `| Edges | ${visualPayload.edges.length} |`,
-      `| Clusters | ${visualPayload.analytics?.communities?.length ?? 0} |`,
-      `| Unresolved Edges | ${visualPayload.analytics?.health?.unresolvedEdges ?? 0} |`,
-      ``,
-      `## Top Signal Hubs (by degree)`,
-      ``,
-      ...topHubs.map(n => `- **${n.name}** (${n.type}) — degree ${n.degree}, rank ${n.rank?.score?.toFixed(3) ?? 'n/a'}`),
-      ``,
-      deadNodes.length > 0 ? `## Dead Code (${deadNodes.length} nodes)` : '',
-      deadNodes.length > 0 ? `` : '',
-      ...deadNodes.slice(0, 20).map(n => `- ${n.name} (${n.file ?? 'unknown'})`),
-      deadNodes.length > 0 ? `` : '',
-      bridgeNodes.length > 0 ? `## Bridge Nodes (${bridgeNodes.length} critical connectors)` : '',
-      bridgeNodes.length > 0 ? `` : '',
-      ...bridgeNodes.slice(0, 10).map(n => `- **${n.name}** — removing this breaks graph connectivity`),
-      bridgeNodes.length > 0 ? `` : '',
-      cycles.length > 0 ? `## Circular Dependencies (${cycles.length})` : '',
-      cycles.length > 0 ? `` : '',
-      ...cycles.slice(0, 10).map((cycle: string[], i: number) => `${i + 1}. ${cycle.join(' → ')}`),
-    ].filter(l => l !== undefined);
+      const lines = [
+        `# Code-Brain Graph Report`,
+        ``,
+        `> Generated: ${new Date().toLocaleString()}`,
+        ``,
+        `## Overview`,
+        ``,
+        `| Metric | Value |`,
+        `|--------|-------|`,
+        `| Nodes | ${nodes.length} |`,
+        `| Edges | ${visualPayload.edges.length} |`,
+        `| Clusters | ${visualPayload.analytics?.communities?.length ?? 0} |`,
+        `| Unresolved Edges | ${visualPayload.analytics?.health?.unresolvedEdges ?? 0} |`,
+        ``,
+        `## Top Signal Hubs (by degree)`,
+        ``,
+        ...topHubs.map(n => `- **${n.name}** (${n.type}) — degree ${n.degree}, rank ${n.rank?.score?.toFixed(3) ?? 'n/a'}`),
+        ``,
+        deadNodes.length > 0 ? `## Dead Code (${deadNodes.length} nodes)` : '',
+        deadNodes.length > 0 ? `` : '',
+        ...deadNodes.slice(0, 20).map(n => `- ${n.name} (${n.file ?? 'unknown'})`),
+        deadNodes.length > 0 ? `` : '',
+        bridgeNodes.length > 0 ? `## Bridge Nodes (${bridgeNodes.length} critical connectors)` : '',
+        bridgeNodes.length > 0 ? `` : '',
+        ...bridgeNodes.slice(0, 10).map(n => `- **${n.name}** — removing this breaks graph connectivity`),
+        bridgeNodes.length > 0 ? `` : '',
+        cycles.length > 0 ? `## Circular Dependencies (${cycles.length})` : '',
+        cycles.length > 0 ? `` : '',
+        ...cycles.slice(0, 10).map((cycle: string[], i: number) => `${i + 1}. ${cycle.join(' → ')}`),
+      ].filter(l => l !== undefined);
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
-    const link = document.createElement('a');
-    link.download = 'code-brain-report.md';
-    link.href = URL.createObjectURL(blob);
-    link.click();
-    URL.revokeObjectURL(link.href);
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+      const link = document.createElement('a');
+      link.download = 'code-brain-report.md';
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      console.info('✓ Markdown report exported successfully');
+      showNotification('✓ Markdown report exported successfully');
+    } catch (error) {
+      console.error('Failed to export Markdown:', error);
+      alert('Failed to export Markdown. Check console for details.');
+    }
   };
 
   const exportSVG = () => {
-    const container = d3StageRef.current;
-    if (!container) return;
-    const svg = container.querySelector('svg');
-    if (!svg) return;
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svg);
-    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-    const link = document.createElement('a');
-    link.download = `code-brain-${vizType}.svg`;
-    link.href = URL.createObjectURL(blob);
-    link.click();
-    URL.revokeObjectURL(link.href);
+    try {
+      const container = d3StageRef.current;
+      if (!container) {
+        console.warn('Export SVG: Container not found');
+        alert('Cannot export: Graph container not found. Please try again.');
+        return;
+      }
+      const svg = container.querySelector('svg');
+      if (!svg) {
+        console.warn('Export SVG: SVG element not found in container');
+        alert('Cannot export: SVG not found. Make sure the graph is fully rendered.');
+        return;
+      }
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svg);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const link = document.createElement('a');
+      link.download = `code-brain-${vizType}.svg`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      console.info('✓ SVG exported successfully');
+      showNotification('✓ SVG exported successfully');
+    } catch (error) {
+      console.error('Failed to export SVG:', error);
+      alert('Failed to export SVG. Check console for details.');
+    }
   };
 
   useEffect(() => {
     const container = d3StageRef.current;
-    if (!container || vizType === 'symbols' || vizType === 'vector' || vizType === 'treemap') return;
+    if (!container || vizType === 'symbols' || vizType === 'vector' || vizType === 'treemap') {
+      // Clear refs when not using D3 visualizations
+      if (vizType === 'symbols' || vizType === 'vector' || vizType === 'treemap') {
+        d3SvgRef.current = null;
+        d3ZoomRef.current = null;
+      }
+      return;
+    }
 
     const rect = container.getBoundingClientRect();
     const width = Math.max(720, rect.width || 1);
@@ -1929,13 +2131,59 @@ function GraphStage({
     };
 
     const drawMatrix = () => {
+      const maxMatrixNodes = Math.min(nodes.length, width < 1100 ? 72 : 108);
       const ordered = [...nodes]
-        .sort((a, b) => a.folder.localeCompare(b.folder) || (b.degree ?? 0) - (a.degree ?? 0))
-        .slice(0, 90);
+        .sort((a, b) =>
+          a.folder.localeCompare(b.folder) ||
+          topFolder(a).localeCompare(topFolder(b)) ||
+          (b.degree ?? 0) - (a.degree ?? 0) ||
+          a.name.localeCompare(b.name)
+        )
+        .slice(0, maxMatrixNodes);
       const indexById = new Map(ordered.map((node, index) => [node.id, index]));
-      const margin = { top: 112, right: 36, bottom: 36, left: 150 };
-      const cell = Math.max(9, Math.min(24, Math.floor(Math.min(width - margin.left - margin.right, height - margin.top - margin.bottom) / Math.max(1, ordered.length))));
+      const margin = { top: 136, right: 40, bottom: 44, left: 196 };
+      const cell = Math.max(10, Math.min(26, Math.floor(Math.min(width - margin.left - margin.right, height - margin.top - margin.bottom) / Math.max(1, ordered.length))));
       const grid = rootLayer.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+      const matrixSize = ordered.length * cell;
+      const folderBreaks: Array<{ folder: string; start: number; end: number }> = [];
+
+      ordered.forEach((node, index) => {
+        const folder = node.folder;
+        const current = folderBreaks[folderBreaks.length - 1];
+        if (!current || current.folder !== folder) {
+          folderBreaks.push({ folder, start: index, end: index });
+        } else {
+          current.end = index;
+        }
+      });
+
+      rootLayer.append('text')
+        .attr('x', 24)
+        .attr('y', 34)
+        .attr('fill', '#22d3ee')
+        .attr('font-size', 13)
+        .attr('font-weight', 760)
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'rgba(2,6,23,0.92)')
+        .attr('stroke-width', 3)
+        .text(`Dependency matrix • ${ordered.length} most connected files • Click labels or cells to inspect`);
+
+      rootLayer.append('text')
+        .attr('x', 24)
+        .attr('y', 54)
+        .attr('fill', '#7d8594')
+        .attr('font-size', 11)
+        .attr('font-weight', 600)
+        .text(`Rows are sources, columns are targets. Grouped by folder for easier scanning.`);
+
+      grid.append('rect')
+        .attr('x', -1)
+        .attr('y', -1)
+        .attr('width', matrixSize + 2)
+        .attr('height', matrixSize + 2)
+        .attr('rx', 10)
+        .attr('fill', 'rgba(8,12,20,0.45)')
+        .attr('stroke', 'rgba(148,163,184,0.12)');
 
       grid
         .selectAll('rect.bg')
@@ -1946,13 +2194,61 @@ function GraphStage({
         .attr('width', cell - 1)
         .attr('height', cell - 1)
         .attr('rx', 2)
-        .attr('fill', 'rgba(148,163,184,0.05)');
+        .attr('fill', (datum) => datum.x === datum.y ? 'rgba(56,189,248,0.08)' : 'rgba(148,163,184,0.05)');
+
+      grid.append('g')
+        .selectAll('path.folder-break-row')
+        .data(folderBreaks)
+        .join('path')
+        .attr('d', (datum) => `M0,${datum.start * cell - 4} H${matrixSize}`)
+        .attr('stroke', 'rgba(34,211,238,0.18)')
+        .attr('stroke-width', 1);
+
+      grid.append('g')
+        .selectAll('path.folder-break-col')
+        .data(folderBreaks)
+        .join('path')
+        .attr('d', (datum) => `M${datum.start * cell - 4},0 V${matrixSize}`)
+        .attr('stroke', 'rgba(34,211,238,0.18)')
+        .attr('stroke-width', 1);
 
       const cellLinks = links
         .map((edge) => ({ edge, x: indexById.get(edge.from), y: indexById.get(edge.to) }))
         .filter((datum) => datum.x !== undefined && datum.y !== undefined);
 
-      grid
+      const rowHighlight = grid.append('rect')
+        .attr('fill', 'rgba(34,211,238,0.08)')
+        .attr('rx', 6)
+        .style('display', 'none')
+        .style('pointer-events', 'none');
+
+      const colHighlight = grid.append('rect')
+        .attr('fill', 'rgba(34,211,238,0.08)')
+        .attr('rx', 6)
+        .style('display', 'none')
+        .style('pointer-events', 'none');
+
+      const showMatrixHighlight = (index: number) => {
+        rowHighlight
+          .style('display', null)
+          .attr('x', -4)
+          .attr('y', index * cell - 4)
+          .attr('width', matrixSize + 8)
+          .attr('height', cell + 8);
+        colHighlight
+          .style('display', null)
+          .attr('x', index * cell - 4)
+          .attr('y', -4)
+          .attr('width', cell + 8)
+          .attr('height', matrixSize + 8);
+      };
+
+      const hideMatrixHighlight = () => {
+        rowHighlight.style('display', 'none');
+        colHighlight.style('display', 'none');
+      };
+
+      const linkCells = grid
         .selectAll('rect.link')
         .data(cellLinks)
         .join('rect')
@@ -1961,41 +2257,97 @@ function GraphStage({
         .attr('width', cell - 1)
         .attr('height', cell - 1)
         .attr('rx', 3)
-        .attr('fill', (datum) => folderColor(datum.edge.sourceNode!.folder, 0.82))
-        .append('title')
+        .attr('fill', (datum) => folderColor(datum.edge.sourceNode!.folder, Math.min(0.92, 0.42 + datum.edge.weight * 0.08)))
+        .attr('stroke', (datum) => datum.x === datum.y ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.14)')
+        .attr('stroke-width', (datum) => datum.x === datum.y ? 1.2 : 0.6)
+        .style('cursor', 'pointer')
+        .on('mouseenter', (_event, datum) => {
+          showMatrixHighlight(Number(datum.y));
+          d3.selectAll<SVGRectElement, any>('rect.link')
+            .attr('opacity', 0.16);
+          d3.selectAll<SVGTextElement, any>('text.matrix-label')
+            .attr('fill', '#6b7280');
+          linkCells
+            .filter((d: any) => d.x === datum.x || d.y === datum.y)
+            .attr('opacity', 1);
+          rowLabels
+            .filter((_d: any, i: number) => i === datum.y)
+            .attr('fill', '#22d3ee');
+          colLabels
+            .filter((_d: any, i: number) => i === datum.x)
+            .attr('fill', '#22d3ee');
+        })
+        .on('mouseleave', () => {
+          hideMatrixHighlight();
+          linkCells.attr('opacity', 1);
+          rowLabels.attr('fill', '#9fb2c9');
+          colLabels.attr('fill', '#9fb2c9');
+        })
+        .on('click', (_event, datum) => onSelect(selectSourceNodeId(datum.edge.sourceNode!)));
+
+      linkCells.append('title')
         .text((datum) => `${datum.edge.sourceNode!.name} -> ${datum.edge.targetNode!.name}\n${datum.edge.weight} connections`);
 
-      grid
+      const rowLabels = grid
         .append('g')
         .selectAll('text.row')
         .data(ordered)
         .join('text')
+        .attr('class', 'matrix-label')
         .attr('x', -14)
         .attr('y', (_node, index) => index * cell + cell * 0.72)
         .attr('text-anchor', 'end')
         .attr('fill', '#9fb2c9')
         .attr('font-size', 12)
-        .text((node) => truncateMiddle(node.name, 14));
+        .attr('font-weight', (node) => (node.degree ?? 0) > 10 ? 700 : 560)
+        .style('cursor', 'pointer')
+        .text((node) => truncateMiddle(relativeLabel(node.fullName || node.file || node.name), 22))
+        .on('mouseenter', (_event, node) => showMatrixHighlight(indexById.get(node.id) ?? 0))
+        .on('mouseleave', hideMatrixHighlight)
+        .on('click', (_event, node) => onSelect(selectSourceNodeId(node)));
 
-      grid
+      const colLabels = grid
         .append('g')
         .selectAll('text.col')
         .data(ordered)
         .join('text')
+        .attr('class', 'matrix-label')
         .attr('transform', (_node, index) => `translate(${index * cell + cell * 0.6},-16) rotate(-50)`)
         .attr('text-anchor', 'start')
         .attr('fill', '#9fb2c9')
         .attr('font-size', 12)
-        .text((node) => truncateMiddle(node.name, 14));
+        .attr('font-weight', (node) => (node.degree ?? 0) > 10 ? 700 : 560)
+        .style('cursor', 'pointer')
+        .text((node) => truncateMiddle(relativeLabel(node.fullName || node.file || node.name), 22))
+        .on('mouseenter', (_event, node) => showMatrixHighlight(indexById.get(node.id) ?? 0))
+        .on('mouseleave', hideMatrixHighlight)
+        .on('click', (_event, node) => onSelect(selectSourceNodeId(node)));
+
+      rootLayer.append('text')
+        .attr('x', margin.left)
+        .attr('y', margin.top - 96)
+        .attr('fill', '#94a3b8')
+        .attr('font-size', 10)
+        .attr('font-weight', 700)
+        .attr('letter-spacing', '0.08em')
+        .text('TARGET FILES');
+
+      rootLayer.append('text')
+        .attr('transform', `translate(${margin.left - 156},${margin.top + matrixSize / 2}) rotate(-90)`)
+        .attr('fill', '#94a3b8')
+        .attr('font-size', 10)
+        .attr('font-weight', 700)
+        .attr('letter-spacing', '0.08em')
+        .text('SOURCE FILES');
     };
 
     const drawTree = () => {
-      const root: any = { name: 'root', children: [], path: 'root' };
+      const root: any = { name: 'root', children: [], path: 'root', branchCount: 0, leafCount: 0 };
       const ensureChild = (parent: any, name: string, path: string) => {
         parent.children ??= [];
         let child = parent.children.find((item: any) => item.name === name);
         if (!child) {
-          child = { name, path, children: [], omitted: 0 };
+          child = { name, path, children: [], branchCount: 0, leafCount: 0 };
           parent.children.push(child);
         }
         return child;
@@ -2015,53 +2367,55 @@ function GraphStage({
         return rawParts.slice(-3).slice(0, 5);
       };
 
-      const maxRenderedFiles = Math.min(nodes.length, width < 1100 ? 36 : 64);
-      const visibleFiles = new Set(
-        [...nodes]
-          .sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0))
-          .slice(0, maxRenderedFiles)
-          .map((node) => node.id),
-      );
-
       nodes.forEach((node) => {
         const parts = toProjectParts(node);
         if (parts.length === 0) return;
         let cursor = root;
-
-        const folderParts = visibleFiles.has(node.id) ? parts : parts.slice(0, Math.max(1, parts.length - 1));
-        folderParts.forEach((part, index) => {
-          cursor = ensureChild(cursor, part, parts.slice(0, index + 1).join('/'));
+        parts.forEach((part, index) => {
+          const path = parts.slice(0, index + 1).join('/');
+          cursor = ensureChild(cursor, part, path);
+          cursor.branchCount = (cursor.branchCount || 0) + (index < parts.length - 1 ? 1 : 0);
+          cursor.leafCount = (cursor.leafCount || 0) + (index === parts.length - 1 ? 1 : 0);
         });
-
-        if (visibleFiles.has(node.id)) {
-          cursor.node = node;
-          delete cursor.children;
-        } else {
-          cursor.omitted = (cursor.omitted || 0) + 1;
-        }
+        cursor.node = node;
+        delete cursor.children;
       });
+
+      const initialExpanded = new Set(expandedTreePaths);
+      if (initialExpanded.size === 1 && initialExpanded.has('root')) {
+        (root.children || [])
+          .slice()
+          .sort((a: any, b: any) => (b.leafCount || 0) - (a.leafCount || 0))
+          .slice(0, width < 1100 ? 3 : 4)
+          .forEach((child: any) => initialExpanded.add(child.path));
+      }
 
       const hierarchy = d3.hierarchy(root, (datum: any) => {
         const children = [...(datum.children || [])]
-          .sort((a: any, b: any) => (b.omitted || 0) - (a.omitted || 0) || a.name.localeCompare(b.name));
-        if (datum.omitted > 0 && children.length === 0) {
-          return [{ name: `+${datum.omitted} more`, path: `${datum.path}:more`, synthetic: true }];
+          .sort((a: any, b: any) => (b.leafCount || 0) - (a.leafCount || 0) || a.name.localeCompare(b.name));
+        if (datum.path === 'root') return children;
+        if (datum.node) return undefined;
+        return initialExpanded.has(datum.path) ? children : undefined;
+      });
+
+      const descendants = hierarchy.descendants();
+      const hasHiddenDescendants = new Set<string>();
+      descendants.forEach((datum) => {
+        if (!datum.data.children?.length || datum.data.node) return;
+        if (!initialExpanded.has(datum.data.path) && datum.data.path !== 'root') {
+          hasHiddenDescendants.add(datum.data.path);
         }
-        if (datum.omitted > 0 && datum.path !== 'root') {
-          children.push({ name: `+${datum.omitted} more`, path: `${datum.path}:more`, synthetic: true });
-        }
-        return children;
       });
 
       const tree = d3.tree<any>()
-        .nodeSize([38, Math.max(170, Math.min(260, width / Math.max(3.4, hierarchy.height + 1)))])
-        .separation((a, b) => a.parent === b.parent ? 1.55 : 2.2);
+        .nodeSize([30, Math.max(150, Math.min(240, width / Math.max(3.2, hierarchy.height + 1)))])
+        .separation((a, b) => a.parent === b.parent ? 1.15 : 1.5);
       tree(hierarchy);
       const allDesc = hierarchy.descendants();
       const minX = d3.min(allDesc, (datum) => datum.x) ?? 0;
       const maxX = d3.max(allDesc, (datum) => datum.x) ?? 0;
       const contentHeight = Math.max(1, maxX - minX);
-      const initialScale = contentHeight > height - 140 ? 0.86 : 1;
+      const initialScale = 1; // Always use scale 1, let user zoom as needed
       const group = rootLayer.append('g').attr('transform', `translate(96,${Math.max(84, (height - contentHeight * initialScale) / 2) - minX * initialScale}) scale(${initialScale})`);
       const linkGen = d3.linkHorizontal<any, any>().x((datum) => datum.y).y((datum) => datum.x);
 
@@ -2070,50 +2424,117 @@ function GraphStage({
         .join('path')
         .attr('d', linkGen)
         .attr('fill', 'none')
-        .attr('stroke', 'rgba(148,163,184,0.14)')
-        .attr('stroke-width', 1.6);
+        .attr('stroke', 'rgba(148,163,184,0.2)') // Increased opacity from 0.14 to 0.2
+        .attr('stroke-width', 2); // Increased from 1.6 to 2
 
       const treeNodes = group.selectAll('g.node')
         .data(hierarchy.descendants())
         .join('g')
+        .attr('class', 'tree-node')
         .attr('transform', (datum) => `translate(${datum.y},${datum.x})`)
-        .style('cursor', (datum) => datum.data.node ? 'pointer' : 'default')
+        .style('cursor', (datum) => (datum.data.node || datum.data.children?.length) ? 'pointer' : 'default')
         .on('click', (_event, datum) => {
-          if (datum.data.node) selectNode(datum.data.node);
+          if (datum.data.node) {
+            selectNode(datum.data.node);
+            return;
+          }
+          if (datum.data.children?.length) {
+            setExpandedTreePaths((current) => {
+              const next = new Set(current);
+              if (next.has(datum.data.path)) next.delete(datum.data.path);
+              else next.add(datum.data.path);
+              next.add('root');
+              return next;
+            });
+          }
+        })
+        .on('mouseenter', function(event, datum) {
+          // Highlight the node on hover
+          d3.select(this).select('circle')
+            .transition()
+            .duration(150)
+            .attr('r', (d: any) => d.data.node ? 10 : d.data.children?.length ? 9 : 7)
+            .attr('stroke-width', 3.5);
+          d3.select(this).select('text')
+            .transition()
+            .duration(150)
+            .attr('fill', '#22d3ee')
+            .attr('font-size', (d: any) => d.depth <= 2 ? 14 : 12);
+        })
+        .on('mouseleave', function(event, datum) {
+          // Reset on mouse leave
+          d3.select(this).select('circle')
+            .transition()
+            .duration(150)
+            .attr('r', (d: any) => d.data.node ? 8 : d.data.children?.length ? 7 : 6)
+            .attr('stroke-width', 2.4);
+          d3.select(this).select('text')
+            .transition()
+            .duration(150)
+            .attr('fill', (d: any) => d.data.node ? '#d8dee9' : '#9fb2c9')
+            .attr('font-size', (d: any) => d.depth <= 2 ? 13 : 11);
         });
 
       treeNodes.append('circle')
-        .attr('r', (datum) => datum.data.synthetic ? 4 : datum.data.node ? 8 : 6)
-        .attr('fill', (datum) => datum.data.synthetic ? 'rgba(148,163,184,0.32)' : datum.data.node ? folderColor(topFolder(datum.data.node), 0.95) : 'rgba(10,14,23,0.9)')
-        .attr('stroke', (datum) => datum.data.node ? '#071018' : 'rgba(148,163,184,0.55)')
+        .attr('r', (datum) => datum.data.node ? 8 : datum.data.children?.length ? 7 : 6)
+        .attr('fill', (datum) => datum.data.node ? folderColor(topFolder(datum.data.node), 0.95) : 'rgba(10,14,23,0.9)')
+        .attr('stroke', (datum) => hasHiddenDescendants.has(datum.data.path) ? '#22d3ee' : datum.data.node ? '#071018' : 'rgba(148,163,184,0.55)')
         .attr('stroke-width', 2.4);
 
+      treeNodes
+        .filter((datum: any) => hasHiddenDescendants.has(datum.data.path))
+        .append('text')
+        .attr('x', 0)
+        .attr('y', 3)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#22d3ee')
+        .attr('font-size', 10)
+        .attr('font-weight', 800)
+        .text('+');
+
+      treeNodes.append('title')
+        .text((datum) => {
+          if (datum.data.node) {
+            return `${nodeFilePath(datum.data.node)}\nDegree: ${datum.data.node.degree ?? 0}\nType: ${datum.data.node.type}`;
+          }
+          const childCount = datum.data.children?.length ?? 0;
+          const hiddenLabel = hasHiddenDescendants.has(datum.data.path) ? '\nClick to expand' : childCount > 0 ? '\nClick to collapse' : '';
+          return `${datum.data.path || datum.data.name}\n${datum.data.leafCount || childCount} items${hiddenLabel}`;
+        });
+
       const labels = treeNodes.filter((datum) =>
-        datum.depth <= 3 ||
-        datum.data.synthetic ||
-        Boolean(datum.data.node && ((datum.data.node.degree ?? 0) >= 2 || datum.depth <= 4)),
+        datum.depth <= 5 ||
+        Boolean(datum.data.node && ((datum.data.node.degree ?? 0) >= 1 || datum.depth <= 6)),
       );
 
       labels.append('text')
-        .attr('x', (datum) => datum.children ? -14 : 14)
+        .attr('x', (datum) => datum.children ? -16 : 16)
         .attr('dy', 4)
         .attr('text-anchor', (datum) => datum.children ? 'end' : 'start')
-        .attr('fill', (datum) => datum.data.synthetic ? '#7d8594' : '#d8dee9')
-        .attr('font-size', (datum) => datum.depth <= 2 ? 12 : 10.5)
+        .attr('fill', (datum) => datum.data.node ? '#d8dee9' : '#9fb2c9')
+        .attr('font-size', (datum) => datum.depth <= 2 ? 13 : 11)
         .attr('font-weight', (datum) => datum.depth <= 2 ? 750 : 620)
         .attr('paint-order', 'stroke')
         .attr('stroke', 'rgba(2,6,23,0.96)')
         .attr('stroke-width', 4)
-        .text((datum) => truncateMiddle(datum.data.name, datum.depth <= 2 ? 24 : 16));
+        .text((datum) => {
+          if (!datum.data.node && hasHiddenDescendants.has(datum.data.path)) {
+            return `${truncateMiddle(datum.data.name, datum.depth <= 2 ? 28 : 22)} (${datum.data.children?.length ?? 0})`;
+          }
+          return truncateMiddle(datum.data.name, datum.depth <= 2 ? 32 : 24);
+        });
 
       rootLayer
         .append('text')
         .attr('x', 18)
         .attr('y', height - 18)
-        .attr('fill', '#7d8594')
-        .attr('font-size', 11)
-        .attr('font-weight', 650)
-        .text(`Tree view shows top ${maxRenderedFiles} connected files. Scroll/drag to inspect more.`);
+        .attr('fill', '#22d3ee')
+        .attr('font-size', 12)
+        .attr('font-weight', 700)
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'rgba(2,6,23,0.9)')
+        .attr('stroke-width', 3)
+        .text(`Tree starts partially expanded • Click folders to expand/collapse • Click files to inspect`);
     };
 
     const drawFlow = () => {
@@ -2134,7 +2555,7 @@ function GraphStage({
         activity.set(edge.target, (activity.get(edge.target) || 0) + edge.value);
       });
 
-      const maxGroups = Math.max(8, Math.min(16, Math.floor(height / 78)));
+      const maxGroups = Math.max(12, Math.min(32, Math.floor(height / 60))); // Increased from 8-16 to 12-32, reduced spacing from 78 to 60
       const groups = [...new Set([...activity.keys(), ...groupCountMap.keys()])]
         .sort((a, b) => {
           const activityDelta = (activity.get(b) || 0) - (activity.get(a) || 0);
@@ -2153,10 +2574,10 @@ function GraphStage({
       const flatLinks = aggregated
         .flatMap(([source, targets]) => targets.map(([target, value]) => ({ source, target, value })))
         .sort((a, b) => b.value - a.value);
-      const sourceX = 80;
-      const midX = width * 0.47;
-      const targetX = width - 130;
-      const yFor = (index: number, count: number) => 88 + (index / Math.max(1, count - 1)) * (height - 176);
+      const sourceX = 120; // Increased from 80 to give more label space
+      const midX = width * 0.5; // Centered from 0.47
+      const targetX = width - 160; // Increased margin from 130 to 160
+      const yFor = (index: number, count: number) => 70 + (index / Math.max(1, count - 1)) * (height - 140); // Reduced top margin from 88 to 70, bottom from 176 to 140
       const groupY = new Map(groups.map((group, index) => [group, yFor(index, groups.length)]));
 
       if (flatLinks.length === 0) {
@@ -2176,10 +2597,13 @@ function GraphStage({
       rootLayer.append('text')
         .attr('x', 24)
         .attr('y', 30)
-        .attr('fill', '#9ca3af')
-        .attr('font-size', 11)
-        .attr('font-weight', 700)
-        .text(`Top ${groups.length} active dependency groups by subfolder`);
+        .attr('fill', '#22d3ee')
+        .attr('font-size', 13)
+        .attr('font-weight', 750)
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'rgba(2,6,23,0.9)')
+        .attr('stroke-width', 3)
+        .text(`Showing ${groups.length} of ${[...new Set([...activity.keys(), ...groupCountMap.keys()])].length} dependency groups • Hover to highlight`);
 
       const flowPaths = rootLayer.selectAll<SVGPathElement, { source: string; target: string; value: number }>('path.flow-link')
         .data(flatLinks)
@@ -2194,7 +2618,22 @@ function GraphStage({
         .attr('fill', 'none')
         .attr('stroke', (edge) => edge.source === edge.target ? folderColor(edge.source, 0.26) : folderColor(edge.source, 0.38))
         .attr('stroke-width', (edge) => Math.max(5, Math.min(42, Math.sqrt(edge.value) * 7)))
-        .attr('stroke-linecap', 'round');
+        .attr('stroke-linecap', 'round')
+        .style('cursor', 'pointer')
+        .on('mouseenter', function(event, edge) {
+          d3.select(this)
+            .transition()
+            .duration(200)
+            .attr('stroke', folderColor(edge.source, 0.8))
+            .attr('stroke-width', (d: any) => Math.max(7, Math.min(48, Math.sqrt(d.value) * 8)));
+        })
+        .on('mouseleave', function(event, edge) {
+          d3.select(this)
+            .transition()
+            .duration(200)
+            .attr('stroke', edge.source === edge.target ? folderColor(edge.source, 0.26) : folderColor(edge.source, 0.38))
+            .attr('stroke-width', (d: any) => Math.max(5, Math.min(42, Math.sqrt(d.value) * 7)));
+        });
       flowPaths.append('title')
         .text((edge) => `${edge.source} -> ${edge.target}: ${edge.value} links`);
 
@@ -2203,7 +2642,37 @@ function GraphStage({
         ...groups.map((folder, index) => ({ folder, x: targetX, y: yFor(index, groups.length), side: 'target' })),
       ];
       const folderGroups = rootLayer.selectAll('g.flow-folder').data(folderNodes).join('g')
-        .attr('transform', (datum) => `translate(${datum.x},${datum.y})`);
+        .attr('class', 'flow-folder')
+        .attr('transform', (datum) => `translate(${datum.x},${datum.y})`)
+        .style('cursor', 'pointer')
+        .on('mouseenter', function() {
+          d3.select(this).select('rect')
+            .transition()
+            .duration(200)
+            .attr('width', 24)
+            .attr('height', 72)
+            .attr('x', -12)
+            .attr('y', -36);
+          d3.select(this).select('text')
+            .transition()
+            .duration(200)
+            .attr('fill', '#22d3ee')
+            .attr('font-size', 16);
+        })
+        .on('mouseleave', function() {
+          d3.select(this).select('rect')
+            .transition()
+            .duration(200)
+            .attr('width', 20)
+            .attr('height', 68)
+            .attr('x', -10)
+            .attr('y', -34);
+          d3.select(this).select('text')
+            .transition()
+            .duration(200)
+            .attr('fill', '#e5edf9')
+            .attr('font-size', 14);
+        });
       folderGroups.append('rect')
         .attr('x', -10)
         .attr('y', -34)
@@ -2212,16 +2681,16 @@ function GraphStage({
         .attr('rx', 5)
         .attr('fill', (datum) => folderColor(datum.folder, 0.95));
       folderGroups.append('text')
-        .attr('x', (datum) => datum.side === 'source' ? 20 : -20)
+        .attr('x', (datum) => datum.side === 'source' ? 24 : -24) // Increased spacing from 20/-20 to 24/-24
         .attr('y', 5)
         .attr('text-anchor', (datum) => datum.side === 'source' ? 'start' : 'end')
         .attr('fill', '#e5edf9')
-        .attr('font-size', 15)
+        .attr('font-size', 14) // Increased from 15 to 14 for better fit
         .attr('font-weight', 750)
         .attr('paint-order', 'stroke')
         .attr('stroke', 'rgba(2,6,23,0.9)')
         .attr('stroke-width', 4)
-        .text((datum) => `${truncateMiddle(datum.folder, 24)} (${groupCountMap.get(datum.folder) ?? 0})`);
+        .text((datum) => `${truncateMiddle(datum.folder, 36)} (${groupCountMap.get(datum.folder) ?? 0})`); // Increased from 24 to 36 chars
     };
 
     const drawCluster = () => {
@@ -2354,7 +2823,7 @@ function GraphStage({
       simulation?.stop();
       container.innerHTML = '';
     };
-  }, [onSelect, visualPayload, viewMode, vizType]);
+  }, [onSelect, visualPayload, viewMode, vizType, showSidebars, expandedTreePaths]);
 
   const treemapData = useMemo(() => {
     const children = visualPayload.nodes
@@ -2459,12 +2928,15 @@ function GraphStage({
     leaves
       .append('title')
       .text((datum) => `${datum.data.name} - degree ${datum.data.value}`);
-  }, [nodeLookup, onSelect, treemapData, viewMode, vizType]);
+  }, [nodeLookup, onSelect, treemapData, viewMode, vizType, showSidebars]);
 
   const zoom = (factor: number) => {
-    if (vizType === 'symbols' || vizType === 'vector') {
+    if (isSigmaViz) {
       const sigma = sigmaRef.current;
-      if (!sigma) return;
+      if (!sigma) {
+        console.warn('Zoom: Sigma instance not found');
+        return;
+      }
       const camera = sigma.getCamera();
       const currentState = camera.getState();
       camera.setState({
@@ -2472,8 +2944,15 @@ function GraphStage({
         ratio: currentState.ratio * factor
       });
     } else {
-      if (!d3SvgRef.current || !d3ZoomRef.current) return;
-      d3SvgRef.current.transition().duration(300).call(d3ZoomRef.current.scaleBy, 1 / factor);
+      withD3Viewport(
+        (svg, zoomBehavior) => {
+          svg
+            .transition()
+            .duration(300)
+            .call((selection: any) => zoomBehavior.scaleBy(selection, 1 / factor));
+        },
+        'Zoom: D3 SVG or zoom behavior not initialized'
+      );
     }
   };
 
@@ -2482,14 +2961,21 @@ function GraphStage({
   };
 
   const resetSphere = () => {
-    if (vizType === 'symbols' || vizType === 'vector') {
+    if (isSigmaViz) {
       if (hasGraphOverlay) return;
       rotationRef.current = { x: -0.18, y: 0.42 };
       projectSphere();
       resetCamera();
     } else {
-      if (!d3SvgRef.current || !d3ZoomRef.current) return;
-      d3SvgRef.current.transition().duration(500).call(d3ZoomRef.current.transform, d3.zoomIdentity);
+      withD3Viewport(
+        (svg, zoomBehavior) => {
+          svg
+            .transition()
+            .duration(500)
+            .call((selection: any) => zoomBehavior.transform(selection, d3.zoomIdentity));
+        },
+        'Reset: D3 SVG or zoom behavior not initialized'
+      );
     }
   };
 
@@ -2517,10 +3003,13 @@ function GraphStage({
       x: clamp(drag.rotationX + dy * 0.006, -1.15, 1.15),
       y: drag.rotationY + dx * 0.006,
     };
-    // Use requestAnimationFrame to throttle sphere rotation updates
-    requestAnimationFrame(() => {
-      projectSphere();
-    });
+    // Throttle sphere rotation updates with requestAnimationFrame
+    if (refreshRafRef.current === null) {
+      refreshRafRef.current = requestAnimationFrame(() => {
+        refreshRafRef.current = null;
+        projectSphere();
+      });
+    }
   };
 
   const stopSphereDrag = (event: React.PointerEvent<HTMLElement>) => {
@@ -2539,7 +3028,7 @@ function GraphStage({
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    if (vizType !== 'symbols' && vizType !== 'vector') {
+    if (isD3Viz) {
       if (!d3ZoomRef.current || !d3SvgRef.current || d3NodesRef.current.length === 0) return;
       
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -2607,7 +3096,7 @@ function GraphStage({
   };
 
   useEffect(() => {
-    if (vizType === 'vector' || vizType === 'treemap') return;
+    if (vizType === 'vector' || isTreemapViz) return;
     
     let rafId: number;
     const renderMiniMap = () => {
@@ -2758,7 +3247,11 @@ function GraphStage({
       <div
         ref={d3StageRef}
         className="codeflow-stage"
-        style={{ display: vizType !== 'symbols' && vizType !== 'vector' && vizType !== 'treemap' ? 'block' : 'none' }}
+        style={{ 
+          display: isD3Viz ? 'block' : 'none',
+          width: '100%',
+          height: '100%'
+        }}
       />
       <div
         ref={treemapRef}
@@ -2778,7 +3271,7 @@ function GraphStage({
           style={{ cursor: 'crosshair', touchAction: 'none' }}
         />
       )}
-      {vizType !== 'symbols' && vizType !== 'vector' && (
+      {isD3Viz && (
         <div className="flow-map-chip">
           <strong>{vizType === 'graph' ? 'Folder Graph' : vizType}</strong>
           <span>{visualPayload.nodes.length} files, {visualPayload.edges.length} dependency links</span>
@@ -2813,7 +3306,7 @@ function GraphStage({
           <button type="button" title="Export PNG" onClick={exportPNG}>
             <Download size={18} />
           </button>
-          {vizType !== 'symbols' && vizType !== 'vector' && (
+          {isD3Viz && (
             <button
               type="button"
               title="Export SVG"
@@ -2830,6 +3323,14 @@ function GraphStage({
             style={{ fontSize: '11px', fontWeight: 700, padding: '0 10px', letterSpacing: '0.04em' }}
           >
             JSON
+          </button>
+          <button
+            type="button"
+            title="Export AI-optimized JSON (for LLMs)"
+            onClick={exportAIJSON}
+            style={{ fontSize: '11px', fontWeight: 700, padding: '0 10px', letterSpacing: '0.04em', background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(6, 182, 212, 0.15))' }}
+          >
+            AI
           </button>
           <button
             type="button"
@@ -2952,6 +3453,7 @@ function App() {
 
   const [isAnalyzingGitHub, setIsAnalyzingGitHub] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<string>('');
+  const [analysisFileProgress, setAnalysisFileProgress] = useState<string>('');
   const [isInitializingLocal, setIsInitializingLocal] = useState(false);
 
   const shellRef = useRef<HTMLElement | null>(null);
@@ -3020,8 +3522,41 @@ function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    document.documentElement.classList.toggle('light-mode', !darkMode);
+    document.body.classList.toggle('light-mode', !darkMode);
+    document.documentElement.style.colorScheme = darkMode ? 'dark' : 'light';
     localStorage.setItem('codebrain:darkMode', String(darkMode));
+
+    return () => {
+      document.documentElement.classList.remove('light-mode');
+      document.body.classList.remove('light-mode');
+      document.documentElement.style.colorScheme = 'dark';
+    };
   }, [darkMode]);
+
+  useEffect(() => {
+    const handleAnalysisProgress = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (typeof detail.message === 'string') {
+        setAnalyzeProgress(detail.message);
+      }
+      if (detail.current && detail.total) {
+        const fileName = typeof detail.filePath === 'string'
+          ? detail.filePath.split(/[\\/]/).pop()
+          : '';
+        setAnalysisFileProgress(
+          fileName
+            ? `Analyzing ${detail.current}/${detail.total}: ${fileName}`
+            : `Analyzing ${detail.current}/${detail.total}`
+        );
+      } else {
+        setAnalysisFileProgress('');
+      }
+    };
+
+    window.addEventListener('codebrain:analysis-progress', handleAnalysisProgress);
+    return () => window.removeEventListener('codebrain:analysis-progress', handleAnalysisProgress);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -3076,7 +3611,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedId, showShortcuts]);
 
-  const selectNode = (id: string) => {
+  const selectNode = useCallback((id: string) => {
     setSelectedId(id);
     setShowFullFile(false);
     setShowRelationships(true);
@@ -3116,7 +3651,16 @@ function App() {
         setDetails(null);
         setSource(null);
       });
-  };
+  }, []);
+
+  const handleGraphHover = useCallback((id: string | null) => {
+    hoveredIdRef.current = id;
+  }, []);
+
+  const handleGraphContextMenu = useCallback((x: number, y: number, nodeId: string, nodeName: string) => {
+    if (nodeId) setContextMenu({ x, y, nodeId, nodeName });
+    else setContextMenu(null);
+  }, []);
 
   const loadFullFile = () => {
     if (!details?.sourcePreview) return;
@@ -3161,7 +3705,8 @@ function App() {
     }
 
     setIsAnalyzingGitHub(true);
-    setAnalyzeProgress('Downloading repository zip on server...');
+    setAnalyzeProgress('Preparing repository analysis...');
+    setAnalysisFileProgress('');
     try {
       // Send to server for analysis directly (bypasses GitHub API rate limits by downloading ZIP natively)
       const response = await fetch('/api/analyze', {
@@ -3189,11 +3734,14 @@ function App() {
     } finally {
       setIsAnalyzingGitHub(false);
       setAnalyzeProgress('');
+      setAnalysisFileProgress('');
     }
   };
 
   const initializeLocalRepo = async () => {
     setIsInitializingLocal(true);
+    setAnalyzeProgress('Initializing local repository...');
+    setAnalysisFileProgress('');
     try {
       const response = await fetch('/api/repo/init', {
         method: 'POST',
@@ -3220,6 +3768,8 @@ function App() {
       alert(err instanceof Error ? err.message : 'Repository initialization failed');
     } finally {
       setIsInitializingLocal(false);
+      setAnalyzeProgress('');
+      setAnalysisFileProgress('');
     }
   };
 
@@ -3339,6 +3889,7 @@ function App() {
   }
 
   const selectedNode = details || payload.nodes.find((node) => node.id === selectedId) || null;
+  const totalLinesOfCode = payload.nodes.reduce((sum, node) => sum + fileWeight(node), 0);
   const topHubs = payload.analytics?.hubs.slice(0, 5) || [];
   const searchSuggestions = (() => {
     const term = query.trim().toLowerCase();
@@ -3602,6 +4153,8 @@ function App() {
     }
   };
 
+  const isBusy = isAnalyzingGitHub || isInitializingLocal;
+
   return (
     <main
       ref={shellRef}
@@ -3609,6 +4162,9 @@ function App() {
       style={{
         "--left-width": showSidebars ? `${leftWidth}px` : "0px",
         "--right-width": showSidebars ? `${rightWidth}px` : "0px",
+        gridTemplateColumns: showSidebars
+          ? undefined
+          : "minmax(0, 1fr)",
       } as React.CSSProperties}
     >
       {showSidebars && (
@@ -3619,6 +4175,18 @@ function App() {
             <h1>code-brain</h1>
             <p>Deterministic graph intelligence</p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowSidebars(false)}
+            title="Collapse sidebars"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
+              color: 'var(--muted)', borderRadius: '6px', display: 'flex', alignItems: 'center',
+              transition: 'color 0.2s',
+            }}
+          >
+            <X size={16} />
+          </button>
           <button
             type="button"
             onClick={() => setDarkMode(d => !d)}
@@ -3798,6 +4366,9 @@ function App() {
               <h2>
                 <Code2 size={15} /> Languages
               </h2>
+              <div style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: '12px', fontWeight: 600 }}>
+                {totalLinesOfCode.toLocaleString()} lines of code
+              </div>
               <div style={{ display: 'flex', height: '6px', borderRadius: '4px', overflow: 'hidden', margin: '0 0 8px' }}>
                 {sorted.map(([ext, cnt]) => (
                   <div key={ext} style={{ flex: cnt, background: langColors[ext] || '#64748b', transition: 'flex 0.3s' }} title={`${ext}: ${cnt}`} />
@@ -4213,7 +4784,7 @@ function App() {
         hoveredId={hoveredIdRef.current}
         activeTypes={activeTypes}
         onSelect={selectNode}
-        onHover={(id) => { hoveredIdRef.current = id; }}
+        onHover={handleGraphHover}
         onExpandCluster={expandCommunity}
         cameraLocked={isCameraLocked}
         onToggleCameraLock={() => setIsCameraLocked(!isCameraLocked)}
@@ -4228,10 +4799,7 @@ function App() {
         pathNodes={pathNodes}
         pathSourceId={pathSourceId}
         onClearPath={clearPath}
-        onContextMenu={(x, y, nodeId, nodeName) => {
-          if (nodeId) setContextMenu({ x, y, nodeId, nodeName });
-          else setContextMenu(null);
-        }}
+        onContextMenu={handleGraphContextMenu}
         searchQuery={query}
         churnData={churnData}
         showSidebars={showSidebars}
@@ -4298,6 +4866,13 @@ function App() {
             <small>{selectedNode ? relativeLabel(selectedNode.fullName || selectedNode.file) : "No node selected"}</small>
           </div>
           <div className="inspector-actions">
+            <button
+              type="button"
+              title="Collapse sidebars"
+              onClick={() => setShowSidebars(false)}
+            >
+              <X size={15} />
+            </button>
             <button
               type="button"
               className={isInspectorPinned ? "is-active" : ""}
@@ -5121,6 +5696,23 @@ function App() {
         <Keyboard size={20} />
       </button>
 
+      {isBusy && (
+        <div className="analysis-overlay" role="status" aria-live="polite" aria-busy="true">
+          <div className="analysis-overlay__card">
+            <div className="analysis-overlay__spinner" />
+            <div className="analysis-overlay__title">
+              {isInitializingLocal ? 'Initializing Repository...' : 'Analyzing Repository...'}
+            </div>
+            <div className="analysis-overlay__message">
+              {analyzeProgress || 'Preparing analysis...'}
+            </div>
+            {analysisFileProgress && (
+              <div className="analysis-overlay__detail">{analysisFileProgress}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Status Bar */}
       <footer style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, height: '28px',
@@ -5132,7 +5724,7 @@ function App() {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
           code-brain
         </span>
-        <span>{payload?.stats.nodeCount ?? 0} nodes | {payload?.stats.edgeCount ?? 0} edges</span>
+        <span>{payload?.stats.nodeCount ?? 0} nodes | {payload?.stats.edgeCount ?? 0} edges | {totalLinesOfCode.toLocaleString()} LOC</span>
         {payload?.analytics?.health && (
           <span>Health: <strong style={{ color: (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) < 0.1 ? '#10b981' : '#f59e0b' }}>
             {(100 - (payload.analytics.health.unresolvedEdges / Math.max(1, payload.stats.edgeCount)) * 100).toFixed(0)}%

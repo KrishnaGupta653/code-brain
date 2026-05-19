@@ -15,7 +15,7 @@ interface WorkerResult {
 }
 
 interface ProgressCallback {
-  (current: number, total: number): void;
+  (current: number, total: number, filePath?: string, status?: 'parsed' | 'failed'): void;
 }
 
 export class ParallelParser {
@@ -43,11 +43,6 @@ export class ParallelParser {
     const results = new Map<string, ParsedFile>();
     const errors: string[] = [];
     
-    // Create shared buffer for progress tracking (thread-safe counter)
-    const progressBuffer = new SharedArrayBuffer(4); // 4 bytes for Int32
-    const progressCounter = new Int32Array(progressBuffer);
-    progressCounter[0] = 0; // Initialize to 0
-    
     // Process files in batches
     const batchSize = Math.ceil(filePaths.length / this.maxWorkers);
     const batches: string[][] = [];
@@ -56,28 +51,10 @@ export class ParallelParser {
       batches.push(filePaths.slice(i, i + batchSize));
     }
 
-    // Start progress monitoring if callback provided
-    let progressInterval: NodeJS.Timeout | undefined;
-    if (onProgress) {
-      progressInterval = setInterval(() => {
-        const current = Atomics.load(progressCounter, 0);
-        onProgress(current, filePaths.length);
-      }, 100); // Update every 100ms
-    }
-
     const workerPromises = batches.map(batch => 
-      this.processBatch(batch, progressBuffer)
+      this.processBatch(batch, filePaths.length, onProgress)
     );
     const batchResults = await Promise.all(workerPromises);
-
-    // Stop progress monitoring
-    if (progressInterval) {
-      clearInterval(progressInterval);
-      // Final progress update
-      if (onProgress) {
-        onProgress(filePaths.length, filePaths.length);
-      }
-    }
 
     for (const batchResult of batchResults) {
       for (const [filePath, result] of batchResult.results) {
@@ -96,7 +73,8 @@ export class ParallelParser {
 
   private async processBatch(
     filePaths: string[],
-    progressBuffer: SharedArrayBuffer
+    totalFiles: number,
+    onProgress?: ProgressCallback
   ): Promise<{
     results: Map<string, ParsedFile>;
     errors: string[];
@@ -106,15 +84,20 @@ export class ParallelParser {
 
     for (const filePath of filePaths) {
       try {
-        const result = await this.parseFileInWorker(filePath, progressBuffer);
+        const result = await this.parseFileInWorker(filePath);
         results.set(filePath, result);
+        if (onProgress) {
+          const current = results.size + errors.length;
+          onProgress(current, totalFiles, filePath, 'parsed');
+        }
       } catch (error) {
         const errorMsg = `Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
         errors.push(errorMsg);
         logger.debug(errorMsg); // Add debug logging
-        // Still increment progress counter on error
-        const progressCounter = new Int32Array(progressBuffer);
-        Atomics.add(progressCounter, 0, 1);
+        if (onProgress) {
+          const current = results.size + errors.length;
+          onProgress(current, totalFiles, filePath, 'failed');
+        }
       }
     }
 
@@ -123,7 +106,6 @@ export class ParallelParser {
 
   private parseFileInWorker(
     filePath: string,
-    progressBuffer: SharedArrayBuffer
   ): Promise<ParsedFile> {
     return new Promise((resolve, reject) => {
       const workerPath = path.join(__dirname, 'worker.js');
@@ -132,7 +114,6 @@ export class ParallelParser {
         workerData: { 
           type: 'parse', 
           filePath,
-          progressBuffer 
         },
       });
 
@@ -186,13 +167,13 @@ export class ParallelParser {
         results.set(filePath, result);
         processed++;
         if (onProgress) {
-          onProgress(processed, filePaths.length);
+          onProgress(processed, filePaths.length, filePath, 'parsed');
         }
       } catch (error) {
         logger.debug(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
         processed++;
         if (onProgress) {
-          onProgress(processed, filePaths.length);
+          onProgress(processed, filePaths.length, filePath, 'failed');
         }
       }
     }

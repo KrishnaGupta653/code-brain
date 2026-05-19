@@ -9,11 +9,12 @@ import { WebSocketServer, WebSocket } from "ws";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { QueryEngine } from "../retrieval/query.js";
+import { ExportEngine } from "../retrieval/export.js";
 import { ImpactTracer } from "../retrieval/impact-tracer.js";
 import { PatternQueryEngine } from "../retrieval/pattern-query.js";
 import { InvariantDetector } from "../graph/invariants.js";
 import { ContextAssembler } from "../retrieval/context-assembler.js";
-import { logger, getDbPath, stableId, normalizeProjectRoot } from "../utils/index.js";
+import { logger, getDbPath, stableId, normalizeProjectRoot, isSupportedSourceFile } from "../utils/index.js";
 import { SQLiteStorage } from "../storage/index.js";
 import { GraphEdge, GraphNode, RankingScore, SourceSpan } from "../types/models.js";
 import { GraphBuilder } from "../graph/index.js";
@@ -415,6 +416,14 @@ export async function createGraphServer(
   port: number = 3000,
 ): Promise<{ server: Server; wss: WebSocketServer; broadcast: (message: unknown) => void }> {
   const app = express();
+  let broadcast: (message: unknown) => void = () => {};
+
+  // Render and similar platforms sit behind a reverse proxy and set
+  // X-Forwarded-* headers. express-rate-limit expects trust proxy to be enabled
+  // in that setup so it can identify clients correctly.
+  if (process.env.RENDER || process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+  }
   
   // Security: Helmet middleware for security headers
   app.use(helmet({
@@ -857,6 +866,61 @@ export async function createGraphServer(
     });
   });
 
+  // AI Export endpoint - matches CLI `code-brain export --format ai`
+  app.get("/api/export/ai", async (req, res) => {
+    try {
+      const focus = req.query.focus ? sanitizeInput(String(req.query.focus), 200) : undefined;
+      const maxTokens = req.query.maxTokens ? Number.parseInt(String(req.query.maxTokens), 10) : undefined;
+      const top = req.query.top ? Number.parseInt(String(req.query.top), 10) : undefined;
+      
+      // Get project metadata
+      const storedProject = storage.getProject(activeProjectRoot);
+      const project = storedProject || {
+        name: path.basename(activeProjectRoot),
+        root: activeProjectRoot,
+        language: "typescript",
+        fileCount: graphStats.nodesByType["file"] || 0,
+        symbolCount: Math.max(
+          0,
+          graphStats.nodeCount -
+            (graphStats.nodesByType["file"] || 0) -
+            (graphStats.nodesByType["project"] || 0),
+        ),
+        edgeCount: graphStats.edgeCount,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      // Get query result (project overview or focused view)
+      let queryResult;
+      if (focus) {
+        const focusNode = queryEngine.resolveFocus(focus);
+        if (!focusNode) {
+          res.status(404).json({ error: `No nodes found matching focus: ${focus}` });
+          return;
+        }
+        queryResult = queryEngine.findRelated(focusNode.id, 2);
+      } else {
+        queryResult = queryEngine.getProjectOverview(160);
+      }
+
+      // Create export engine and generate AI export
+      const exporter = new ExportEngine(graph, project, activeProjectRoot);
+      const aiBundle = exporter.exportForAI(
+        queryResult,
+        focus,
+        undefined, // Analytics is optional - let ExportEngine compute what it needs
+        maxTokens,
+        top,
+      );
+
+      res.json(aiBundle);
+    } catch (error) {
+      logger.error("AI export failed", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
   // GitHub repo analysis endpoint. The UI fetches GitHub content in-browser,
   // then this endpoint materializes it into a temporary repository and builds
   // the same parser-backed graph used for local projects.
@@ -864,6 +928,13 @@ export async function createGraphServer(
     try {
       const { files, repo, branch } = req.body;
       const isZipFetch = repo && (!files || files.length === 0);
+      const sendAnalysisProgress = (message: string, extra: Record<string, unknown> = {}) => {
+        broadcast({
+          type: 'analysis-progress',
+          message,
+          ...extra,
+        });
+      };
 
       if (!isZipFetch && (!files || !Array.isArray(files))) {
         res.status(400).json({ error: 'Invalid files array' });
@@ -890,6 +961,7 @@ export async function createGraphServer(
       let writtenFiles: string[] = [];
 
       if (isZipFetch) {
+        sendAnalysisProgress(`Downloading ${repo}...`, { phase: 'download', repo });
         // Download the zip archive to bypass GitHub rate limits
         let targetBranch = branch || "main";
         let zipUrl = `https://github.com/${repo}/archive/refs/heads/${targetBranch}.zip`;
@@ -946,6 +1018,7 @@ export async function createGraphServer(
         }
 
         const zip = new AdmZip(zipPath);
+        sendAnalysisProgress(`Extracting ${repo}...`, { phase: 'extract', repo });
         zip.extractAllTo(remoteRoot, true);
         
         // Delete zip to save space
@@ -991,20 +1064,52 @@ export async function createGraphServer(
       }
 
       if (writtenFiles.length === 0) {
+        sendAnalysisProgress('No valid files could be materialized', { phase: 'failed' });
         res.status(400).json({ error: "No valid files could be materialized" });
         return;
       }
+
+      const parseableFiles = writtenFiles.filter((filePath) => isSupportedSourceFile(filePath));
+      const skippedFiles = writtenFiles.length - parseableFiles.length;
+      if (skippedFiles > 0) {
+        logger.info(`Skipping ${skippedFiles} non-source files from remote repository analysis`);
+      }
+      if (parseableFiles.length === 0) {
+        sendAnalysisProgress('No parseable source files found in repository', { phase: 'failed', skippedFiles });
+        res.status(400).json({ error: 'No parseable source files found in repository' });
+        return;
+      }
+      sendAnalysisProgress(`Preparing ${parseableFiles.length} source files...`, {
+        phase: 'prepare',
+        total: parseableFiles.length,
+        skippedFiles,
+      });
 
       const builder = new GraphBuilder();
       const remoteGraph = await builder.buildFromRepository(
         remoteRoot,
         ["**"],
         ["node_modules", "dist", "build", "coverage", ".git", ".codebrain"],
-        writtenFiles,
+        parseableFiles,
         false,
+        (progress) => {
+          sendAnalysisProgress(progress.message, {
+            phase: progress.phase,
+            current: progress.current,
+            total: progress.total,
+            filePath: progress.filePath,
+            status: progress.status,
+            skippedFiles,
+          });
+        },
       );
 
       activateGraph(remoteGraph as ReturnType<typeof storage.loadGraph>, remoteRoot);
+      sendAnalysisProgress('Analysis complete', {
+        phase: 'complete',
+        total: parseableFiles.length,
+        skippedFiles,
+      });
 
       const payloadNodes = graph.getNodes().map((node) => {
         const sanitized = sanitizeNode(node, rankingByNode.get(node.id));
@@ -1029,6 +1134,11 @@ export async function createGraphServer(
       });
     } catch (error) {
       logger.error('Analysis error:', error);
+      broadcast({
+        type: 'analysis-progress',
+        phase: 'failed',
+        message: error instanceof Error ? error.message : 'Analysis failed',
+      });
       res.status(500).json({
         error: error instanceof Error ? error.message : 'Analysis failed'
       });
@@ -1824,7 +1934,7 @@ export async function createGraphServer(
       });
       
       // Broadcast function to send messages to all connected clients
-      const broadcast = (message: unknown) => {
+      broadcast = (message: unknown) => {
         const payload = JSON.stringify(message);
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN) {

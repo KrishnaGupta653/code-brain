@@ -29,6 +29,21 @@ interface PathAlias {
   targets: string[];
 }
 
+export interface BuildProgress {
+  phase:
+    | "scan"
+    | "parse"
+    | "relationships"
+    | "semantic"
+    | "analytics"
+    | "complete";
+  current?: number;
+  total?: number;
+  filePath?: string;
+  status?: "parsed" | "failed";
+  message: string;
+}
+
 export class GraphBuilder {
   private graph: GraphModel = new GraphModel();
   private parsedFiles: Map<string, ParsedFile> = new Map();
@@ -46,6 +61,7 @@ export class GraphBuilder {
     exclude: string[] = ["node_modules", "dist"],
     explicitFiles?: string[],
     useParallel: boolean = true,
+    onProgress?: (progress: BuildProgress) => void,
   ): Promise<GraphModel> {
     this.graph = new GraphModel();
     this.parsedFiles.clear();
@@ -80,18 +96,26 @@ export class GraphBuilder {
         ? [...explicitFiles].sort()
         : scanSourceFiles(root, include, exclude);
     logger.info(`Found ${files.length} source files`);
+    onProgress?.({
+      phase: "scan",
+      current: 0,
+      total: files.length,
+      message: `Found ${files.length} source files`,
+    });
 
     // Parse files (parallel or sequential)
     if (useParallel && files.length >= 10) {
-      await this.parseFilesParallel(files);
+      await this.parseFilesParallel(files, onProgress);
     } else {
-      await this.parseFilesSequential(files);
+      await this.parseFilesSequential(files, true, onProgress);
     }
 
+    onProgress?.({ phase: "relationships", message: "Building import relationships..." });
     await this.buildRelationshipEdges();
 
     // Apply semantic analysis for world-class exports
     logger.info("Analyzing semantic structure...");
+    onProgress?.({ phase: "semantic", message: "Analyzing semantic structure..." });
     const semanticAnalyzer = new SemanticAnalyzer(this.graph, root);
     semanticAnalyzer.analyzeAllNodes();
 
@@ -101,6 +125,7 @@ export class GraphBuilder {
 
     // Run graph analytics (PageRank, dead code, cycles, bridges)
     logger.info("Running graph analytics...");
+    onProgress?.({ phase: "analytics", message: "Running graph analytics..." });
     const analytics = new GraphAnalytics(this.graph);
     analytics.run();
     analytics.populateCallCounts();
@@ -118,6 +143,10 @@ export class GraphBuilder {
     logger.success(
       `Graph built. ${this.graph.getStats().nodeCount} nodes, ${this.graph.getStats().edgeCount} edges`,
     );
+    onProgress?.({
+      phase: "complete",
+      message: `Graph built. ${this.graph.getStats().nodeCount} nodes, ${this.graph.getStats().edgeCount} edges`,
+    });
     return this.graph;
   }
 
@@ -204,8 +233,13 @@ export class GraphBuilder {
   }
 
   private addFileAndSymbols(filePath: string, parsed: ParsedFile): void {
-    const relativePath =
+    let relativePath =
       path.relative(this.projectRoot, filePath) || path.basename(filePath);
+    
+    // Normalize path for consistency between local and remote repos
+    // Strip common temporary/system prefixes to get clean project-relative paths
+    relativePath = relativePath.replace(/\\/g, '/'); // Normalize separators
+    
     const fileId = stableId("file", filePath);
     this.fileIdMap.set(filePath, fileId);
 
@@ -1046,7 +1080,11 @@ export class GraphBuilder {
     return candidates.find((candidate) => fs.existsSync(candidate));
   }
 
-  private async parseFilesSequential(files: string[], showProgress: boolean = true): Promise<void> {
+  private async parseFilesSequential(
+    files: string[],
+    showProgress: boolean = true,
+    onProgress?: (progress: BuildProgress) => void,
+  ): Promise<void> {
     let spinner: any = null;
     let processed = 0;
     const total = files.length;
@@ -1094,6 +1132,14 @@ export class GraphBuilder {
           
           spinner.text = `Parsing files: ${processed}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
         }
+        onProgress?.({
+          phase: "parse",
+          current: processed,
+          total,
+          filePath: file,
+          status: "parsed",
+          message: `Analyzing ${processed}/${total}: ${path.basename(file)}`,
+        });
       } catch (error) {
         if (spinner) {
           spinner.warn(`Failed to parse: ${file}`);
@@ -1106,6 +1152,14 @@ export class GraphBuilder {
           logger.warn(`Failed to parse: ${file}`, error);
         }
         processed++;
+        onProgress?.({
+          phase: "parse",
+          current: processed,
+          total,
+          filePath: file,
+          status: "failed",
+          message: `Skipping ${path.basename(file)} (${processed}/${total})`,
+        });
       }
     }
     
@@ -1119,7 +1173,10 @@ export class GraphBuilder {
     }
   }
 
-  private async parseFilesParallel(files: string[]): Promise<void> {
+  private async parseFilesParallel(
+    files: string[],
+    onProgress?: (progress: BuildProgress) => void,
+  ): Promise<void> {
     const ora = (await import('ora')).default;
     const spinner = ora({
       text: `Parsing files: 0/${files.length} (0%) - Starting parallel parsing...`,
@@ -1130,7 +1187,7 @@ export class GraphBuilder {
     const parallelParser = new ParallelParser();
     
     // Parse files with progress callback
-    const results = await parallelParser.parseFiles(files, (current, total) => {
+    const results = await parallelParser.parseFiles(files, (current, total, filePath, status) => {
       const percentage = Math.round((current / total) * 100);
       const elapsed = Date.now() - startTime;
       const avgTimePerFile = elapsed / Math.max(current, 1);
@@ -1138,6 +1195,14 @@ export class GraphBuilder {
       const remainingSeconds = Math.round(remaining / 1000);
       
       spinner.text = `Parsing files: ${current}/${total} (${percentage}%) - ${remainingSeconds}s remaining`;
+      onProgress?.({
+        phase: "parse",
+        current,
+        total,
+        filePath,
+        status,
+        message: `${status === 'failed' ? 'Skipping' : 'Analyzing'} ${current}/${total}${filePath ? `: ${path.basename(filePath)}` : ''}`,
+      });
     });
     
     // Process results

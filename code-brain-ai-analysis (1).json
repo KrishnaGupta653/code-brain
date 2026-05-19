@@ -1,0 +1,4405 @@
+{
+  "version": "codebrain-ai/v3-hierarchical",
+  "fingerprint": "f24dec7999a7a0b35a9667c07c25aacaa92ba17b61d2599cd49569b6910fc4ca",
+  "project": {
+    "name": "code-brain",
+    "root": "/Users/krishnagupta/Desktop/code-brain",
+    "language": "typescript",
+    "description": "Code graph with 177 files, 5108 symbols, and 14864 relationships.",
+    "entryPoints": [
+      "/Users/krishnagupta/Desktop/code-brain/python/analytics/daemon.py",
+      "/Users/krishnagupta/Desktop/code-brain/python/analytics/main.py",
+      "/Users/krishnagupta/Desktop/code-brain/src/cli/cli.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/config/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/embeddings/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/git/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/graph/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/llm/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/mcp/server.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/parser/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/provenance/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/python/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/retrieval/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/server/app.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/server/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/storage/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/src/utils/index.ts",
+      "/Users/krishnagupta/Desktop/code-brain/ui/src/main.tsx",
+      "python/analytics/daemon.py#main",
+      "python/analytics/main.py#main",
+      "src/cli/cli.ts#setupCLI",
+      "src/cli/commands/index.ts#indexCommand",
+      "src/index.ts#main",
+      "src/mcp/server.ts#CodeBrainMCPServer",
+      "src/parser/index.ts#Parser",
+      "src/server/app.ts#GET *",
+      "src/server/app.ts#GET /api/analytics",
+      "src/server/app.ts#GET /api/analyze/bridges",
+      "src/server/app.ts#GET /api/analyze/complexity",
+      "src/server/app.ts#GET /api/analyze/cycles",
+      "src/server/app.ts#GET /api/analyze/dead-code",
+      "src/server/app.ts#GET /api/analyze/dead-exports",
+      "src/server/app.ts#GET /api/analyze/duplicates",
+      "src/server/app.ts#GET /api/analyze/health-score",
+      "src/server/app.ts#GET /api/analyze/invariants",
+      "src/server/app.ts#GET /api/analyze/layer-violations",
+      "src/server/app.ts#GET /api/analyze/orphans",
+      "src/server/app.ts#GET /api/analyze/security",
+      "src/server/app.ts#GET /api/analyze/suggestions",
+      "src/server/app.ts#GET /api/churn",
+      "src/server/app.ts#GET /api/entry-points",
+      "src/server/app.ts#GET /api/expand/namespace",
+      "src/server/app.ts#GET /api/graph",
+      "src/server/app.ts#GET /api/node/:id",
+      "src/server/app.ts#GET /api/node/:id/code",
+      "src/server/app.ts#GET /api/path",
+      "src/server/app.ts#GET /api/query/callees",
+      "src/server/app.ts#GET /api/query/callers",
+      "src/server/app.ts#GET /api/query/impact",
+      "src/server/app.ts#GET /api/query/impact-full",
+      "src/server/app.ts#GET /api/query/pattern",
+      "src/server/app.ts#GET /api/related/:id",
+      "src/server/app.ts#GET /api/search",
+      "src/server/app.ts#GET /api/source",
+      "src/server/app.ts#GET /api/stats",
+      "src/server/app.ts#POST /api/analyze",
+      "src/server/app.ts#POST /api/repo/init",
+      "src/server/app.ts#createGraphServer",
+      "ui/src/main.tsx#folderColor",
+      "ui/src/main.tsx#topFolder"
+    ],
+    "createdAt": 1779179145376,
+    "updatedAt": 1779179181867,
+    "fileCount": 177,
+    "symbolCount": 5108,
+    "edgeCount": 14864
+  },
+  "modules": [
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/cli",
+      "label": "cli",
+      "fileCount": 1,
+      "symbolCount": 1,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.6875
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src",
+      "label": "src",
+      "fileCount": 1,
+      "symbolCount": 1,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.6875
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/mcp",
+      "label": "mcp",
+      "fileCount": 1,
+      "symbolCount": 1,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.6875
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/server",
+      "label": "server",
+      "fileCount": 2,
+      "symbolCount": 2,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.6875
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/git",
+      "label": "git",
+      "fileCount": 2,
+      "symbolCount": 2,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.4656
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/provenance",
+      "label": "provenance",
+      "fileCount": 2,
+      "symbolCount": 2,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.4656
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/ui/src",
+      "label": "src",
+      "fileCount": 2,
+      "symbolCount": 2,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.4656
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/python/analytics",
+      "label": "analytics",
+      "fileCount": 6,
+      "symbolCount": 6,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.39163333333333333
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/config",
+      "label": "config",
+      "fileCount": 3,
+      "symbolCount": 3,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.39163333333333333
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/llm",
+      "label": "llm",
+      "fileCount": 3,
+      "symbolCount": 3,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.39163333333333333
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/python",
+      "label": "python",
+      "fileCount": 3,
+      "symbolCount": 3,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.39163333333333333
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/embeddings",
+      "label": "embeddings",
+      "fileCount": 4,
+      "symbolCount": 4,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.35465
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/storage",
+      "label": "storage",
+      "fileCount": 4,
+      "symbolCount": 4,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.35465
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/utils",
+      "label": "utils",
+      "fileCount": 8,
+      "symbolCount": 8,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.299175
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/graph",
+      "label": "graph",
+      "fileCount": 9,
+      "symbolCount": 9,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.2930111111111111
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/retrieval",
+      "label": "retrieval",
+      "fileCount": 9,
+      "symbolCount": 9,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.2930111111111111
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands",
+      "label": "commands",
+      "fileCount": 15,
+      "symbolCount": 15,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.2732866666666667
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/src/parser",
+      "label": "parser",
+      "fileCount": 18,
+      "symbolCount": 18,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.2683555555555555
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain",
+      "label": "code-brain",
+      "fileCount": 9,
+      "symbolCount": 10,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.2506555555555556
+    },
+    {
+      "path": "/Users/krishnagupta/Desktop/code-brain/api",
+      "label": "api",
+      "fileCount": 1,
+      "symbolCount": 1,
+      "classCount": 0,
+      "functionCount": 0,
+      "routeCount": 0,
+      "topSymbols": [],
+      "imports": [],
+      "importedBy": [],
+      "importance": 0.2437
+    }
+  ],
+  "pathMap": {
+    "F1": "/Users/krishnagupta/Desktop/code-brain/.env.example",
+    "F2": "/Users/krishnagupta/Desktop/code-brain/.eslintrc",
+    "F3": "/Users/krishnagupta/Desktop/code-brain/.gitignore",
+    "F4": "/Users/krishnagupta/Desktop/code-brain/.npmignore",
+    "F5": "/Users/krishnagupta/Desktop/code-brain/CHANGELOG.md",
+    "F6": "/Users/krishnagupta/Desktop/code-brain/LICENSE",
+    "F7": "/Users/krishnagupta/Desktop/code-brain/README.md",
+    "F8": "/Users/krishnagupta/Desktop/code-brain/SECURITY.md",
+    "F9": "/Users/krishnagupta/Desktop/code-brain/api/schema.graphql",
+    "F10": "/Users/krishnagupta/Desktop/code-brain/docs/API.md",
+    "F11": "/Users/krishnagupta/Desktop/code-brain/docs/ARCHITECTURE.md",
+    "F12": "/Users/krishnagupta/Desktop/code-brain/docs/COMMANDS.md",
+    "F13": "/Users/krishnagupta/Desktop/code-brain/docs/DEPLOYMENT.md",
+    "F14": "/Users/krishnagupta/Desktop/code-brain/docs/SQLITE_VEC_SETUP.md",
+    "F15": "/Users/krishnagupta/Desktop/code-brain/docs/USER_GUIDE.md",
+    "F16": "/Users/krishnagupta/Desktop/code-brain/jest.config.js",
+    "F17": "/Users/krishnagupta/Desktop/code-brain/python/analytics/__init__.py",
+    "F18": "/Users/krishnagupta/Desktop/code-brain/python/analytics/analysis.py",
+    "F19": "/Users/krishnagupta/Desktop/code-brain/python/analytics/daemon.py",
+    "F20": "/Users/krishnagupta/Desktop/code-brain/python/analytics/graph.py",
+    "F21": "/Users/krishnagupta/Desktop/code-brain/python/analytics/main.py",
+    "F22": "/Users/krishnagupta/Desktop/code-brain/python/analytics/ranking.py",
+    "F23": "/Users/krishnagupta/Desktop/code-brain/python/requirements.txt",
+    "F24": "/Users/krishnagupta/Desktop/code-brain/src/cli/cli.ts",
+    "F25": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/analyze.ts",
+    "F26": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/chat.ts",
+    "F27": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/ci.ts",
+    "F28": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/clean.ts",
+    "F29": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/diff.ts",
+    "F30": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/embeddings.ts",
+    "F31": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/export.ts",
+    "F32": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/graph.ts",
+    "F33": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/index.ts",
+    "F34": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/init.ts",
+    "F35": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/mcp.ts",
+    "F36": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/query.ts",
+    "F37": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/summarize.ts",
+    "F38": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/update.ts",
+    "F39": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/watch.ts",
+    "F40": "/Users/krishnagupta/Desktop/code-brain/src/config/index.ts",
+    "F41": "/Users/krishnagupta/Desktop/code-brain/src/config/loader.ts",
+    "F42": "/Users/krishnagupta/Desktop/code-brain/src/config/types.ts",
+    "F43": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/factory.ts",
+    "F44": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/generator.ts",
+    "F45": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/index.ts",
+    "F46": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/provider.ts",
+    "F47": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/anthropic.ts",
+    "F48": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/local.ts",
+    "F49": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/openai.ts",
+    "F50": "/Users/krishnagupta/Desktop/code-brain/src/git/index.ts",
+    "F51": "/Users/krishnagupta/Desktop/code-brain/src/git/integration.ts",
+    "F52": "/Users/krishnagupta/Desktop/code-brain/src/graph/analytics.ts",
+    "F53": "/Users/krishnagupta/Desktop/code-brain/src/graph/api-builder.ts",
+    "F54": "/Users/krishnagupta/Desktop/code-brain/src/graph/builder.ts",
+    "F55": "/Users/krishnagupta/Desktop/code-brain/src/graph/documentation-builder.ts",
+    "F56": "/Users/krishnagupta/Desktop/code-brain/src/graph/index.ts",
+    "F57": "/Users/krishnagupta/Desktop/code-brain/src/graph/invariants.ts",
+    "F58": "/Users/krishnagupta/Desktop/code-brain/src/graph/model.ts",
+    "F59": "/Users/krishnagupta/Desktop/code-brain/src/graph/relationships.ts",
+    "F60": "/Users/krishnagupta/Desktop/code-brain/src/graph/semantics.ts",
+    "F61": "/Users/krishnagupta/Desktop/code-brain/src/index.ts",
+    "F62": "/Users/krishnagupta/Desktop/code-brain/src/llm/anthropic.ts",
+    "F63": "/Users/krishnagupta/Desktop/code-brain/src/llm/index.ts",
+    "F64": "/Users/krishnagupta/Desktop/code-brain/src/llm/summary-generator.ts",
+    "F65": "/Users/krishnagupta/Desktop/code-brain/src/mcp/server.ts",
+    "F66": "/Users/krishnagupta/Desktop/code-brain/src/parser/csharp.ts",
+    "F67": "/Users/krishnagupta/Desktop/code-brain/src/parser/extended.ts",
+    "F68": "/Users/krishnagupta/Desktop/code-brain/src/parser/fallback.ts",
+    "F69": "/Users/krishnagupta/Desktop/code-brain/src/parser/generic-tree-sitter.ts",
+    "F70": "/Users/krishnagupta/Desktop/code-brain/src/parser/go.ts",
+    "F71": "/Users/krishnagupta/Desktop/code-brain/src/parser/graphql-schema.ts",
+    "F72": "/Users/krishnagupta/Desktop/code-brain/src/parser/index.ts",
+    "F73": "/Users/krishnagupta/Desktop/code-brain/src/parser/java.ts",
+    "F74": "/Users/krishnagupta/Desktop/code-brain/src/parser/loader.ts",
+    "F75": "/Users/krishnagupta/Desktop/code-brain/src/parser/markdown.ts",
+    "F76": "/Users/krishnagupta/Desktop/code-brain/src/parser/openapi.ts",
+    "F77": "/Users/krishnagupta/Desktop/code-brain/src/parser/parallel.ts",
+    "F78": "/Users/krishnagupta/Desktop/code-brain/src/parser/pdf.ts",
+    "F79": "/Users/krishnagupta/Desktop/code-brain/src/parser/python.ts",
+    "F80": "/Users/krishnagupta/Desktop/code-brain/src/parser/registry.ts",
+    "F81": "/Users/krishnagupta/Desktop/code-brain/src/parser/rust.ts",
+    "F82": "/Users/krishnagupta/Desktop/code-brain/src/parser/typescript.ts",
+    "F83": "/Users/krishnagupta/Desktop/code-brain/src/parser/worker.ts",
+    "F84": "/Users/krishnagupta/Desktop/code-brain/src/provenance/index.ts",
+    "F85": "/Users/krishnagupta/Desktop/code-brain/src/provenance/tracker.ts",
+    "F86": "/Users/krishnagupta/Desktop/code-brain/src/python/bridge.ts",
+    "F87": "/Users/krishnagupta/Desktop/code-brain/src/python/daemon.ts",
+    "F88": "/Users/krishnagupta/Desktop/code-brain/src/python/index.ts",
+    "F89": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/context-assembler.ts",
+    "F90": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/export.ts",
+    "F91": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/hybrid-search.ts",
+    "F92": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/impact-tracer.ts",
+    "F93": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/index.ts",
+    "F94": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/pattern-query.ts",
+    "F95": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/query.ts",
+    "F96": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/semantic-compression.ts",
+    "F97": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/vector-search.ts",
+    "F98": "/Users/krishnagupta/Desktop/code-brain/src/server/app.ts",
+    "F99": "/Users/krishnagupta/Desktop/code-brain/src/server/index.ts",
+    "F100": "/Users/krishnagupta/Desktop/code-brain/src/storage/index.ts",
+    "F101": "/Users/krishnagupta/Desktop/code-brain/src/storage/migrations.ts",
+    "F102": "/Users/krishnagupta/Desktop/code-brain/src/storage/schema.ts",
+    "F103": "/Users/krishnagupta/Desktop/code-brain/src/storage/sqlite.ts",
+    "F104": "/Users/krishnagupta/Desktop/code-brain/src/types/models.ts",
+    "F105": "/Users/krishnagupta/Desktop/code-brain/src/types/tree-sitter-languages.d.ts",
+    "F106": "/Users/krishnagupta/Desktop/code-brain/src/utils/env.ts",
+    "F107": "/Users/krishnagupta/Desktop/code-brain/src/utils/errors.ts",
+    "F108": "/Users/krishnagupta/Desktop/code-brain/src/utils/hash.ts",
+    "F109": "/Users/krishnagupta/Desktop/code-brain/src/utils/index.ts",
+    "F110": "/Users/krishnagupta/Desktop/code-brain/src/utils/languages.ts",
+    "F111": "/Users/krishnagupta/Desktop/code-brain/src/utils/logger.ts",
+    "F112": "/Users/krishnagupta/Desktop/code-brain/src/utils/paths.ts",
+    "F113": "/Users/krishnagupta/Desktop/code-brain/src/utils/repository.ts",
+    "F114": "/Users/krishnagupta/Desktop/code-brain/test-languages/Test.cs",
+    "F115": "/Users/krishnagupta/Desktop/code-brain/test-languages/Test.kt",
+    "F116": "/Users/krishnagupta/Desktop/code-brain/test-languages/Test.scala",
+    "F117": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.ex",
+    "F118": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.php",
+    "F119": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.rb",
+    "F120": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.rs",
+    "F121": "/Users/krishnagupta/Desktop/code-brain/tests/analytics.test.ts",
+    "F122": "/Users/krishnagupta/Desktop/code-brain/tests/export-benchmark.test.ts",
+    "F123": "/Users/krishnagupta/Desktop/code-brain/tests/export.test.ts",
+    "F124": "/Users/krishnagupta/Desktop/code-brain/tests/fts5-incremental.test.ts",
+    "F125": "/Users/krishnagupta/Desktop/code-brain/tests/graph.test.ts",
+    "F126": "/Users/krishnagupta/Desktop/code-brain/tests/incremental.test.ts",
+    "F127": "/Users/krishnagupta/Desktop/code-brain/tests/integration.test.ts",
+    "F128": "/Users/krishnagupta/Desktop/code-brain/tests/parallel-parsing.test.ts",
+    "F129": "/Users/krishnagupta/Desktop/code-brain/tests/parser.test.ts",
+    "F130": "/Users/krishnagupta/Desktop/code-brain/tests/server.test.ts",
+    "F131": "/Users/krishnagupta/Desktop/code-brain/tests/storage.test.ts",
+    "F132": "/Users/krishnagupta/Desktop/code-brain/tests/ui-smoke.mjs",
+    "F133": "/Users/krishnagupta/Desktop/code-brain/ui/public/graph.js",
+    "F134": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/CodeFlowLegend.tsx",
+    "F135": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/CommandPalette.tsx",
+    "F136": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/ExportDialog.tsx",
+    "F137": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/FloatingLegend.tsx",
+    "F138": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/GraphLegend.tsx",
+    "F139": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/GraphMinimap.tsx",
+    "F140": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/GraphToolbar.tsx",
+    "F141": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspector.README.md",
+    "F142": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspector.tsx",
+    "F143": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspector.types.ts",
+    "F144": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspectorDemo.tsx",
+    "F145": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspectorScrollDemo.tsx",
+    "F146": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/Toast.tsx",
+    "F147": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/build-legend.ts",
+    "F148": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/codeflow-theme.ts",
+    "F149": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/github-api.ts",
+    "F150": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/legend-metrics.ts",
+    "F151": "/Users/krishnagupta/Desktop/code-brain/ui/src/main.tsx",
+    "F152": "/Users/krishnagupta/Desktop/code-brain/ui/src/types.ts",
+    "F153": "/Users/krishnagupta/Desktop/code-brain/ui/vite.config.ts",
+    "F154": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/.vscodeignore",
+    "F155": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/INSTALL.md",
+    "F156": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/README.md",
+    "F157": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/Untitled-1",
+    "F158": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/src/extension.ts"
+  },
+  "nodes": [
+    {
+      "id": "file_f95f9db10f73292e",
+      "type": "file",
+      "name": ".env.example",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/.env.example",
+      "semanticPath": ".env",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F1",
+      "line": 1
+    },
+    {
+      "id": "file_707b32549e44d3b7",
+      "type": "file",
+      "name": ".eslintrc",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/.eslintrc",
+      "semanticPath": ".eslintrc",
+      "role": "application_layer",
+      "summary": "Source file",
+      "file": "F2",
+      "line": 1
+    },
+    {
+      "id": "file_613e353672c81e40",
+      "type": "file",
+      "name": ".gitignore",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/.gitignore",
+      "semanticPath": ".gitignore",
+      "role": "application_layer",
+      "summary": "Source file",
+      "file": "F3",
+      "line": 1
+    },
+    {
+      "id": "file_c50e3d4faee01c92",
+      "type": "file",
+      "name": ".npmignore",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/.npmignore",
+      "semanticPath": ".npmignore",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F4",
+      "line": 1
+    },
+    {
+      "id": "file_6a3ffe4a05dc0e06",
+      "type": "file",
+      "name": "api/schema.graphql",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/api/schema.graphql",
+      "semanticPath": "api.schema",
+      "role": "api_layer",
+      "summary": "Source file",
+      "importance": 0.0035059331175836027,
+      "file": "F9",
+      "line": 1
+    },
+    {
+      "id": "file_c6682d3786b26529",
+      "type": "file",
+      "name": "CHANGELOG.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/CHANGELOG.md",
+      "semanticPath": "CHANGELOG",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F5",
+      "line": 1
+    },
+    {
+      "id": "file_852d79ae68052c66",
+      "type": "file",
+      "name": "docs/API.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/docs/API.md",
+      "semanticPath": "docs.API",
+      "role": "api_layer",
+      "summary": "Source file",
+      "importance": 0.0035059331175836027,
+      "file": "F10",
+      "line": 1
+    },
+    {
+      "id": "file_d523ef3edcf24e43",
+      "type": "file",
+      "name": "docs/ARCHITECTURE.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/docs/ARCHITECTURE.md",
+      "semanticPath": "docs.ARCHITECTURE",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.004314994606256742,
+      "file": "F11",
+      "line": 1
+    },
+    {
+      "id": "file_02468ab3ff9ce238",
+      "type": "file",
+      "name": "docs/COMMANDS.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/docs/COMMANDS.md",
+      "semanticPath": "docs.COMMANDS",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.008899676375404529,
+      "file": "F12",
+      "line": 1
+    },
+    {
+      "id": "file_ee4668ddfd206a00",
+      "type": "file",
+      "name": "docs/DEPLOYMENT.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/docs/DEPLOYMENT.md",
+      "semanticPath": "docs.DEPLOYMENT",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F13",
+      "line": 1
+    },
+    {
+      "id": "file_a0d7fbb314cb7a70",
+      "type": "file",
+      "name": "docs/SQLITE_VEC_SETUP.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/docs/SQLITE_VEC_SETUP.md",
+      "semanticPath": "docs.SQLITE_VEC_SETUP",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00296655879180151,
+      "file": "F14",
+      "line": 1
+    },
+    {
+      "id": "file_1436af00b1b403b3",
+      "type": "file",
+      "name": "docs/USER_GUIDE.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/docs/USER_GUIDE.md",
+      "semanticPath": "docs.USER_GUIDE",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.015911542610571736,
+      "file": "F15",
+      "line": 1
+    },
+    {
+      "id": "file_f62aa5c7d80bc412",
+      "type": "file",
+      "name": "jest.config.js",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/jest.config.js",
+      "semanticPath": "jest.config",
+      "role": "configuration_layer",
+      "summary": "Config file",
+      "file": "F16",
+      "line": 1
+    },
+    {
+      "id": "file_5120a83be2821437",
+      "type": "file",
+      "name": "LICENSE",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/LICENSE",
+      "semanticPath": "LICENSE",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F6",
+      "line": 1
+    },
+    {
+      "id": "file_d2d01c9af7d667b2",
+      "type": "file",
+      "name": "python/analytics/__init__.py",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/analytics/__init__.py",
+      "semanticPath": "python.analytics.__init__",
+      "role": "application_layer",
+      "summary": "Source file",
+      "file": "F17",
+      "line": 1
+    },
+    {
+      "id": "file_cd37adbf8c22986c",
+      "type": "file",
+      "name": "python/analytics/analysis.py",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/analytics/analysis.py",
+      "semanticPath": "python.analytics.analysis",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F18",
+      "line": 1
+    },
+    {
+      "id": "file_ee3f2930a5b1edc9",
+      "type": "file",
+      "name": "python/analytics/daemon.py",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/analytics/daemon.py",
+      "semanticPath": "python.analytics.daemon",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F19",
+      "line": 1
+    },
+    {
+      "id": "file_a27a5b90622af52a",
+      "type": "file",
+      "name": "python/analytics/graph.py",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/analytics/graph.py",
+      "semanticPath": "python.analytics.graph",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F20",
+      "line": 1
+    },
+    {
+      "id": "file_4a662c6396f703c5",
+      "type": "file",
+      "name": "python/analytics/main.py",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/analytics/main.py",
+      "semanticPath": "python.analytics.main",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F21",
+      "line": 1
+    },
+    {
+      "id": "file_5fedeb663e15ec0a",
+      "type": "file",
+      "name": "python/analytics/ranking.py",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/analytics/ranking.py",
+      "semanticPath": "python.analytics.ranking",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F22",
+      "line": 1
+    },
+    {
+      "id": "file_2bb459969cf37c0b",
+      "type": "file",
+      "name": "python/requirements.txt",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/python/requirements.txt",
+      "semanticPath": "python.requirements",
+      "role": "application_layer",
+      "summary": "Source file",
+      "file": "F23",
+      "line": 1
+    },
+    {
+      "id": "file_218efb3b4d725061",
+      "type": "file",
+      "name": "README.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/README.md",
+      "semanticPath": "README",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.007281553398058252,
+      "file": "F7",
+      "line": 1
+    },
+    {
+      "id": "file_5af4612013bbdafc",
+      "type": "file",
+      "name": "SECURITY.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/SECURITY.md",
+      "semanticPath": "SECURITY",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0032362459546925564,
+      "file": "F8",
+      "line": 1
+    },
+    {
+      "id": "file_05a2ab70beaf887b",
+      "type": "file",
+      "name": "src/cli/cli.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/cli.ts",
+      "semanticPath": "src.cli.cli",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0048543689320388345,
+      "file": "F24",
+      "line": 1
+    },
+    {
+      "id": "file_816eb3f067d1aa30",
+      "type": "file",
+      "name": "src/cli/commands/analyze.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/analyze.ts",
+      "semanticPath": "src.cli.commands.analyze",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F25",
+      "line": 1
+    },
+    {
+      "id": "file_926a51ea0156b0ba",
+      "type": "file",
+      "name": "src/cli/commands/chat.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/chat.ts",
+      "semanticPath": "src.cli.commands.chat",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.005393743257820927,
+      "file": "F26",
+      "line": 1
+    },
+    {
+      "id": "file_14f2efb5eabbe5ae",
+      "type": "file",
+      "name": "src/cli/commands/ci.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/ci.ts",
+      "semanticPath": "src.cli.commands.ci",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00296655879180151,
+      "file": "F27",
+      "line": 1
+    },
+    {
+      "id": "file_4f6e20562eec96ac",
+      "type": "file",
+      "name": "src/cli/commands/clean.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/clean.ts",
+      "semanticPath": "src.cli.commands.clean",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F28",
+      "line": 1
+    },
+    {
+      "id": "file_b702c41379dfbfaf",
+      "type": "file",
+      "name": "src/cli/commands/diff.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/diff.ts",
+      "semanticPath": "src.cli.commands.diff",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F29",
+      "line": 1
+    },
+    {
+      "id": "file_ffa8c44621040bb9",
+      "type": "file",
+      "name": "src/cli/commands/embeddings.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/embeddings.ts",
+      "semanticPath": "src.cli.commands.embeddings",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F30",
+      "line": 1
+    },
+    {
+      "id": "file_8011de8b962e27de",
+      "type": "file",
+      "name": "src/cli/commands/export.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/export.ts",
+      "semanticPath": "src.cli.commands.export",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.003775620280474649,
+      "file": "F31",
+      "line": 1
+    },
+    {
+      "id": "file_52cb6e0f5c0085ec",
+      "type": "file",
+      "name": "src/cli/commands/graph.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/graph.ts",
+      "semanticPath": "src.cli.commands.graph",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0008090614886731391,
+      "file": "F32",
+      "line": 1
+    },
+    {
+      "id": "file_04db802d96525d75",
+      "type": "file",
+      "name": "src/cli/commands/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/index.ts",
+      "semanticPath": "src.cli.commands.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.006742179072276159,
+      "file": "F33",
+      "line": 1
+    },
+    {
+      "id": "file_9875cda2e96cefb0",
+      "type": "file",
+      "name": "src/cli/commands/init.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/init.ts",
+      "semanticPath": "src.cli.commands.init",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0035059331175836027,
+      "file": "F34",
+      "line": 1
+    },
+    {
+      "id": "file_16e75ad5ee015034",
+      "type": "file",
+      "name": "src/cli/commands/mcp.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/mcp.ts",
+      "semanticPath": "src.cli.commands.mcp",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F35",
+      "line": 1
+    },
+    {
+      "id": "file_c3617c3f310fc57b",
+      "type": "file",
+      "name": "src/cli/commands/query.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/query.ts",
+      "semanticPath": "src.cli.commands.query",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0026968716289104636,
+      "file": "F36",
+      "line": 1
+    },
+    {
+      "id": "file_3747dc97de2746aa",
+      "type": "file",
+      "name": "src/cli/commands/summarize.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/summarize.ts",
+      "semanticPath": "src.cli.commands.summarize",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F37",
+      "line": 1
+    },
+    {
+      "id": "file_23e7c13dfb2b7961",
+      "type": "file",
+      "name": "src/cli/commands/update.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/update.ts",
+      "semanticPath": "src.cli.commands.update",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0026968716289104636,
+      "file": "F38",
+      "line": 1
+    },
+    {
+      "id": "file_71bb64d3221e7cd8",
+      "type": "file",
+      "name": "src/cli/commands/watch.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/watch.ts",
+      "semanticPath": "src.cli.commands.watch",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F39",
+      "line": 1
+    },
+    {
+      "id": "file_19301f963a4bcb59",
+      "type": "file",
+      "name": "src/config/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/config/index.ts",
+      "semanticPath": "src.config.index",
+      "role": "configuration_layer",
+      "summary": "Source file",
+      "importance": 0.0024271844660194173,
+      "file": "F40",
+      "line": 1
+    },
+    {
+      "id": "file_4b3af3f2ab3e89d6",
+      "type": "file",
+      "name": "src/config/loader.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/config/loader.ts",
+      "semanticPath": "src.config.loader",
+      "role": "configuration_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F41",
+      "line": 1
+    },
+    {
+      "id": "file_eb4b632dde3f850d",
+      "type": "file",
+      "name": "src/config/types.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/config/types.ts",
+      "semanticPath": "src.config.types",
+      "role": "configuration_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F42",
+      "line": 1
+    },
+    {
+      "id": "file_5b77513535552227",
+      "type": "file",
+      "name": "src/embeddings/factory.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/factory.ts",
+      "semanticPath": "src.embeddings.factory",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0032362459546925564,
+      "file": "F43",
+      "line": 1
+    },
+    {
+      "id": "file_cb12b5fc8d107159",
+      "type": "file",
+      "name": "src/embeddings/generator.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/generator.ts",
+      "semanticPath": "src.embeddings.generator",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F44",
+      "line": 1
+    },
+    {
+      "id": "file_fc6156efde215ba0",
+      "type": "file",
+      "name": "src/embeddings/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/index.ts",
+      "semanticPath": "src.embeddings.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F45",
+      "line": 1
+    },
+    {
+      "id": "file_736f4343c871c4d8",
+      "type": "file",
+      "name": "src/embeddings/provider.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/provider.ts",
+      "semanticPath": "src.embeddings.provider",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0040453074433656954,
+      "file": "F46",
+      "line": 1
+    },
+    {
+      "id": "file_1134aa5430bb2f40",
+      "type": "file",
+      "name": "src/embeddings/providers/anthropic.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/anthropic.ts",
+      "semanticPath": "src.embeddings.providers.anthropic",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F47",
+      "line": 1
+    },
+    {
+      "id": "file_9d26dd796abda383",
+      "type": "file",
+      "name": "src/embeddings/providers/local.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/local.ts",
+      "semanticPath": "src.embeddings.providers.local",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F48",
+      "line": 1
+    },
+    {
+      "id": "file_34a5c080c9cfa6de",
+      "type": "file",
+      "name": "src/embeddings/providers/openai.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/openai.ts",
+      "semanticPath": "src.embeddings.providers.openai",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F49",
+      "line": 1
+    },
+    {
+      "id": "file_dcb0eac178f3afc8",
+      "type": "file",
+      "name": "src/git/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/git/index.ts",
+      "semanticPath": "src.git.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F50",
+      "line": 1
+    },
+    {
+      "id": "file_075478d85efef64e",
+      "type": "file",
+      "name": "src/git/integration.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/git/integration.ts",
+      "semanticPath": "src.git.integration",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F51",
+      "line": 1
+    },
+    {
+      "id": "file_9574f78c5f89bb84",
+      "type": "file",
+      "name": "src/graph/analytics.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/analytics.ts",
+      "semanticPath": "src.graph.analytics",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F52",
+      "line": 1
+    },
+    {
+      "id": "file_2f6f2445d6271df1",
+      "type": "file",
+      "name": "src/graph/api-builder.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/api-builder.ts",
+      "semanticPath": "src.graph.api-builder",
+      "role": "api_layer",
+      "summary": "Source file",
+      "importance": 0.0032362459546925564,
+      "file": "F53",
+      "line": 1
+    },
+    {
+      "id": "file_5ccc82862aa03eaa",
+      "type": "file",
+      "name": "src/graph/builder.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/builder.ts",
+      "semanticPath": "src.graph.builder",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.006472491909385113,
+      "file": "F54",
+      "line": 1
+    },
+    {
+      "id": "file_e0470625f9a73559",
+      "type": "file",
+      "name": "src/graph/documentation-builder.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/documentation-builder.ts",
+      "semanticPath": "src.graph.documentation-builder",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0026968716289104636,
+      "file": "F55",
+      "line": 1
+    },
+    {
+      "id": "file_b7231b2b272974ae",
+      "type": "file",
+      "name": "src/graph/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/index.ts",
+      "semanticPath": "src.graph.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.004314994606256742,
+      "file": "F56",
+      "line": 1
+    },
+    {
+      "id": "file_6770d8ae08a7532f",
+      "type": "file",
+      "name": "src/graph/invariants.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/invariants.ts",
+      "semanticPath": "src.graph.invariants",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F57",
+      "line": 1
+    },
+    {
+      "id": "file_ebe776da6835d5fe",
+      "type": "file",
+      "name": "src/graph/model.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/model.ts",
+      "semanticPath": "src.graph.model",
+      "role": "model_layer",
+      "summary": "Source file",
+      "importance": 0.0035059331175836027,
+      "file": "F58",
+      "line": 1
+    },
+    {
+      "id": "file_dc890c015b8ea282",
+      "type": "file",
+      "name": "src/graph/relationships.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/relationships.ts",
+      "semanticPath": "src.graph.relationships",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F59",
+      "line": 1
+    },
+    {
+      "id": "file_d3c64005c71cb1d6",
+      "type": "file",
+      "name": "src/graph/semantics.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/graph/semantics.ts",
+      "semanticPath": "src.graph.semantics",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F60",
+      "line": 1
+    },
+    {
+      "id": "file_113ffccd8c3ebe07",
+      "type": "file",
+      "name": "src/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/index.ts",
+      "semanticPath": "src.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0008090614886731391,
+      "file": "F61",
+      "line": 1
+    },
+    {
+      "id": "file_62b40d75071ed1c1",
+      "type": "file",
+      "name": "src/llm/anthropic.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/llm/anthropic.ts",
+      "semanticPath": "src.llm.anthropic",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F62",
+      "line": 1
+    },
+    {
+      "id": "file_eb9b799da593f8c0",
+      "type": "file",
+      "name": "src/llm/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/llm/index.ts",
+      "semanticPath": "src.llm.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F63",
+      "line": 1
+    },
+    {
+      "id": "file_ac6dea6449eeb07f",
+      "type": "file",
+      "name": "src/llm/summary-generator.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/llm/summary-generator.ts",
+      "semanticPath": "src.llm.summary-generator",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0024271844660194173,
+      "file": "F64",
+      "line": 1
+    },
+    {
+      "id": "file_eb378a32c2c9c81c",
+      "type": "file",
+      "name": "src/mcp/server.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/mcp/server.ts",
+      "semanticPath": "src.mcp.server",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00593311758360302,
+      "file": "F65",
+      "line": 1
+    },
+    {
+      "id": "file_c4a85aeda38d5c0d",
+      "type": "file",
+      "name": "src/parser/csharp.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/csharp.ts",
+      "semanticPath": "src.parser.csharp",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F66",
+      "line": 1
+    },
+    {
+      "id": "file_8ed707f896f3e01b",
+      "type": "file",
+      "name": "src/parser/extended.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/extended.ts",
+      "semanticPath": "src.parser.extended",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.012405609492988133,
+      "file": "F67",
+      "line": 1
+    },
+    {
+      "id": "file_d1730d64b2869799",
+      "type": "file",
+      "name": "src/parser/fallback.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/fallback.ts",
+      "semanticPath": "src.parser.fallback",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F68",
+      "line": 1
+    },
+    {
+      "id": "file_47fd5398f7ce8fc3",
+      "type": "file",
+      "name": "src/parser/generic-tree-sitter.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/generic-tree-sitter.ts",
+      "semanticPath": "src.parser.generic-tree-sitter",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0024271844660194173,
+      "file": "F69",
+      "line": 1
+    },
+    {
+      "id": "file_ddf4495327fd07ef",
+      "type": "file",
+      "name": "src/parser/go.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/go.ts",
+      "semanticPath": "src.parser.go",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F70",
+      "line": 1
+    },
+    {
+      "id": "file_32ba753c898b1d4e",
+      "type": "file",
+      "name": "src/parser/graphql-schema.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/graphql-schema.ts",
+      "semanticPath": "src.parser.graphql-schema",
+      "role": "type_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F71",
+      "line": 1
+    },
+    {
+      "id": "file_1cdbb2c036b05ec8",
+      "type": "file",
+      "name": "src/parser/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/index.ts",
+      "semanticPath": "src.parser.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.013214670981661271,
+      "file": "F72",
+      "line": 1
+    },
+    {
+      "id": "file_890544a90800c204",
+      "type": "file",
+      "name": "src/parser/java.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/java.ts",
+      "semanticPath": "src.parser.java",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0024271844660194173,
+      "file": "F73",
+      "line": 1
+    },
+    {
+      "id": "file_1b7af0b283867e90",
+      "type": "file",
+      "name": "src/parser/loader.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/loader.ts",
+      "semanticPath": "src.parser.loader",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F74",
+      "line": 1
+    },
+    {
+      "id": "file_c99b939569b6bb3c",
+      "type": "file",
+      "name": "src/parser/markdown.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/markdown.ts",
+      "semanticPath": "src.parser.markdown",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F75",
+      "line": 1
+    },
+    {
+      "id": "file_1f9687cd7f38c35b",
+      "type": "file",
+      "name": "src/parser/openapi.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/openapi.ts",
+      "semanticPath": "src.parser.openapi",
+      "role": "api_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F76",
+      "line": 1
+    },
+    {
+      "id": "file_bb2bc9218b579900",
+      "type": "file",
+      "name": "src/parser/parallel.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/parallel.ts",
+      "semanticPath": "src.parser.parallel",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F77",
+      "line": 1
+    },
+    {
+      "id": "file_bcc2725bc39b99f4",
+      "type": "file",
+      "name": "src/parser/pdf.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/pdf.ts",
+      "semanticPath": "src.parser.pdf",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00296655879180151,
+      "file": "F78",
+      "line": 1
+    },
+    {
+      "id": "file_588c1b18fded5d5a",
+      "type": "file",
+      "name": "src/parser/python.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/python.ts",
+      "semanticPath": "src.parser.python",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F79",
+      "line": 1
+    },
+    {
+      "id": "file_622b0842c933b827",
+      "type": "file",
+      "name": "src/parser/registry.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/registry.ts",
+      "semanticPath": "src.parser.registry",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F80",
+      "line": 1
+    },
+    {
+      "id": "file_a4b0e80b7b2396db",
+      "type": "file",
+      "name": "src/parser/rust.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/rust.ts",
+      "semanticPath": "src.parser.rust",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F81",
+      "line": 1
+    },
+    {
+      "id": "file_1b4e034ce0db712b",
+      "type": "file",
+      "name": "src/parser/typescript.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/typescript.ts",
+      "semanticPath": "src.parser.typescript",
+      "role": "type_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F82",
+      "line": 1
+    },
+    {
+      "id": "file_65fb0c800f068370",
+      "type": "file",
+      "name": "src/parser/worker.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/parser/worker.ts",
+      "semanticPath": "src.parser.worker",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F83",
+      "line": 1
+    },
+    {
+      "id": "file_cd5e932622319920",
+      "type": "file",
+      "name": "src/provenance/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/provenance/index.ts",
+      "semanticPath": "src.provenance.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00026968716289104636,
+      "file": "F84",
+      "line": 1
+    },
+    {
+      "id": "file_d3964e9ab23ef964",
+      "type": "file",
+      "name": "src/provenance/tracker.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/provenance/tracker.ts",
+      "semanticPath": "src.provenance.tracker",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F85",
+      "line": 1
+    },
+    {
+      "id": "file_ac55330171a36600",
+      "type": "file",
+      "name": "src/python/bridge.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/python/bridge.ts",
+      "semanticPath": "src.python.bridge",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0024271844660194173,
+      "file": "F86",
+      "line": 1
+    },
+    {
+      "id": "file_fe498a93d5363d19",
+      "type": "file",
+      "name": "src/python/daemon.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/python/daemon.ts",
+      "semanticPath": "src.python.daemon",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F87",
+      "line": 1
+    },
+    {
+      "id": "file_61a157ec283d134b",
+      "type": "file",
+      "name": "src/python/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/python/index.ts",
+      "semanticPath": "src.python.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0008090614886731391,
+      "file": "F88",
+      "line": 1
+    },
+    {
+      "id": "file_a9f2846eb2702ba7",
+      "type": "file",
+      "name": "src/retrieval/context-assembler.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/context-assembler.ts",
+      "semanticPath": "src.retrieval.context-assembler",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F89",
+      "line": 1
+    },
+    {
+      "id": "file_0d2a662bcc4851e7",
+      "type": "file",
+      "name": "src/retrieval/export.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/export.ts",
+      "semanticPath": "src.retrieval.export",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.004314994606256742,
+      "file": "F90",
+      "line": 1
+    },
+    {
+      "id": "file_2a289e1d09b22ab7",
+      "type": "file",
+      "name": "src/retrieval/hybrid-search.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/hybrid-search.ts",
+      "semanticPath": "src.retrieval.hybrid-search",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00296655879180151,
+      "file": "F91",
+      "line": 1
+    },
+    {
+      "id": "file_e7e742aa2594f25c",
+      "type": "file",
+      "name": "src/retrieval/impact-tracer.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/impact-tracer.ts",
+      "semanticPath": "src.retrieval.impact-tracer",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F92",
+      "line": 1
+    },
+    {
+      "id": "file_15ec55d8e0c1c1a1",
+      "type": "file",
+      "name": "src/retrieval/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/index.ts",
+      "semanticPath": "src.retrieval.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F93",
+      "line": 1
+    },
+    {
+      "id": "file_c24a860b21e31f70",
+      "type": "file",
+      "name": "src/retrieval/pattern-query.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/pattern-query.ts",
+      "semanticPath": "src.retrieval.pattern-query",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F94",
+      "line": 1
+    },
+    {
+      "id": "file_ff0ec48804c737b0",
+      "type": "file",
+      "name": "src/retrieval/query.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/query.ts",
+      "semanticPath": "src.retrieval.query",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0035059331175836027,
+      "file": "F95",
+      "line": 1
+    },
+    {
+      "id": "file_6a62b45b434b853d",
+      "type": "file",
+      "name": "src/retrieval/semantic-compression.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/semantic-compression.ts",
+      "semanticPath": "src.retrieval.semantic-compression",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F96",
+      "line": 1
+    },
+    {
+      "id": "file_2416dc7c14061235",
+      "type": "file",
+      "name": "src/retrieval/vector-search.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/vector-search.ts",
+      "semanticPath": "src.retrieval.vector-search",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0024271844660194173,
+      "file": "F97",
+      "line": 1
+    },
+    {
+      "id": "file_7f00cf9ab52207f9",
+      "type": "file",
+      "name": "src/server/app.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/server/app.ts",
+      "semanticPath": "src.server.app",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.01995685005393743,
+      "file": "F98",
+      "line": 1
+    },
+    {
+      "id": "file_bb525194f4124c63",
+      "type": "file",
+      "name": "src/server/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/server/index.ts",
+      "semanticPath": "src.server.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F99",
+      "line": 1
+    },
+    {
+      "id": "file_6afaf093419d2181",
+      "type": "file",
+      "name": "src/storage/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/storage/index.ts",
+      "semanticPath": "src.storage.index",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.005124056094929881,
+      "file": "F100",
+      "line": 1
+    },
+    {
+      "id": "file_e463f886160d4bea",
+      "type": "file",
+      "name": "src/storage/migrations.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/storage/migrations.ts",
+      "semanticPath": "src.storage.migrations",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F101",
+      "line": 1
+    },
+    {
+      "id": "file_ca0fc076eab0dae1",
+      "type": "file",
+      "name": "src/storage/schema.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/storage/schema.ts",
+      "semanticPath": "src.storage.schema",
+      "role": "type_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F102",
+      "line": 1
+    },
+    {
+      "id": "file_af57fa1edd549766",
+      "type": "file",
+      "name": "src/storage/sqlite.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/storage/sqlite.ts",
+      "semanticPath": "src.storage.sqlite",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.004584681769147788,
+      "file": "F103",
+      "line": 1
+    },
+    {
+      "id": "file_f2e9041b4d794be6",
+      "type": "file",
+      "name": "src/types/models.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/types/models.ts",
+      "semanticPath": "src.types.models",
+      "role": "model_layer",
+      "summary": "Source file",
+      "importance": 0.01186623516720604,
+      "file": "F104",
+      "line": 1
+    },
+    {
+      "id": "file_5d71491e842845c1",
+      "type": "file",
+      "name": "src/types/tree-sitter-languages.d.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/types/tree-sitter-languages.d.ts",
+      "semanticPath": "src.types.tree-sitter-languages.d",
+      "role": "type_layer",
+      "summary": "Source file",
+      "file": "F105",
+      "line": 1
+    },
+    {
+      "id": "file_8c36bd1f29466598",
+      "type": "file",
+      "name": "src/utils/env.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/env.ts",
+      "semanticPath": "src.utils.env",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.0040453074433656954,
+      "file": "F106",
+      "line": 1
+    },
+    {
+      "id": "file_9233388beec0b20b",
+      "type": "file",
+      "name": "src/utils/errors.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/errors.ts",
+      "semanticPath": "src.utils.errors",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F107",
+      "line": 1
+    },
+    {
+      "id": "file_9170dca8806d688e",
+      "type": "file",
+      "name": "src/utils/hash.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/hash.ts",
+      "semanticPath": "src.utils.hash",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F108",
+      "line": 1
+    },
+    {
+      "id": "file_acd144805d76ab3b",
+      "type": "file",
+      "name": "src/utils/index.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/index.ts",
+      "semanticPath": "src.utils.index",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.014563106796116504,
+      "file": "F109",
+      "line": 1
+    },
+    {
+      "id": "file_f9606d2bf6f7fe53",
+      "type": "file",
+      "name": "src/utils/languages.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/languages.ts",
+      "semanticPath": "src.utils.languages",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.0008090614886731391,
+      "file": "F110",
+      "line": 1
+    },
+    {
+      "id": "file_f69b15d1db582b18",
+      "type": "file",
+      "name": "src/utils/logger.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/logger.ts",
+      "semanticPath": "src.utils.logger",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.004314994606256742,
+      "file": "F111",
+      "line": 1
+    },
+    {
+      "id": "file_da92aedccfbef653",
+      "type": "file",
+      "name": "src/utils/paths.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/paths.ts",
+      "semanticPath": "src.utils.paths",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.006202804746494066,
+      "file": "F112",
+      "line": 1
+    },
+    {
+      "id": "file_5fe9171b71801a9e",
+      "type": "file",
+      "name": "src/utils/repository.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/src/utils/repository.ts",
+      "semanticPath": "src.utils.repository",
+      "role": "utility_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F113",
+      "line": 1
+    },
+    {
+      "id": "file_b6e031ea2eeddb8a",
+      "type": "file",
+      "name": "test-languages/Test.cs",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/Test.cs",
+      "semanticPath": "test-languages.Test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0005393743257820927,
+      "file": "F114",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_dc295e2dd4a0c670",
+      "type": "file",
+      "name": "test-languages/test.ex",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.ex",
+      "semanticPath": "test-languages.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.002157497303128371,
+      "file": "F117",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_c02b68b307f2ba6d",
+      "type": "file",
+      "name": "test-languages/Test.kt",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/Test.kt",
+      "semanticPath": "test-languages.Test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0013484358144552318,
+      "file": "F115",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_d319c17ddcc80042",
+      "type": "file",
+      "name": "test-languages/test.php",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.php",
+      "semanticPath": "test-languages.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0008090614886731391,
+      "file": "F118",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_fe4a72d3c16e922d",
+      "type": "file",
+      "name": "test-languages/test.rb",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.rb",
+      "semanticPath": "test-languages.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0005393743257820927,
+      "file": "F119",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_c77c96681859f31e",
+      "type": "file",
+      "name": "test-languages/test.rs",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/test.rs",
+      "semanticPath": "test-languages.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0016181229773462782,
+      "file": "F120",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_2f85f742791a68b0",
+      "type": "file",
+      "name": "test-languages/Test.scala",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/test-languages/Test.scala",
+      "semanticPath": "test-languages.Test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0010787486515641855,
+      "file": "F116",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_9c711f122108d3e9",
+      "type": "file",
+      "name": "tests/analytics.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/analytics.test.ts",
+      "semanticPath": "tests.analytics.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0016181229773462782,
+      "file": "F121",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_9524a96144897f5c",
+      "type": "file",
+      "name": "tests/export-benchmark.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/export-benchmark.test.ts",
+      "semanticPath": "tests.export-benchmark.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0026968716289104636,
+      "file": "F122",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_60518e40ed1254e8",
+      "type": "file",
+      "name": "tests/export.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/export.test.ts",
+      "semanticPath": "tests.export.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0010787486515641855,
+      "file": "F123",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_39e5719e7af0f114",
+      "type": "file",
+      "name": "tests/fts5-incremental.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/fts5-incremental.test.ts",
+      "semanticPath": "tests.fts5-incremental.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0018878101402373245,
+      "file": "F124",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_9365b05add4dd571",
+      "type": "file",
+      "name": "tests/graph.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/graph.test.ts",
+      "semanticPath": "tests.graph.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0010787486515641855,
+      "file": "F125",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_b3def2511698a24d",
+      "type": "file",
+      "name": "tests/incremental.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/incremental.test.ts",
+      "semanticPath": "tests.incremental.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.00296655879180151,
+      "file": "F126",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_ab9cb7a6f3cb9ffa",
+      "type": "file",
+      "name": "tests/integration.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/integration.test.ts",
+      "semanticPath": "tests.integration.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0026968716289104636,
+      "file": "F127",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_3ef1029c331bc0ac",
+      "type": "file",
+      "name": "tests/parallel-parsing.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/parallel-parsing.test.ts",
+      "semanticPath": "tests.parallel-parsing.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0013484358144552318,
+      "file": "F128",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_abb8dda1d75820b8",
+      "type": "file",
+      "name": "tests/parser.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/parser.test.ts",
+      "semanticPath": "tests.parser.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0013484358144552318,
+      "file": "F129",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_a046e97573ecf0c9",
+      "type": "file",
+      "name": "tests/server.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/server.test.ts",
+      "semanticPath": "tests.server.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0024271844660194173,
+      "file": "F130",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_efa83ae471ede046",
+      "type": "file",
+      "name": "tests/storage.test.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/storage.test.ts",
+      "semanticPath": "tests.storage.test",
+      "role": "test_layer",
+      "summary": "Test file",
+      "importance": 0.0024271844660194173,
+      "file": "F131",
+      "line": 1,
+      "testFile": true
+    },
+    {
+      "id": "file_607ed9dc20e26a98",
+      "type": "file",
+      "name": "tests/ui-smoke.mjs",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/tests/ui-smoke.mjs",
+      "semanticPath": "tests.ui-smoke",
+      "role": "test_layer",
+      "summary": "Source file",
+      "importance": 0.00026968716289104636,
+      "file": "F132",
+      "line": 1
+    },
+    {
+      "id": "file_7ed388813e8baf1d",
+      "type": "file",
+      "name": "ui/public/graph.js",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/public/graph.js",
+      "semanticPath": "ui.public.graph",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00026968716289104636,
+      "file": "F133",
+      "line": 1
+    },
+    {
+      "id": "file_5703c3cbcca61e13",
+      "type": "file",
+      "name": "ui/src/components/CodeFlowLegend.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/CodeFlowLegend.tsx",
+      "semanticPath": "ui.src.components.CodeFlowLegend",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F134",
+      "line": 1
+    },
+    {
+      "id": "file_3e427dfb15a1f3d1",
+      "type": "file",
+      "name": "ui/src/components/CommandPalette.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/CommandPalette.tsx",
+      "semanticPath": "ui.src.components.CommandPalette",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F135",
+      "line": 1
+    },
+    {
+      "id": "file_2a1e4b0b658ad5bf",
+      "type": "file",
+      "name": "ui/src/components/ExportDialog.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/ExportDialog.tsx",
+      "semanticPath": "ui.src.components.ExportDialog",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0008090614886731391,
+      "file": "F136",
+      "line": 1
+    },
+    {
+      "id": "file_56aeaf3aae4ba7ad",
+      "type": "file",
+      "name": "ui/src/components/FloatingLegend.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/FloatingLegend.tsx",
+      "semanticPath": "ui.src.components.FloatingLegend",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F137",
+      "line": 1
+    },
+    {
+      "id": "file_ff434bfdb1ec3cac",
+      "type": "file",
+      "name": "ui/src/components/GraphLegend.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/GraphLegend.tsx",
+      "semanticPath": "ui.src.components.GraphLegend",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.002157497303128371,
+      "file": "F138",
+      "line": 1
+    },
+    {
+      "id": "file_31784f62144b871f",
+      "type": "file",
+      "name": "ui/src/components/GraphMinimap.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/GraphMinimap.tsx",
+      "semanticPath": "ui.src.components.GraphMinimap",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0008090614886731391,
+      "file": "F139",
+      "line": 1
+    },
+    {
+      "id": "file_ae1ce854e7ac03cd",
+      "type": "file",
+      "name": "ui/src/components/GraphToolbar.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/GraphToolbar.tsx",
+      "semanticPath": "ui.src.components.GraphToolbar",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F140",
+      "line": 1
+    },
+    {
+      "id": "file_09c065ee7e143485",
+      "type": "file",
+      "name": "ui/src/components/LiveNodeInspector.README.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspector.README.md",
+      "semanticPath": "ui.src.components.LiveNodeInspector.README",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00593311758360302,
+      "file": "F141",
+      "line": 1
+    },
+    {
+      "id": "file_294c04b733de87ce",
+      "type": "file",
+      "name": "ui/src/components/LiveNodeInspector.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspector.tsx",
+      "semanticPath": "ui.src.components.LiveNodeInspector",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F142",
+      "line": 1
+    },
+    {
+      "id": "file_34624e1378a54e5b",
+      "type": "file",
+      "name": "ui/src/components/LiveNodeInspector.types.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspector.types.ts",
+      "semanticPath": "ui.src.components.LiveNodeInspector.types",
+      "role": "type_layer",
+      "summary": "Source file",
+      "file": "F143",
+      "line": 1
+    },
+    {
+      "id": "file_d538002457237f4d",
+      "type": "file",
+      "name": "ui/src/components/LiveNodeInspectorDemo.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspectorDemo.tsx",
+      "semanticPath": "ui.src.components.LiveNodeInspectorDemo",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F144",
+      "line": 1
+    },
+    {
+      "id": "file_db59a442907317b6",
+      "type": "file",
+      "name": "ui/src/components/LiveNodeInspectorScrollDemo.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/LiveNodeInspectorScrollDemo.tsx",
+      "semanticPath": "ui.src.components.LiveNodeInspectorScrollDemo",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0010787486515641855,
+      "file": "F145",
+      "line": 1
+    },
+    {
+      "id": "file_1e3701b5a707a00b",
+      "type": "file",
+      "name": "ui/src/components/Toast.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/components/Toast.tsx",
+      "semanticPath": "ui.src.components.Toast",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0013484358144552318,
+      "file": "F146",
+      "line": 1
+    },
+    {
+      "id": "file_8f1c68872fa80270",
+      "type": "file",
+      "name": "ui/src/lib/build-legend.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/build-legend.ts",
+      "semanticPath": "ui.src.lib.build-legend",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0032362459546925564,
+      "file": "F147",
+      "line": 1
+    },
+    {
+      "id": "file_8b77981e4d2fda9b",
+      "type": "file",
+      "name": "ui/src/lib/codeflow-theme.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/codeflow-theme.ts",
+      "semanticPath": "ui.src.lib.codeflow-theme",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.00296655879180151,
+      "file": "F148",
+      "line": 1
+    },
+    {
+      "id": "file_c3c10b5dcc7eb731",
+      "type": "file",
+      "name": "ui/src/lib/github-api.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/github-api.ts",
+      "semanticPath": "ui.src.lib.github-api",
+      "role": "api_layer",
+      "summary": "Source file",
+      "importance": 0.0005393743257820927,
+      "file": "F149",
+      "line": 1
+    },
+    {
+      "id": "file_2beee21048bea272",
+      "type": "file",
+      "name": "ui/src/lib/legend-metrics.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib/legend-metrics.ts",
+      "semanticPath": "ui.src.lib.legend-metrics",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0026968716289104636,
+      "file": "F150",
+      "line": 1
+    },
+    {
+      "id": "file_7c150cbd97f341fc",
+      "type": "file",
+      "name": "ui/src/main.tsx",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/main.tsx",
+      "semanticPath": "ui.src.main",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.011596548004314994,
+      "file": "F151",
+      "line": 1
+    },
+    {
+      "id": "file_47cc561b2847d11e",
+      "type": "file",
+      "name": "ui/src/types.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/src/types.ts",
+      "semanticPath": "ui.src.types",
+      "role": "type_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F152",
+      "line": 1
+    },
+    {
+      "id": "file_ba1cb3ae4be9dfd2",
+      "type": "file",
+      "name": "ui/vite.config.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/ui/vite.config.ts",
+      "semanticPath": "ui.vite.config",
+      "role": "configuration_layer",
+      "summary": "Config file",
+      "importance": 0.0008090614886731391,
+      "file": "F153",
+      "line": 1
+    },
+    {
+      "id": "file_89aa93239e3e569b",
+      "type": "file",
+      "name": "vscode-extension/.vscodeignore",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/.vscodeignore",
+      "semanticPath": "vscode-extension..vscodeignore",
+      "role": "application_layer",
+      "summary": "Source file",
+      "file": "F154",
+      "line": 1
+    },
+    {
+      "id": "file_48bc401459274bd2",
+      "type": "file",
+      "name": "vscode-extension/INSTALL.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/INSTALL.md",
+      "semanticPath": "vscode-extension.INSTALL",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0018878101402373245,
+      "file": "F155",
+      "line": 1
+    },
+    {
+      "id": "file_c969cd6b5bcffb80",
+      "type": "file",
+      "name": "vscode-extension/README.md",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/README.md",
+      "semanticPath": "vscode-extension.README",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.003775620280474649,
+      "file": "F156",
+      "line": 1
+    },
+    {
+      "id": "file_4258aeb36ea4fe26",
+      "type": "file",
+      "name": "vscode-extension/src/extension.ts",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/src/extension.ts",
+      "semanticPath": "vscode-extension.src.extension",
+      "role": "application_layer",
+      "summary": "Source file",
+      "importance": 0.0016181229773462782,
+      "file": "F158",
+      "line": 1
+    },
+    {
+      "id": "file_3ecba3769f8f45e7",
+      "type": "file",
+      "name": "vscode-extension/Untitled-1",
+      "fullName": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/Untitled-1",
+      "semanticPath": "vscode-extension.Untitled-1",
+      "role": "application_layer",
+      "summary": "Source file",
+      "file": "F157",
+      "line": 1
+    },
+    {
+      "id": "module_15d6d4e0c4edc0bc",
+      "type": "module",
+      "name": "import { assertNotPrivateIP } from './utils/env.js';",
+      "fullName": "import { assertNotPrivateIP } from './utils/env.js';",
+      "semanticPath": "SECURITY.import { assertNotPrivateIP } from './utils/env.js';",
+      "role": "unknown",
+      "summary": "External module",
+      "importance": 0.00026968716289104636,
+      "file": "F8",
+      "line": 76
+    }
+  ],
+  "edges": [
+    {
+      "from": "file_5af4612013bbdafc",
+      "to": "module_15d6d4e0c4edc0bc",
+      "type": "IMPORTS",
+      "resolved": false
+    }
+  ],
+  "summaries": [
+    {
+      "id": "project_bf357424b3dafdb9",
+      "label": "code-brain",
+      "type": "project",
+      "summary": "Project graph with 177 files and 14864 relationships.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_f95f9db10f73292e",
+      "label": ".env.example",
+      "type": "file",
+      "summary": ".env.example defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/.env.example",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_707b32549e44d3b7",
+      "label": ".eslintrc",
+      "type": "file",
+      "summary": ".eslintrc defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/.eslintrc",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_613e353672c81e40",
+      "label": ".gitignore",
+      "type": "file",
+      "summary": ".gitignore defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/.gitignore",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_c50e3d4faee01c92",
+      "label": ".npmignore",
+      "type": "file",
+      "summary": ".npmignore defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/.npmignore",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_6a3ffe4a05dc0e06",
+      "label": "api/schema.graphql",
+      "type": "file",
+      "summary": "api/schema.graphql defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/api/schema.graphql",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_c6682d3786b26529",
+      "label": "CHANGELOG.md",
+      "type": "file",
+      "summary": "CHANGELOG.md defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/CHANGELOG.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_852d79ae68052c66",
+      "label": "docs/API.md",
+      "type": "file",
+      "summary": "docs/API.md defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/docs/API.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_d523ef3edcf24e43",
+      "label": "docs/ARCHITECTURE.md",
+      "type": "file",
+      "summary": "docs/ARCHITECTURE.md defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/docs/ARCHITECTURE.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_02468ab3ff9ce238",
+      "label": "docs/COMMANDS.md",
+      "type": "file",
+      "summary": "docs/COMMANDS.md defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/docs/COMMANDS.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_ee4668ddfd206a00",
+      "label": "docs/DEPLOYMENT.md",
+      "type": "file",
+      "summary": "docs/DEPLOYMENT.md defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/docs/DEPLOYMENT.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_a0d7fbb314cb7a70",
+      "label": "docs/SQLITE_VEC_SETUP.md",
+      "type": "file",
+      "summary": "docs/SQLITE_VEC_SETUP.md defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/docs/SQLITE_VEC_SETUP.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_1436af00b1b403b3",
+      "label": "docs/USER_GUIDE.md",
+      "type": "file",
+      "summary": "docs/USER_GUIDE.md defines 0 symbols and depends on 5 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/docs/USER_GUIDE.md",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_f62aa5c7d80bc412",
+      "label": "jest.config.js",
+      "type": "file",
+      "summary": "jest.config.js defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/jest.config.js",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_5120a83be2821437",
+      "label": "LICENSE",
+      "type": "file",
+      "summary": "LICENSE defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/LICENSE",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_d2d01c9af7d667b2",
+      "label": "python/analytics/__init__.py",
+      "type": "file",
+      "summary": "python/analytics/__init__.py defines 0 symbols and depends on 0 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/__init__.py",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_cd37adbf8c22986c",
+      "label": "python/analytics/analysis.py",
+      "type": "file",
+      "summary": "python/analytics/analysis.py defines 0 symbols and depends on 1 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/analysis.py",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_ee3f2930a5b1edc9",
+      "label": "python/analytics/daemon.py",
+      "type": "file",
+      "summary": "python/analytics/daemon.py defines 0 symbols and depends on 6 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/daemon.py",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_a27a5b90622af52a",
+      "label": "python/analytics/graph.py",
+      "type": "file",
+      "summary": "python/analytics/graph.py defines 0 symbols and depends on 1 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/graph.py",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_4a662c6396f703c5",
+      "label": "python/analytics/main.py",
+      "type": "file",
+      "summary": "python/analytics/main.py defines 0 symbols and depends on 6 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/main.py",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    },
+    {
+      "id": "file_5fedeb663e15ec0a",
+      "label": "python/analytics/ranking.py",
+      "type": "file",
+      "summary": "python/analytics/ranking.py defines 0 symbols and depends on 1 modules/files.",
+      "provenance": [
+        {
+          "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/ranking.py",
+          "startLine": 1,
+          "endLine": 1,
+          "startCol": 1,
+          "endCol": 1
+        }
+      ]
+    }
+  ],
+  "query": {
+    "focus": "project",
+    "truncated": true,
+    "truncationReason": "Result was limited by query breadth or token budget.",
+    "nodeCount": 159,
+    "edgeCount": 1
+  },
+  "evidence": [
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/.env.example",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/.eslintrc",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/.gitignore",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/.npmignore",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/api/schema.graphql",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/CHANGELOG.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/docs/API.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/docs/ARCHITECTURE.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/docs/COMMANDS.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/docs/DEPLOYMENT.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/docs/SQLITE_VEC_SETUP.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/docs/USER_GUIDE.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/jest.config.js",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/LICENSE",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/__init__.py",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/analysis.py",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/daemon.py",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/graph.py",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/main.py",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/analytics/ranking.py",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/python/requirements.txt",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/README.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/SECURITY.md",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/SECURITY.md",
+      "startLine": 76,
+      "endLine": 76,
+      "startCol": 1,
+      "endCol": 53
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/cli.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/analyze.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/chat.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/ci.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/clean.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/diff.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/embeddings.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/export.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/graph.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/init.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/mcp.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/query.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/summarize.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/update.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands/watch.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/config/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/config/loader.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/config/types.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/factory.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/generator.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/provider.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/anthropic.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/local.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers/openai.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/git/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/git/integration.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/analytics.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/api-builder.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/builder.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/documentation-builder.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/invariants.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/model.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/relationships.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/graph/semantics.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/llm/anthropic.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/llm/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/llm/summary-generator.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/mcp/server.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/csharp.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/extended.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/fallback.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/generic-tree-sitter.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/go.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/graphql-schema.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/java.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/loader.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/markdown.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/openapi.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/parallel.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/pdf.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/python.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/registry.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/rust.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/typescript.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/parser/worker.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/provenance/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/provenance/tracker.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/python/bridge.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/python/daemon.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/python/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/context-assembler.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/export.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/hybrid-search.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/impact-tracer.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/pattern-query.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/query.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/semantic-compression.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/retrieval/vector-search.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/server/app.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    },
+    {
+      "file": "/Users/krishnagupta/Desktop/code-brain/src/server/index.ts",
+      "startLine": 1,
+      "endLine": 1,
+      "startCol": 1,
+      "endCol": 1
+    }
+  ],
+  "exportedAt": 1779184421511,
+  "exportFormat": "ai",
+  "summary": {
+    "entryPoints": [],
+    "coreModules": [
+      "python.analytics.daemon",
+      "python.analytics.main",
+      "src.cli.cli",
+      "src.cli.commands.index",
+      "src.config.index",
+      "src.embeddings.index",
+      "src.git.index",
+      "src.graph.index",
+      "src.index",
+      "src.llm.index",
+      "src.mcp.server",
+      "src.parser.index"
+    ],
+    "keySymbols": [],
+    "cycles": [],
+    "unresolvedCount": 1
+  },
+  "callChains": [],
+  "ranking": [
+    {
+      "nodeId": "project_bf357424b3dafdb9",
+      "score": 1,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_ee3f2930a5b1edc9",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_4a662c6396f703c5",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_05a2ab70beaf887b",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_04db802d96525d75",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_19301f963a4bcb59",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_fc6156efde215ba0",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_dcb0eac178f3afc8",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_b7231b2b272974ae",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_113ffccd8c3ebe07",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_eb9b799da593f8c0",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_eb378a32c2c9c81c",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_1cdbb2c036b05ec8",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_cd5e932622319920",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_61a157ec283d134b",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_15ec55d8e0c1c1a1",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_7f00cf9ab52207f9",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_bb525194f4124c63",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_6afaf093419d2181",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_acd144805d76ab3b",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_7c150cbd97f341fc",
+      "score": 0.6875,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_5af4612013bbdafc",
+      "score": 0.3063,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_f95f9db10f73292e",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_707b32549e44d3b7",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_613e353672c81e40",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_c50e3d4faee01c92",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_6a3ffe4a05dc0e06",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_c6682d3786b26529",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_852d79ae68052c66",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_d523ef3edcf24e43",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_02468ab3ff9ce238",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_ee4668ddfd206a00",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_a0d7fbb314cb7a70",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_1436af00b1b403b3",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_f62aa5c7d80bc412",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_5120a83be2821437",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_d2d01c9af7d667b2",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_cd37adbf8c22986c",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_a27a5b90622af52a",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_5fedeb663e15ec0a",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_2bb459969cf37c0b",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_218efb3b4d725061",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_816eb3f067d1aa30",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_926a51ea0156b0ba",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_14f2efb5eabbe5ae",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_4f6e20562eec96ac",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_b702c41379dfbfaf",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_ffa8c44621040bb9",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_8011de8b962e27de",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    },
+    {
+      "nodeId": "file_52cb6e0f5c0085ec",
+      "score": 0.2437,
+      "algorithm": "degree_importance"
+    }
+  ],
+  "knowledge": {
+    "schemaVersion": "codebrain-knowledge/v1",
+    "algorithms": [
+      {
+        "name": "Tree-sitter AST extraction",
+        "purpose": "Language-aware symbol and import extraction",
+        "implementation": "Per-language parsers plus generic tree-sitter parser for extended languages"
+      },
+      {
+        "name": "Degree/PageRank-style importance",
+        "purpose": "Prioritize central symbols and files for agents",
+        "implementation": "Incoming/outgoing edge weighted importance with entry-point boosts"
+      },
+      {
+        "name": "Tarjan strongly connected components",
+        "purpose": "Detect dependency cycles without false path sampling",
+        "implementation": "SCC over resolved import/dependency/inheritance edges"
+      },
+      {
+        "name": "Community/module grouping",
+        "purpose": "Summarize architecture by directory and graph neighborhood",
+        "implementation": "Directory modules plus server-side graph communities"
+      }
+    ],
+    "graphHealth": {
+      "nodeCount": 159,
+      "edgeCount": 1,
+      "resolvedEdgeCount": 0,
+      "unresolvedEdgeCount": 1,
+      "isolatedNodeCount": 157,
+      "cycleCount": 0
+    },
+    "languageSummary": {
+      "unknown": 5,
+      "eslint": 1,
+      "gitignore": 1,
+      "graphql": 1,
+      "markdown": 12,
+      "javascript": 3,
+      "python": 6,
+      "python-requirements": 1,
+      "typescript": 121,
+      "csharp": 1,
+      "elixir": 1,
+      "kotlin": 1,
+      "php": 1,
+      "ruby": 1,
+      "rust": 1,
+      "scala": 1
+    },
+    "architecture": {
+      "modules": [
+        {
+          "id": "M1",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/cli",
+          "label": "cli",
+          "role": "application_module",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.6875,
+          "topSymbols": []
+        },
+        {
+          "id": "M2",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src",
+          "label": "src",
+          "role": "application_module",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.6875,
+          "topSymbols": []
+        },
+        {
+          "id": "M3",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/mcp",
+          "label": "mcp",
+          "role": "application_module",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.6875,
+          "topSymbols": []
+        },
+        {
+          "id": "M4",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/server",
+          "label": "server",
+          "role": "serving_api",
+          "fileCount": 2,
+          "symbolCount": 2,
+          "importance": 0.6875,
+          "topSymbols": []
+        },
+        {
+          "id": "M5",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/git",
+          "label": "git",
+          "role": "application_module",
+          "fileCount": 2,
+          "symbolCount": 2,
+          "importance": 0.4656,
+          "topSymbols": []
+        },
+        {
+          "id": "M6",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/provenance",
+          "label": "provenance",
+          "role": "application_module",
+          "fileCount": 2,
+          "symbolCount": 2,
+          "importance": 0.4656,
+          "topSymbols": []
+        },
+        {
+          "id": "M7",
+          "path": "/Users/krishnagupta/Desktop/code-brain/ui/src",
+          "label": "src",
+          "role": "visualization",
+          "fileCount": 2,
+          "symbolCount": 2,
+          "importance": 0.4656,
+          "topSymbols": []
+        },
+        {
+          "id": "M8",
+          "path": "/Users/krishnagupta/Desktop/code-brain/python/analytics",
+          "label": "analytics",
+          "role": "application_module",
+          "fileCount": 6,
+          "symbolCount": 6,
+          "importance": 0.3916,
+          "topSymbols": []
+        },
+        {
+          "id": "M9",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/config",
+          "label": "config",
+          "role": "application_module",
+          "fileCount": 3,
+          "symbolCount": 3,
+          "importance": 0.3916,
+          "topSymbols": []
+        },
+        {
+          "id": "M10",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/llm",
+          "label": "llm",
+          "role": "application_module",
+          "fileCount": 3,
+          "symbolCount": 3,
+          "importance": 0.3916,
+          "topSymbols": []
+        },
+        {
+          "id": "M11",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/python",
+          "label": "python",
+          "role": "application_module",
+          "fileCount": 3,
+          "symbolCount": 3,
+          "importance": 0.3916,
+          "topSymbols": []
+        },
+        {
+          "id": "M12",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/embeddings",
+          "label": "embeddings",
+          "role": "application_module",
+          "fileCount": 4,
+          "symbolCount": 4,
+          "importance": 0.3547,
+          "topSymbols": []
+        },
+        {
+          "id": "M13",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/storage",
+          "label": "storage",
+          "role": "persistence",
+          "fileCount": 4,
+          "symbolCount": 4,
+          "importance": 0.3547,
+          "topSymbols": []
+        },
+        {
+          "id": "M14",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/utils",
+          "label": "utils",
+          "role": "application_module",
+          "fileCount": 8,
+          "symbolCount": 8,
+          "importance": 0.2992,
+          "topSymbols": []
+        },
+        {
+          "id": "M15",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/graph",
+          "label": "graph",
+          "role": "graph_modeling",
+          "fileCount": 9,
+          "symbolCount": 9,
+          "importance": 0.293,
+          "topSymbols": []
+        },
+        {
+          "id": "M16",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/retrieval",
+          "label": "retrieval",
+          "role": "knowledge_export",
+          "fileCount": 9,
+          "symbolCount": 9,
+          "importance": 0.293,
+          "topSymbols": []
+        },
+        {
+          "id": "M17",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/cli/commands",
+          "label": "commands",
+          "role": "application_module",
+          "fileCount": 15,
+          "symbolCount": 15,
+          "importance": 0.2733,
+          "topSymbols": []
+        },
+        {
+          "id": "M18",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/parser",
+          "label": "parser",
+          "role": "language_parsing",
+          "fileCount": 18,
+          "symbolCount": 18,
+          "importance": 0.2684,
+          "topSymbols": []
+        },
+        {
+          "id": "M19",
+          "path": "/Users/krishnagupta/Desktop/code-brain",
+          "label": "code-brain",
+          "role": "application_module",
+          "fileCount": 9,
+          "symbolCount": 10,
+          "importance": 0.2507,
+          "topSymbols": []
+        },
+        {
+          "id": "M20",
+          "path": "/Users/krishnagupta/Desktop/code-brain/api",
+          "label": "api",
+          "role": "serving_api",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M21",
+          "path": "/Users/krishnagupta/Desktop/code-brain/docs",
+          "label": "docs",
+          "role": "application_module",
+          "fileCount": 6,
+          "symbolCount": 6,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M22",
+          "path": "/Users/krishnagupta/Desktop/code-brain/python",
+          "label": "python",
+          "role": "application_module",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M23",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/embeddings/providers",
+          "label": "providers",
+          "role": "application_module",
+          "fileCount": 3,
+          "symbolCount": 3,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M24",
+          "path": "/Users/krishnagupta/Desktop/code-brain/src/types",
+          "label": "types",
+          "role": "application_module",
+          "fileCount": 2,
+          "symbolCount": 2,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M25",
+          "path": "/Users/krishnagupta/Desktop/code-brain/test-languages",
+          "label": "test-languages",
+          "role": "testing",
+          "fileCount": 7,
+          "symbolCount": 7,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M26",
+          "path": "/Users/krishnagupta/Desktop/code-brain/tests",
+          "label": "tests",
+          "role": "testing",
+          "fileCount": 12,
+          "symbolCount": 12,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M27",
+          "path": "/Users/krishnagupta/Desktop/code-brain/ui/public",
+          "label": "public",
+          "role": "visualization",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M28",
+          "path": "/Users/krishnagupta/Desktop/code-brain/ui/src/components",
+          "label": "components",
+          "role": "visualization",
+          "fileCount": 13,
+          "symbolCount": 13,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M29",
+          "path": "/Users/krishnagupta/Desktop/code-brain/ui/src/lib",
+          "label": "lib",
+          "role": "visualization",
+          "fileCount": 4,
+          "symbolCount": 4,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M30",
+          "path": "/Users/krishnagupta/Desktop/code-brain/ui",
+          "label": "ui",
+          "role": "visualization",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M31",
+          "path": "/Users/krishnagupta/Desktop/code-brain/vscode-extension",
+          "label": "vscode-extension",
+          "role": "application_module",
+          "fileCount": 4,
+          "symbolCount": 4,
+          "importance": 0.2437,
+          "topSymbols": []
+        },
+        {
+          "id": "M32",
+          "path": "/Users/krishnagupta/Desktop/code-brain/vscode-extension/src",
+          "label": "src",
+          "role": "application_module",
+          "fileCount": 1,
+          "symbolCount": 1,
+          "importance": 0.2437,
+          "topSymbols": []
+        }
+      ],
+      "entryPoints": [],
+      "hotspots": [
+        {
+          "id": "file_ee3f2930a5b1edc9",
+          "name": "python.analytics.daemon",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_4a662c6396f703c5",
+          "name": "python.analytics.main",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_05a2ab70beaf887b",
+          "name": "src.cli.cli",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_04db802d96525d75",
+          "name": "src.cli.commands.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_19301f963a4bcb59",
+          "name": "src.config.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_fc6156efde215ba0",
+          "name": "src.embeddings.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_dcb0eac178f3afc8",
+          "name": "src.git.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_b7231b2b272974ae",
+          "name": "src.graph.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_113ffccd8c3ebe07",
+          "name": "src.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_eb9b799da593f8c0",
+          "name": "src.llm.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_eb378a32c2c9c81c",
+          "name": "src.mcp.server",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_1cdbb2c036b05ec8",
+          "name": "src.parser.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_cd5e932622319920",
+          "name": "src.provenance.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_61a157ec283d134b",
+          "name": "src.python.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_15ec55d8e0c1c1a1",
+          "name": "src.retrieval.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_7f00cf9ab52207f9",
+          "name": "src.server.app",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_bb525194f4124c63",
+          "name": "src.server.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_6afaf093419d2181",
+          "name": "src.storage.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_acd144805d76ab3b",
+          "name": "src.utils.index",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_7c150cbd97f341fc",
+          "name": "ui.src.main",
+          "type": "file",
+          "score": 0.6875,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_5af4612013bbdafc",
+          "name": "SECURITY",
+          "type": "file",
+          "score": 0.3756,
+          "incoming": 0,
+          "outgoing": 1,
+          "reason": "orchestrates many dependencies"
+        },
+        {
+          "id": "file_f95f9db10f73292e",
+          "name": ".env",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_707b32549e44d3b7",
+          "name": ".eslintrc",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_613e353672c81e40",
+          "name": ".gitignore",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_c50e3d4faee01c92",
+          "name": ".npmignore",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_6a3ffe4a05dc0e06",
+          "name": "api.schema",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_c6682d3786b26529",
+          "name": "CHANGELOG",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_852d79ae68052c66",
+          "name": "docs.API",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_d523ef3edcf24e43",
+          "name": "docs.ARCHITECTURE",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        },
+        {
+          "id": "file_02468ab3ff9ce238",
+          "name": "docs.COMMANDS",
+          "type": "file",
+          "score": 0.2437,
+          "incoming": 0,
+          "outgoing": 0,
+          "reason": "central graph position"
+        }
+      ],
+      "dependencyCycles": [],
+      "unresolved": [
+        {
+          "from": "SECURITY",
+          "to": "SECURITY.import { assertNotPrivateIP } from './utils/env.js';",
+          "type": "IMPORTS"
+        }
+      ]
+    },
+    "recommendations": [
+      "Resolve or classify 1 unresolved relationships to improve agent confidence.",
+      "Investigate isolated nodes; they may be generated files, dead code, or missing parser relationships.",
+      "Export is truncated; use a larger token budget or focused export before making broad architectural claims."
+    ]
+  },
+  "layoutHints": {
+    "recommendedAlgorithm": "community-seeded-forceatlas2",
+    "algorithms": [
+      "community-seeded circular initialization",
+      "ForceAtlas2 force-directed refinement",
+      "rank-scaled node sizing",
+      "edge-type weighted styling",
+      "Tarjan SCC highlighting"
+    ],
+    "nodeCount": 159,
+    "edgeCount": 1,
+    "partitionBy": "communityId/moduleContext/directory",
+    "rankBy": "importance + degree + entry-point boost",
+    "edgeWeightBy": "relationship type and resolved confidence"
+  }
+}
