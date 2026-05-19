@@ -100,7 +100,7 @@ export function GraphToolbar({
           </button>
         ))}
       </div>
-      {(['flow', 'vein', 'symbols', 'vector', 'graph'].includes(vizType)) && (
+      {(['vein', 'symbols', 'vector', 'graph'].includes(vizType)) && (
         <div className="graph-toolbar" style={{
           position: 'absolute', top: 108, left: '50%', transform: 'translateX(-50%)',
           display: 'flex', flexWrap: 'nowrap', gap: '3px', background: 'rgba(10,14,23,0.82)',

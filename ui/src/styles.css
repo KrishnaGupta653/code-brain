@@ -1030,11 +1030,21 @@ h3 {
   padding: 78px 10px 12px;
 }
 
+.codeflow-cluster .codeflow-stage {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
 .codeflow-stage svg {
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
+}
+
+.codeflow-cluster .codeflow-stage svg {
+  height: auto;
+  min-height: 100%;
 }
 
 .codeflow-links path,

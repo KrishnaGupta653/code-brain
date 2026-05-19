@@ -7,55 +7,6 @@ import { GraphEdge, GraphNode } from '../types';
 import { LegendCategory } from '../components/CodeFlowLegend';
 import { calculatePercentage } from './legend-metrics';
 
-const NODE_COLORS: Record<string, string> = {
-  project: '#f5c542',
-  file: '#4cc9f0',
-  module: '#8bd3ff',
-  class: '#ff9f1c',
-  function: '#4ade80',
-  method: '#a78bfa',
-  route: '#fb7185',
-  config: '#f59e0b',
-  test: '#f472b6',
-  doc: '#94a3b8',
-  interface: '#c084fc',
-  type: '#38bdf8',
-  constant: '#bef264',
-  variable: '#67e8f9',
-  enum: '#fdba74',
-};
-
-const EDGE_COLORS: Record<string, string> = {
-  IMPORTS: '#38bdf8',
-  EXPORTS: '#fb7185',
-  CALLS: '#4ade80',
-  CALLS_UNRESOLVED: '#f59e0b',
-  OWNS: '#cbd5e1',
-  DEFINES: '#60a5fa',
-  USES: '#a78bfa',
-  DEPENDS_ON: '#f87171',
-  TESTS: '#f472b6',
-  DOCUMENTS: '#94a3b8',
-  IMPLEMENTS: '#2dd4bf',
-  EXTENDS: '#fb923c',
-  DECORATES: '#c084fc',
-  REFERENCES: '#22d3ee',
-  ENTRY_POINT: '#facc15',
-};
-
-const FOLDER_PALETTE = [
-  '#4d9fff',
-  '#22d3ee',
-  '#a78bfa',
-  '#00ff9d',
-  '#ff9f43',
-  '#ec4899',
-  '#f59e0b',
-  '#22c55e',
-  '#f87171',
-  '#38bdf8',
-];
-
 function stableNumber(value: string): number {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index++) {
@@ -63,6 +14,29 @@ function stableNumber(value: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
+}
+
+function colorFromKey(key: string, saturation: number, lightness: number): string {
+  return hslToHex(stableNumber(key) % 360, saturation, lightness);
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] =
+    hue < 60 ? [c, x, 0] :
+    hue < 120 ? [x, c, 0] :
+    hue < 180 ? [0, c, x] :
+    hue < 240 ? [0, x, c] :
+    hue < 300 ? [x, 0, c] :
+    [c, 0, x];
+  return `#${[r, g, b].map((channel) => {
+    const value = Math.round((channel + m) * 255);
+    return value.toString(16).padStart(2, '0');
+  }).join('')}`;
 }
 
 function pathParts(file?: string): string[] {
@@ -121,7 +95,7 @@ export function buildLegendCategories(nodes: GraphNode[], edges: GraphEdge[] = [
         .map(([type, count]) => ({
           id: `type-${type}`,
           label: type.charAt(0).toUpperCase() + type.slice(1),
-          color: NODE_COLORS[type] || '#94a3b8',
+          color: colorFromKey(`type:${type}`, 70, 62),
           count,
           percentage: calculatePercentage(count, totalNodes),
         }))
@@ -135,7 +109,7 @@ export function buildLegendCategories(nodes: GraphNode[], edges: GraphEdge[] = [
         .map(([folder, count]) => ({
           id: `folder-${folder}`,
           label: folder,
-          color: FOLDER_PALETTE[stableNumber(folder) % FOLDER_PALETTE.length],
+          color: colorFromKey(`folder:${folder}`, 74, 58),
           count,
           percentage: calculatePercentage(count, totalNodes),
         }))
@@ -167,7 +141,7 @@ export function buildLegendCategories(nodes: GraphNode[], edges: GraphEdge[] = [
         .map(([type, count]) => ({
           id: `edge-${type}`,
           label: type.replace(/_/g, ' '),
-          color: EDGE_COLORS[type] || '#94a3b8',
+          color: colorFromKey(`edge:${type}`, 68, 60),
           count,
           percentage: calculatePercentage(count, edges.length),
         }))
@@ -200,24 +174,7 @@ function getNodeLayer(type: string): string {
 }
 
 function getLayerColor(layer: string): string {
-  const colors: Record<string, string> = {
-    Project: '#f5c542',
-    File: '#4cc9f0',
-    Module: '#8bd3ff',
-    Class: '#ff9f1c',
-    Function: '#4ade80',
-    Method: '#a78bfa',
-    Route: '#fb7185',
-    Config: '#f59e0b',
-    Test: '#f472b6',
-    Documentation: '#94a3b8',
-    Interface: '#c084fc',
-    Type: '#38bdf8',
-    Constant: '#bef264',
-    Variable: '#67e8f9',
-    Enum: '#fdba74',
-  };
-  return colors[layer] || '#94a3b8';
+  return colorFromKey(`layer:${layer}`, 66, 60);
 }
 
 export function buildSimpleLegend(nodes: GraphNode[]): LegendCategory[] {

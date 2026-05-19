@@ -82,74 +82,25 @@ interface EdgeAttributes {
   hidden?: boolean;
 }
 
-export const NODE_COLORS: Record<string, string> = {
-  project: "#f5c542",
-  file: "#4cc9f0",
-  module: "#8bd3ff",
-  class: "#ff9f1c",
-  function: "#4ade80",
-  method: "#a78bfa",
-  route: "#fb7185",
-  config: "#f59e0b",
-  test: "#f472b6",
-  doc: "#94a3b8",
-  interface: "#c084fc",
-  type: "#38bdf8",
-  constant: "#bef264",
-  variable: "#67e8f9",
-  enum: "#fdba74",
-};
-
-const EDGE_COLORS: Record<string, string> = {
-  IMPORTS: "#38bdf8",
-  EXPORTS: "#fb7185",
-  CALLS: "#4ade80",
-  CALLS_UNRESOLVED: "#f59e0b",
-  OWNS: "#cbd5e1",
-  DEFINES: "#60a5fa",
-  USES: "#a78bfa",
-  DEPENDS_ON: "#f87171",
-  TESTS: "#f472b6",
-  DOCUMENTS: "#94a3b8",
-  IMPLEMENTS: "#2dd4bf",
-  EXTENDS: "#fb923c",
-  DECORATES: "#c084fc",
-  REFERENCES: "#22d3ee",
-  ENTRY_POINT: "#facc15",
-};
-
 // Exported from types.ts
 
-const FOLDER_PALETTE = [
-  '#4d9fff',
-  '#22d3ee',
-  '#a78bfa',
-  '#00ff9d',
-  '#ff9f43',
-  '#ec4899',
-  '#f59e0b',
-  '#22c55e',
-  '#f87171',
-  '#38bdf8',
-];
-
 const LAYER_MAP: Record<string, string> = {
-  utils: '#f59e0b',
-  util: '#f59e0b',
-  services: '#a78bfa',
-  service: '#a78bfa',
-  components: '#4d9fff',
-  component: '#4d9fff',
-  controllers: '#22d3ee',
-  controller: '#22d3ee',
-  models: '#ff9f43',
-  model: '#ff9f43',
-  lib: '#22c55e',
-  libs: '#22c55e',
-  tests: '#ec4899',
-  test: '#ec4899',
-  __tests__: '#ec4899',
-  config: '#94a3b8',
+  utils: 'Utilities',
+  util: 'Utilities',
+  services: 'Services',
+  service: 'Services',
+  components: 'Components',
+  component: 'Components',
+  controllers: 'Controllers',
+  controller: 'Controllers',
+  models: 'Models',
+  model: 'Models',
+  lib: 'Libraries',
+  libs: 'Libraries',
+  tests: 'Tests',
+  test: 'Tests',
+  __tests__: 'Tests',
+  config: 'Config',
 };
 
 function nodeFilePath(node?: Pick<GraphNode, 'file' | 'location' | 'type' | 'fullName' | 'name'>): string {
@@ -223,12 +174,12 @@ function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode, churnData?: R
 
   if (viewMode === 'folder') {
     const folder = topFolder(nodeData);
-    return FOLDER_PALETTE[stableNumber(folder) % FOLDER_PALETTE.length];
+    return folderColor(folder);
   }
 
   if (viewMode === 'layer') {
     const layer = pathParts(nodeFilePath(nodeData)).map((part) => part.toLowerCase()).find((part) => LAYER_MAP[part]);
-    return layer ? LAYER_MAP[layer] : '#64748b';
+    return layer ? layerColor(LAYER_MAP[layer]) : layerColor('Other');
   }
 
   if (viewMode === 'churn') {
@@ -244,7 +195,7 @@ function colorForViewMode(nodeData: GraphNode, viewMode: ViewMode, churnData?: R
     return '#f97316';
   }
 
-  return NODE_COLORS[nodeData.type] ?? '#94a3b8';
+  return nodeTypeColor(nodeData.type);
 }
 
 function nodeSize(node: GraphNode): number {
@@ -411,17 +362,102 @@ function truncateMiddle(value: string, maxLength = 18): string {
   return `${value.slice(0, keep)}...${value.slice(-keep)}`;
 }
 
+function truncateToWidth(value: string, maxWidth: number, fontSize = 12): string {
+  const normalized = String(value || "");
+  const maxChars = Math.max(4, Math.floor(maxWidth / (fontSize * 0.58)));
+  return truncateMiddle(normalized, maxChars);
+}
+
 export function folderColor(folder: string, opacity = 1): string {
-  const color = FOLDER_PALETTE[stableNumber(folder) % FOLDER_PALETTE.length];
+  const color = colorFromKey(`folder:${folder}`, 74, 58);
   return opacity >= 1 ? color : hexToRgba(color, opacity);
 }
 
+export function nodeTypeColor(type: string, opacity = 1): string {
+  const color = colorFromKey(`type:${type || 'unknown'}`, 70, 62);
+  return opacity >= 1 ? color : hexToRgba(color, opacity);
+}
+
+export function layerColor(layer: string, opacity = 1): string {
+  const color = colorFromKey(`layer:${layer || 'Other'}`, 66, 60);
+  return opacity >= 1 ? color : hexToRgba(color, opacity);
+}
+
+function edgeTypeColor(type: string, opacity = 1): string {
+  const color = colorFromKey(`edge:${type || 'relationship'}`, 68, 60);
+  return opacity >= 1 ? color : hexToRgba(color, opacity);
+}
+
+function colorFromKey(key: string, saturation: number, lightness: number): string {
+  const hue = stableNumber(key) % 360;
+  return hslToHex(hue, saturation, lightness);
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] =
+    hue < 60 ? [c, x, 0] :
+    hue < 120 ? [x, c, 0] :
+    hue < 180 ? [0, c, x] :
+    hue < 240 ? [0, x, c] :
+    hue < 300 ? [x, 0, c] :
+    [c, 0, x];
+  return `#${[r, g, b].map((channel) => {
+    const value = Math.round((channel + m) * 255);
+    return value.toString(16).padStart(2, '0');
+  }).join('')}`;
+}
+
 function folderLabel(node: GraphNode): string {
-  // Prefer node.name (project-relative) over the absolute file path
-  const relativeParts = node.name ? pathParts(node.name) : [];
-  const parts = relativeParts.length > 0 ? relativeParts : pathParts(nodeFilePath(node));
-  if (parts.length <= 1) return 'root';
-  return parts.slice(0, Math.min(3, parts.length - 1)).join('/');
+  const relativeNameParts = node.name && /[\\/]/.test(node.name) ? pathParts(node.name) : [];
+  const fullNameParts = node.fullName && /[\\/]/.test(node.fullName) ? pathParts(node.fullName) : [];
+  const rawParts = relativeNameParts.length > 1
+    ? relativeNameParts
+    : fullNameParts.length > 1
+      ? fullNameParts
+      : pathParts(nodeFilePath(node));
+
+  if (rawParts.length <= 1) return 'Project root';
+
+  const projectMarkers = ['src', 'ui', 'lib', 'app', 'packages', 'dist', 'tests', 'test-languages', 'python', 'vscode-extension', 'api', 'docs', 'templates'];
+  const markerIndex = rawParts.findIndex((part) => projectMarkers.includes(part.toLowerCase()));
+
+  let parts = markerIndex >= 0 ? rawParts.slice(markerIndex) : rawParts;
+  if (markerIndex < 0) {
+    const skipPrefixes = ['users', 'home', 'tmp', 'temp', '.codebrain', 'remote-repos', 'desktop', 'documents'];
+    let startIndex = 0;
+    while (startIndex < parts.length && skipPrefixes.includes(parts[startIndex].toLowerCase())) {
+      startIndex++;
+    }
+    // Windows/macOS absolute paths often include the username as the next segment.
+    if (startIndex > 0 && startIndex < parts.length - 1) {
+      startIndex++;
+    }
+    while (startIndex < parts.length && skipPrefixes.includes(parts[startIndex].toLowerCase())) {
+      startIndex++;
+    }
+    parts = parts.slice(startIndex);
+  }
+
+  const withoutFile = parts.filter(Boolean);
+  if (withoutFile.length === 0) return 'Project root';
+  if (withoutFile.length === 1 || /\.[A-Za-z0-9]+$/.test(withoutFile[0])) return 'Project root';
+
+  const folderParts = /\.[A-Za-z0-9]+$/.test(withoutFile[withoutFile.length - 1])
+    ? withoutFile.slice(0, -1)
+    : withoutFile;
+  if (folderParts.length === 0) return 'Project root';
+
+  const [first, second, third] = folderParts;
+  if (!second) return first;
+  if (first === 'src' && second && third && !/\.[A-Za-z0-9]+$/.test(third)) {
+    return `${first}/${second}/${third}`;
+  }
+  return `${first}/${second}`;
 }
 
 function flowGroupLabel(node: GraphNode): string {
@@ -808,6 +844,8 @@ function GraphStage({
   const refreshRafRef = useRef<number | null>(null);
   const prevNodeCount = useRef(0);
   const [expandedTreePaths, setExpandedTreePaths] = useState<Set<string>>(() => new Set(['root']));
+  const [clusterShowAll, setClusterShowAll] = useState(false);
+  const [expandedClusterFolders, setExpandedClusterFolders] = useState<Set<string>>(() => new Set());
   const rotationRef = useRef({ x: -0.18, y: 0.42 });
   const dragRef = useRef<{
     pointerId: number;
@@ -818,7 +856,7 @@ function GraphStage({
   } | null>(null);
   const filePayload = useMemo(() => buildFlowPayload(payload), [payload]);
   const visualPayload = useMemo(
-    () => (vizType === 'symbols' || vizType === 'vector') ? payload : filePayload,
+    () => (vizType === 'symbols' || vizType === 'vector' || vizType === 'cluster') ? payload : filePayload,
     [filePayload, payload, vizType],
   );
   const nodeLookup = useMemo(
@@ -835,6 +873,7 @@ function GraphStage({
 
   useEffect(() => {
     setExpandedTreePaths(new Set(['root']));
+    setExpandedClusterFolders(new Set());
   }, [visualPayload, vizType]);
 
   const projectSphere = useCallback(() => {
@@ -953,9 +992,9 @@ function GraphStage({
           label: edge.type,
           size: edge.resolved ? 0.8 : 0.55,
           color: edge.resolved
-            ? hexToRgba(EDGE_COLORS[edge.type] || "#64748b", 0.34)
+            ? edgeTypeColor(edge.type, 0.34)
             : "rgba(245, 158, 11, 0.42)",
-          baseColor: edge.resolved ? EDGE_COLORS[edge.type] || "#64748b" : "#f59e0b",
+          baseColor: edge.resolved ? edgeTypeColor(edge.type) : "#f59e0b",
           baseSize: edge.resolved ? 0.8 : 0.55,
           weight: edgeWeight(edge.type, edge.resolved),
           type: "arrow",
@@ -1157,7 +1196,7 @@ function GraphStage({
 
     sigmaRef.current = sigma;
     graphRef.current = graph;
-    lastAppliedLayoutRef.current = layoutMode;
+    lastAppliedLayoutRef.current = null;
     projectSphere();
 
     return () => {
@@ -1344,7 +1383,7 @@ function GraphStage({
       } else if (viewMode === 'folder' || viewMode === 'layer' || viewMode === 'churn') {
         color = colorForViewMode(nodeData, viewMode, churnData);
       } else {
-        color = NODE_COLORS[nodeData.type] ?? '#94a3b8';
+        color = nodeTypeColor(nodeData.type);
       }
 
       graph.setNodeAttribute(id, 'color', color);
@@ -1481,19 +1520,19 @@ function GraphStage({
     selectedId,
   ]);
 
-  const applyLayout = useCallback((mode: LayoutMode) => {
+  const applyLayout = useCallback((mode: LayoutMode): boolean => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     const container = containerRef.current;
-    if (!graph || !sigma || !container) return;
-    if (hasGraphOverlayRef.current) return;
+    if (!graph || !sigma || !container) return false;
+    if (hasGraphOverlayRef.current) return false;
 
     const nodes = graph.nodes().map((id: string) => ({
       id,
       type: nodeLookup.get(id)?.type ?? 'file',
       ...graph.getNodeAttributes(id),
     }));
-    if (nodes.length === 0) return;
+    if (nodes.length === 0) return false;
 
     const width = Math.max(640, container.offsetWidth || 1);
     const height = Math.max(480, container.offsetHeight || 1);
@@ -1558,13 +1597,40 @@ function GraphStage({
     sigma.getCamera().animatedReset({ duration: 400 });
     projectSphere();
     sigma.refresh();
+    return true;
   }, [nodeLookup, projectSphere]);
 
   useEffect(() => {
     if (lastAppliedLayoutRef.current === layoutMode) return;
-    lastAppliedLayoutRef.current = layoutMode;
-    applyLayout(layoutMode);
+    const frame = requestAnimationFrame(() => {
+      if (lastAppliedLayoutRef.current === layoutMode) return;
+      const applied = applyLayout(layoutMode);
+      if (applied) {
+        lastAppliedLayoutRef.current = layoutMode;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [applyLayout, layoutMode]);
+
+  const handleLayoutModeChange = useCallback((mode: LayoutMode) => {
+    onLayoutModeChange(mode);
+    lastAppliedLayoutRef.current = null;
+
+    // Apply immediately for Sigma-backed views so the button click visibly
+    // changes the graph in the same interaction, not only after a remount.
+    const appliedNow = applyLayout(mode);
+    if (appliedNow) {
+      lastAppliedLayoutRef.current = mode;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const applied = applyLayout(mode);
+      if (applied) {
+        lastAppliedLayoutRef.current = mode;
+      }
+    });
+  }, [applyLayout, onLayoutModeChange]);
 
   const isSigmaViz = vizType === 'symbols' || vizType === 'vector';
   const isTreemapViz = vizType === 'treemap';
@@ -1877,7 +1943,7 @@ function GraphStage({
     const selectNode = (node: GraphNode) => onSelect(selectSourceNodeId(node));
 
     const drawForceGraph = () => {
-      const isVein = vizType === 'vein';
+      const isVein = vizType !== 'vein';
       const linkLayer = rootLayer.append('g').attr('class', 'codeflow-links');
       const hullLayer = rootLayer.append('g').attr('class', 'codeflow-hulls');
       const nodeLayer = rootLayer.append('g').attr('class', 'codeflow-nodes');
@@ -1930,6 +1996,68 @@ function GraphStage({
           return isVein ? (name.length > Math.max(4, Math.floor(getRadius(node) / 2)) + 1 ? name.slice(0, Math.max(4, Math.floor(getRadius(node) / 2))) + '…' : name) : truncateMiddle(node.name, getRadius(node) > 18 ? 18 : 12);
         });
 
+      const readableNodeLabel = (node: any) => {
+        const fileLabel = relativeLabel(node.fullName || node.file || nodeFilePath(node));
+        const base = node.type === 'file' || node.name === 'index'
+          ? fileLabel || node.name
+          : node.name;
+        return truncateMiddle(String(base || 'unknown').replace(/\.[^.]+$/, ''), isVein ? 18 : 24);
+      };
+
+      const maxLabelPills = width < 900 ? 42 : width < 1300 ? 72 : 110;
+      const labelPillNodes = [...nodes]
+        .sort((a, b) =>
+          getRadius(b) - getRadius(a) ||
+          (b.degree ?? 0) - (a.degree ?? 0) ||
+          readableNodeLabel(a).localeCompare(readableNodeLabel(b))
+        )
+        .slice(0, Math.min(maxLabelPills, nodes.length));
+
+      const labelPills = labelLayer
+        .selectAll<SVGGElement, any>('g.node-label-pill')
+        .data(labelPillNodes, (node: any) => node.id)
+        .join((enter) => {
+          const group = enter
+            .append('g')
+            .attr('class', 'node-label-pill')
+            .attr('pointer-events', 'none')
+            .style('opacity', isVein ? 0.82 : 0.92);
+
+          group.append('rect')
+            .attr('rx', 4)
+            .attr('ry', 4)
+            .attr('fill', 'rgba(2,6,23,0.78)')
+            .attr('stroke', 'rgba(226,232,240,0.16)')
+            .attr('stroke-width', 1);
+
+          group.append('text')
+            .attr('fill', isVein ? '#f8fafc' : '#e5edf9')
+            .attr('font-size', isVein ? 9 : 10)
+            .attr('font-weight', 700)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('style', 'font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;')
+            .text((node) => readableNodeLabel(node));
+
+          return group;
+        });
+
+      labelPills.each(function (node: any) {
+        const label = readableNodeLabel(node);
+        const labelWidth = Math.max(34, label.length * (isVein ? 5.8 : 6.4) + 12);
+        const y = getRadius(node) + (isVein ? 9 : 11);
+        const height = isVein ? 15 : 17;
+        const group = d3.select(this);
+        group.select('rect')
+          .attr('x', -labelWidth / 2)
+          .attr('y', y)
+          .attr('width', labelWidth)
+          .attr('height', height);
+        group.select('text')
+          .attr('y', y + height / 2 + 0.5);
+      });
+      labels.style('display', 'none');
+
       const getClusterKey = (node: any) => {
         if (!isVein) return node.folderPath || 'root';
         
@@ -1953,7 +2081,7 @@ function GraphStage({
       const drawHulls = () => {
         const grouped = d3.group(nodes, getClusterKey);
         // Enhanced styling for vein graph
-        const pad = isVein ? 40 : 30;
+        const basePad = isVein ? 40 : 30;
         const fillOpacity = isVein ? 0.08 : 0.04;
         const strokeOpacity = isVein ? 0.5 : 0.25;
         const strokeWidth = isVein ? 2.5 : 2;
@@ -1962,6 +2090,21 @@ function GraphStage({
 
         const hulls = [...grouped.entries()]
           .map(([clusterKey, groupNodes]) => {
+            // Calculate dynamic padding based on cluster size and node spread
+            const minX = d3.min(groupNodes, (n: any) => n.x) ?? 0;
+            const maxX = d3.max(groupNodes, (n: any) => n.x) ?? 0;
+            const minY = d3.min(groupNodes, (n: any) => n.y) ?? 0;
+            const maxY = d3.max(groupNodes, (n: any) => n.y) ?? 0;
+            
+            const spreadX = maxX - minX;
+            const spreadY = maxY - minY;
+            const maxSpread = Math.max(spreadX, spreadY, 50);
+            
+            // Dynamic padding: base padding + increase with node count
+            const nodeFactor = Math.min(1.8, 1 + Math.log10(groupNodes.length + 1) * 0.3);
+            const spreadFactor = Math.max(1, (maxSpread / 200) * 0.4);
+            const pad = basePad * nodeFactor * (1 + spreadFactor);
+            
             const points: [number, number][] = [];
             groupNodes.forEach((node: any) => {
               if (isVein) {
@@ -1984,9 +2127,9 @@ function GraphStage({
             const cx = d3.mean(groupNodes, (node: any) => node.x) ?? 0;
             // Position label at TOP of hull (like codeflow), not center
             const cy = d3.min(groupNodes, (node: any) => node.y) ?? 0;
-            return { folder: clusterKey, hull, cx, cy, color: folderColor(clusterKey) };
+            return { folder: clusterKey, hull, cx, cy, color: folderColor(clusterKey), count: groupNodes.length, pad };
           })
-          .filter(Boolean) as Array<{ folder: string; hull: [number, number][]; cx: number; cy: number; color: string }>;
+          .filter(Boolean) as Array<{ folder: string; hull: [number, number][]; cx: number; cy: number; color: string; count: number; pad: number }>;
 
         const hullGroup = hullLayer.selectAll('g').data(hulls, (datum: any) => datum.folder).join('g');
         hullGroup
@@ -2004,7 +2147,7 @@ function GraphStage({
           .data((datum) => [datum])
           .join('text')
           .attr('x', (datum) => datum.cx)
-          .attr('y', (datum) => datum.cy - pad - (isVein ? 12 : 8))
+          .attr('y', (datum) => datum.cy - datum.pad - (isVein ? 12 : 8))
           .attr('fill', (datum) => datum.color)
           .attr('font-size', fontSize)
           .attr('font-weight', fontWeight)
@@ -2014,8 +2157,8 @@ function GraphStage({
           .attr('stroke-width', isVein ? 5 : 4)
           .attr('style', `font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: ${isVein ? '0.08em' : '0'}; text-transform: uppercase;`)
           .text((datum) => {
-            const label = datum.folder === 'root' ? 'ROOT' : datum.folder.split(/[\\\/]/).pop() || datum.folder;
-            return truncateMiddle(label, 28);
+            const label = datum.folder === 'root' ? 'Project root' : datum.folder;
+            return `${truncateMiddle(label, 24)} (${datum.count})`;
           });
       };
 
@@ -2126,6 +2269,7 @@ function GraphStage({
           });
           nodeSelection.attr('cx', (node: any) => node.x).attr('cy', (node: any) => node.y);
           labels.attr('x', (node: any) => node.x).attr('y', (node: any) => node.y + 4);
+          labelPills.attr('transform', (node: any) => `translate(${node.x},${node.y})`);
           drawHulls();
         });
     };
@@ -2694,44 +2838,149 @@ function GraphStage({
     };
 
     const drawCluster = () => {
-      const grouped = d3.groups(nodes, (node) => node.folder)
+      const grouped = d3.groups(nodes, (node) => node.folderPath || node.folder)
         .sort((a, b) => b[1].length - a[1].length);
-      const columns = Math.max(2, Math.ceil(Math.sqrt(grouped.length)));
-      const gap = 28;
+      const gap = 24;
+      const largestClusterSize = d3.max(grouped, ([, groupNodes]) => groupNodes.length) ?? 1;
+      const minCardW = clusterShowAll
+        ? largestClusterSize >= 24 ? 220 : largestClusterSize >= 12 ? 176 : 146
+        : 146;
+      const columns = Math.max(2, Math.min(grouped.length, Math.floor((width - gap) / (minCardW + gap)) || 2));
       const cardW = (width - gap * (columns + 1)) / columns;
-      const cardH = Math.max(180, (height - gap * (Math.ceil(grouped.length / columns) + 1)) / Math.ceil(grouped.length / columns));
+      const headerH = 46;
+      const cellW = 44;
+      const cellH = 48;
+      const innerPadX = 16;
+      const nodeCols = Math.max(1, Math.floor((cardW - innerPadX * 2) / cellW));
+      const partialRows = Math.max(2, Math.min(4, Math.floor((height / Math.max(2, Math.ceil(grouped.length / columns)) - headerH - 32) / cellH)));
 
-      const folderCards = rootLayer.selectAll('g.cluster-card').data(grouped).join('g')
-        .attr('transform', (_datum, index) => {
-          const x = gap + (index % columns) * (cardW + gap);
-          const y = gap + Math.floor(index / columns) * (cardH + gap);
-          return `translate(${x},${y})`;
+      const cardLayouts = grouped.map(([folder, groupNodes]) => {
+        const isExpanded = clusterShowAll || expandedClusterFolders.has(folder);
+        const visibleCount = isExpanded
+          ? groupNodes.length
+          : Math.min(groupNodes.length, nodeCols * partialRows);
+        const rows = Math.max(2, Math.ceil(visibleCount / nodeCols));
+        return {
+          folder,
+          groupNodes,
+          height: Math.max(148, headerH + rows * cellH + (visibleCount < groupNodes.length ? 34 : 20)),
+          visibleCount,
+          isExpanded,
+        };
+      });
+
+      const columnHeights = Array.from({ length: columns }, () => gap);
+      const positionedCards = cardLayouts.map((layout) => {
+        const column = columnHeights.indexOf(Math.min(...columnHeights));
+        const x = gap + column * (cardW + gap);
+        const y = columnHeights[column];
+        columnHeights[column] += layout.height + gap;
+        return { ...layout, x, y };
+      });
+      const contentHeight = Math.max(height, Math.max(...columnHeights) + gap);
+      svg
+        .attr('height', contentHeight)
+        .attr('viewBox', `0 0 ${width} ${contentHeight}`);
+
+      const folderCards = rootLayer.selectAll('g.cluster-card').data(positionedCards).join('g')
+        .attr('transform', (datum) => `translate(${datum.x},${datum.y})`)
+        .style('cursor', (datum) => clusterShowAll || (!datum.isExpanded && datum.groupNodes.length <= datum.visibleCount) ? 'default' : 'pointer')
+        .on('click', (_event, datum) => {
+          if (clusterShowAll || (!datum.isExpanded && datum.groupNodes.length <= datum.visibleCount)) return;
+          setExpandedClusterFolders((current) => {
+            const next = new Set(current);
+            if (next.has(datum.folder)) next.delete(datum.folder);
+            else next.add(datum.folder);
+            return next;
+          });
+        });
+      folderCards.append('title')
+        .text((datum) => {
+          if (clusterShowAll) return `${datum.folder} (${datum.groupNodes.length} nodes)`;
+          return datum.isExpanded
+            ? `${datum.folder} (${datum.groupNodes.length} nodes) - click to collapse`
+            : `${datum.folder} (${datum.groupNodes.length} nodes) - click to expand`;
         });
       folderCards.append('rect')
         .attr('width', cardW)
-        .attr('height', cardH)
+        .attr('height', (datum) => datum.height)
         .attr('rx', 8)
-        .attr('fill', ([folder]) => folderColor(folder, 0.08))
-        .attr('stroke', ([folder]) => folderColor(folder, 0.25));
+        .attr('fill', (datum) => folderColor(datum.folder, 0.08))
+        .attr('stroke', (datum) => folderColor(datum.folder, 0.25));
       folderCards.append('text')
         .attr('x', 16)
         .attr('y', 26)
-        .attr('fill', ([folder]) => folderColor(folder))
+        .attr('fill', (datum) => folderColor(datum.folder))
         .attr('font-size', 15)
         .attr('font-weight', 800)
-        .text(([folder]) => truncateMiddle(folder, 28));
-      folderCards.each(function ([folder, groupNodes]) {
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'rgba(2,6,23,0.88)')
+        .attr('stroke-width', 4)
+        .text((datum) => `${truncateToWidth(datum.folder, cardW - 54, 15)} (${datum.groupNodes.length})`);
+      folderCards.each(function (datum) {
+        const { folder, groupNodes, height: cardH, visibleCount } = datum;
         const local = d3.select(this);
-        const circles = local.selectAll('circle').data(groupNodes.slice(0, 80)).join('circle')
-          .attr('cx', (node, index) => 32 + ((stableNumber(`${node.id}:x`) + index * 37) % Math.max(40, cardW - 64)))
-          .attr('cy', (node, index) => 52 + ((stableNumber(`${node.id}:y`) + index * 53) % Math.max(40, cardH - 78)))
-          .attr('r', (node) => Math.max(6, Math.min(18, node.radius * 0.72)))
+        const visibleNodes = groupNodes
+          .slice()
+          .sort((a, b) => (b.degree || 0) - (a.degree || 0) || a.name.localeCompare(b.name))
+          .slice(0, visibleCount);
+        const rows = Math.max(1, Math.ceil(visibleNodes.length / nodeCols));
+        const startX = (cardW - (nodeCols - 1) * cellW) / 2;
+        const hasHiddenNodes = visibleNodes.length < groupNodes.length;
+        const availableH = Math.max(cellH, cardH - headerH - (hasHiddenNodes ? 34 : 16));
+        const rowGap = rows > 1 ? Math.min(cellH, availableH / rows) : 0;
+        const nodePosition = (_node: any, index: number) => {
+          const col = index % nodeCols;
+          const row = Math.floor(index / nodeCols);
+          return {
+            x: startX + col * cellW,
+            y: headerH + 20 + row * rowGap,
+          };
+        };
+        const circles = local.selectAll('circle').data(visibleNodes).join('circle')
+          .attr('cx', (node, index) => nodePosition(node, index).x)
+          .attr('cy', (node, index) => nodePosition(node, index).y)
+          .attr('r', (node) => Math.max(5, Math.min(13, node.radius * 0.56)))
           .attr('fill', folderColor(folder, 0.95))
           .attr('stroke', '#071018')
           .attr('stroke-width', 2)
           .style('cursor', 'pointer')
-          .on('click', (_event, node) => selectNode(node));
+          .on('click', (event, node) => {
+            event.stopPropagation();
+            selectNode(node);
+          });
         circles.append('title').text((node) => nodeFilePath(node));
+
+        local.selectAll('text.cluster-node-label')
+          .data(visibleNodes)
+          .join('text')
+          .attr('class', 'cluster-node-label')
+          .attr('x', (node, index) => nodePosition(node, index).x)
+          .attr('y', (node, index) => nodePosition(node, index).y + 18)
+          .attr('fill', '#e5edf9')
+          .attr('font-size', 9)
+          .attr('font-weight', 700)
+          .attr('text-anchor', 'middle')
+          .attr('paint-order', 'stroke')
+          .attr('stroke', 'rgba(2,6,23,0.9)')
+          .attr('stroke-width', 3)
+          .attr('pointer-events', 'none')
+          .text((node) => truncateToWidth(relativeLabel(node.fullName || node.file || node.name).replace(/\.[^.]+$/, ''), cellW - 6, 9));
+
+        if (hasHiddenNodes) {
+          local.append('text')
+            .attr('x', cardW / 2)
+            .attr('y', cardH - 13)
+            .attr('fill', folderColor(folder))
+            .attr('font-size', 10)
+            .attr('font-weight', 800)
+            .attr('text-anchor', 'middle')
+            .attr('paint-order', 'stroke')
+            .attr('stroke', 'rgba(2,6,23,0.9)')
+            .attr('stroke-width', 3)
+            .attr('pointer-events', 'none')
+            .text(`${groupNodes.length - visibleNodes.length} hidden - click cluster to expand`);
+        }
       });
     };
 
@@ -2823,7 +3072,7 @@ function GraphStage({
       simulation?.stop();
       container.innerHTML = '';
     };
-  }, [onSelect, visualPayload, viewMode, vizType, showSidebars, expandedTreePaths]);
+  }, [onSelect, visualPayload, viewMode, vizType, showSidebars, expandedTreePaths, layoutMode, clusterShowAll, expandedClusterFolders]);
 
   const treemapData = useMemo(() => {
     const children = visualPayload.nodes
@@ -2864,6 +3113,23 @@ function GraphStage({
       .attr('viewBox', `0 0 ${width} ${height}`)
       .attr('role', 'img');
 
+    // Add defs for clipping paths
+    const defs = svg.append('defs');
+    defs.selectAll('clipPath')
+      .data(treemapData.children ?? [])
+      .join('clipPath')
+      .attr('id', (_d: any, i: number) => `clip-${i}`)
+      .append('rect')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', (_d: any, i: number) => {
+        // Will be set by data join below
+        return 1000;
+      })
+      .attr('height', (_d: any, i: number) => {
+        return 1000;
+      });
+
     const root = d3
       .hierarchy<any>(treemapData)
       .sum((datum) => datum.value ?? 0)
@@ -2871,9 +3137,9 @@ function GraphStage({
 
     const treemapRoot = d3.treemap<any>()
       .size([width, height])
-      .paddingOuter(14)
-      .paddingTop(24)
-      .paddingInner(3)
+      .paddingOuter(12)
+      .paddingTop(28)
+      .paddingInner(8)
       .round(true)(root) as d3.HierarchyRectangularNode<any>;
 
     const folders = svg
@@ -2882,14 +3148,32 @@ function GraphStage({
       .join('g')
       .attr('class', 'treemap-folder');
 
+    // Folder background rectangles with subtle styling
+    folders
+      .append('rect')
+      .attr('x', (datum) => datum.x0)
+      .attr('y', (datum) => datum.y0)
+      .attr('width', (datum) => Math.max(0, datum.x1 - datum.x0))
+      .attr('height', (datum) => Math.max(0, datum.y1 - datum.y0))
+      .attr('rx', 8)
+      .attr('fill', 'rgba(15,23,42,0.3)')
+      .attr('stroke', 'rgba(100,116,139,0.2)')
+      .attr('stroke-width', 1);
+
+    // Folder labels with background for readability
     folders
       .append('text')
       .attr('x', (datum) => datum.x0 + 8)
-      .attr('y', (datum) => datum.y0 + 16)
-      .attr('fill', '#94a3b8')
-      .attr('font-size', 11)
+      .attr('y', (datum) => datum.y0 + 18)
+      .attr('fill', '#cbd5e1')
+      .attr('font-size', 12)
       .attr('font-weight', 700)
-      .text((datum) => datum.data.name);
+      .attr('text-anchor', 'start')
+      .text((datum) => {
+        const folderWidth = datum.x1 - datum.x0 - 16;
+        const maxChars = Math.max(12, Math.floor(folderWidth / 7));
+        return String(datum.data.name).slice(0, maxChars);
+      });
 
     const leaves = svg
       .selectAll('g.treemap-cell')
@@ -2907,22 +3191,37 @@ function GraphStage({
       .append('rect')
       .attr('width', (datum) => Math.max(0, datum.x1 - datum.x0))
       .attr('height', (datum) => Math.max(0, datum.y1 - datum.y0))
-      .attr('rx', 5)
+      .attr('rx', 6)
       .attr('fill', (datum) => colorForViewMode(nodeLookup.get(datum.data.id) ?? datum.data, viewMode, churnData))
-      .attr('fill-opacity', 0.72)
-      .attr('stroke', 'rgba(255,255,255,0.18)');
+      .attr('fill-opacity', 0.8)
+      .attr('stroke', 'rgba(255,255,255,0.22)')
+      .attr('stroke-width', 1.2);
 
     leaves
       .append('text')
-      .attr('x', 6)
-      .attr('y', 16)
-      .attr('fill', '#f8fafc')
-      .attr('font-size', 11)
-      .attr('font-weight', 700)
-      .text((datum) => {
+      .attr('x', 7)
+      .attr('y', 15)
+      .attr('fill', '#f1f5f9')
+      .attr('font-size', 10)
+      .attr('font-weight', 600)
+      .attr('dominant-baseline', 'middle')
+      .attr('clip-path', (datum) => {
         const width = datum.x1 - datum.x0;
-        const maxChars = Math.max(4, Math.floor(width / 7));
-        return String(datum.data.name).slice(0, maxChars);
+        const height = datum.y1 - datum.y0;
+        return width > 12 && height > 12 ? null : null;
+      })
+      .style('overflow', 'hidden')
+      .style('text-overflow', 'ellipsis')
+      .text((datum) => {
+        const boxWidth = datum.x1 - datum.x0;
+        const boxHeight = datum.y1 - datum.y0;
+        
+        // Skip text if box too small
+        if (boxWidth < 30 || boxHeight < 20) return '';
+        
+        const maxChars = Math.max(3, Math.floor((boxWidth - 14) / 6.2));
+        const text = String(datum.data.name).slice(0, maxChars);
+        return text.length < String(datum.data.name).length ? text + '…' : text;
       });
 
     leaves
@@ -3274,7 +3573,9 @@ function GraphStage({
       {isD3Viz && (
         <div className="flow-map-chip">
           <strong>{vizType === 'graph' ? 'Folder Graph' : vizType}</strong>
-          <span>{visualPayload.nodes.length} files, {visualPayload.edges.length} dependency links</span>
+          <span>
+            {visualPayload.nodes.length} {vizType === 'cluster' ? 'nodes' : 'files'}, {visualPayload.edges.length} dependency links
+          </span>
         </div>
       )}
       {vizType !== 'treemap' && (
@@ -3300,6 +3601,21 @@ function GraphStage({
           <button type="button" title="Reset / Fit (f)" onClick={resetSphere}>
             <Maximize2 size={18} />
           </button>
+          {vizType === 'cluster' && (
+            <button
+              type="button"
+              title={clusterShowAll ? "Show partial cluster view" : "Expand clusters to show all nodes"}
+              aria-pressed={clusterShowAll}
+              onClick={() => setClusterShowAll((showAll) => !showAll)}
+              style={{
+                background: clusterShowAll
+                  ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.35), rgba(139, 92, 246, 0.25))'
+                  : undefined
+              }}
+            >
+              {clusterShowAll ? <Layers size={18} /> : <Maximize2 size={18} />}
+            </button>
+          )}
           <button type="button" title={showSidebars ? "Hide Sidebars" : "Show Sidebars"} onClick={() => setShowSidebars && setShowSidebars(!showSidebars)}>
             <Columns size={18} />
           </button>
@@ -3355,7 +3671,7 @@ function GraphStage({
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
         layoutMode={layoutMode}
-        onLayoutModeChange={onLayoutModeChange}
+        onLayoutModeChange={handleLayoutModeChange}
       />
     </section>
   );
@@ -3978,6 +4294,7 @@ function App() {
       legendCollapsed={legendCollapsed}
       setLegendCollapsed={setLegendCollapsed}
       payload={payload}
+      churnData={churnData}
     />
   );
 
@@ -4564,7 +4881,7 @@ function App() {
             {patternResults.map(n => (
               <button key={n.id} type="button" onClick={() => selectNode(n.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span className="dot" style={{ background: NODE_COLORS[n.type] || '#94a3b8', flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%' }} />
+                <span className="dot" style={{ background: nodeTypeColor(n.type), flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%' }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
                 <small style={{ opacity: 0.6, flexShrink: 0 }}>{n.type}</small>
               </button>
@@ -4918,7 +5235,7 @@ function App() {
           <>
             <section className="node-card inspector-node-panel">
               <div className="node-title">
-                <span className="node-type-mark" style={{ color: NODE_COLORS[selectedNode.type] || "#e2e8f0" }}>
+                <span className="node-type-mark" style={{ color: nodeTypeColor(selectedNode.type) }}>
                   {typeIcon(selectedNode.type)}
                 </span>
                 <div>
@@ -5221,7 +5538,7 @@ function App() {
                                 });
                               }}
                             >
-                              <span className="flow-icon" style={{ color: EDGE_COLORS[edge.type] || "#cbd5e1" }}>
+                              <span className="flow-icon" style={{ color: edgeTypeColor(edge.type) }}>
                                 {edge.direction === "outgoing" ? <ArrowRight size={15} /> : <ArrowLeft size={15} />}
                               </span>
                               <span className="relationship-copy">
